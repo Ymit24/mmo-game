@@ -6,8 +6,6 @@ import type { ServerConfig } from "../config";
 import { WorldManager } from "./world";
 import type { RealtimeSocketData } from "./world";
 
-const DEFAULT_WORLD_ID = "hub:alpha";
-
 export interface RealtimeGateway {
   createSocketData: () => RealtimeSocketData;
   handlers: WebSocketHandler<RealtimeSocketData>;
@@ -30,10 +28,15 @@ function sendError(
 
 export function createRealtimeGateway(config: ServerConfig): RealtimeGateway {
   const worlds = new WorldManager();
+  const activeSocketsByAccountKey = new Map<
+    string,
+    ServerWebSocket<RealtimeSocketData>
+  >();
 
   async function handleAuth(
     socket: ServerWebSocket<RealtimeSocketData>,
     token: string,
+    forceTakeover = false,
   ): Promise<void> {
     try {
       const result = await verifyAccessToken(token, config);
@@ -51,19 +54,45 @@ export function createRealtimeGateway(config: ServerConfig): RealtimeGateway {
         return;
       }
 
+      const accountKey = email.trim().toLowerCase();
+      const activeSocket = activeSocketsByAccountKey.get(accountKey);
+      if (activeSocket && activeSocket !== socket) {
+        const isSameTokenReconnect =
+          activeSocket.data.session.authToken === token;
+
+        if (!forceTakeover && !isSameTokenReconnect) {
+          socket.send(
+            stringifyServerMessage({
+              type: "session.conflict",
+              reason:
+                "An active session already exists for this account. Disconnect it to continue here.",
+            }),
+          );
+          return;
+        }
+
+        activeSocket.send(
+          stringifyServerMessage({
+            type: "session.kicked",
+            reason:
+              "This account signed in from another connection. Reconnect to continue.",
+          }),
+        );
+        activeSocket.close();
+      }
+
       socket.data.session.authenticated = true;
+      socket.data.session.accountKey = accountKey;
+      socket.data.session.authToken = token;
       socket.data.session.playerId = playerId;
-      socket.data.session.email = email;
+      activeSocketsByAccountKey.set(accountKey, socket);
 
       socket.send(
         stringifyServerMessage({
           type: "auth.ok",
           playerId,
-          email,
         }),
       );
-
-      worlds.joinWorld(socket, DEFAULT_WORLD_ID, playerId, email);
     } catch {
       socket.send(
         stringifyServerMessage({
@@ -79,6 +108,13 @@ export function createRealtimeGateway(config: ServerConfig): RealtimeGateway {
     createSocketData: () => worlds.createSocketData(),
     handlers: {
       close: (socket) => {
+        const { accountKey } = socket.data.session;
+        if (
+          accountKey &&
+          activeSocketsByAccountKey.get(accountKey) === socket
+        ) {
+          activeSocketsByAccountKey.delete(accountKey);
+        }
         worlds.leaveWorld(socket);
       },
       message: async (socket, message) => {
@@ -99,7 +135,7 @@ export function createRealtimeGateway(config: ServerConfig): RealtimeGateway {
             return;
           }
 
-          await handleAuth(socket, incoming.token);
+          await handleAuth(socket, incoming.token, incoming.forceTakeover);
           return;
         }
 
@@ -111,18 +147,12 @@ export function createRealtimeGateway(config: ServerConfig): RealtimeGateway {
         switch (incoming.type) {
           case "world.join": {
             const playerId = socket.data.session.playerId;
-            const email = socket.data.session.email;
-            if (!playerId || !email) {
+            if (!playerId) {
               sendError(socket, "Session is missing identity information.");
               return;
             }
 
-            const spawn = worlds.joinWorld(
-              socket,
-              incoming.worldId,
-              playerId,
-              email,
-            );
+            const spawn = worlds.joinWorld(socket, incoming.worldId, playerId);
             if (!spawn) {
               sendError(socket, `Unknown world '${incoming.worldId}'.`);
             }

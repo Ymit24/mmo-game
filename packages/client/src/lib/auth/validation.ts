@@ -1,3 +1,9 @@
+import {
+  MIN_PASSWORD_LENGTH,
+  isEmailFormatValid,
+  normalizeEmail,
+} from "@mmo/shared";
+
 export interface AuthFormValues {
   email: string;
   password: string;
@@ -8,22 +14,20 @@ export interface AuthFormErrors {
   password?: string;
 }
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
 export function validateAuthForm(values: AuthFormValues): AuthFormErrors {
   const errors: AuthFormErrors = {};
 
-  const normalizedEmail = values.email.trim();
+  const normalizedEmail = normalizeEmail(values.email);
   if (!normalizedEmail) {
     errors.email = "Email is required.";
-  } else if (!EMAIL_PATTERN.test(normalizedEmail)) {
+  } else if (!isEmailFormatValid(normalizedEmail)) {
     errors.email = "Enter a valid email address.";
   }
 
   if (!values.password) {
     errors.password = "Password is required.";
-  } else if (values.password.length < 8) {
-    errors.password = "Password must be at least 8 characters.";
+  } else if (values.password.length < MIN_PASSWORD_LENGTH) {
+    errors.password = `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`;
   }
 
   return errors;

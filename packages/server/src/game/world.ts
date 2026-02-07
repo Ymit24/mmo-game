@@ -1,6 +1,5 @@
 import type {
   ClientToServerMessage,
-  PlayerInputState,
   PlayerSnapshot,
   ServerToClientMessage,
   Vector2,
@@ -8,14 +7,17 @@ import type {
 } from "@mmo/shared";
 import {
   HUB_ALPHA_MAP,
+  clampToWorldBounds,
   findSpawnPoint,
+  inputToVelocity,
+  integrateMovement,
   stringifyServerMessage,
 } from "@mmo/shared";
 import type { ServerWebSocket } from "bun";
 
 interface PlayerState {
+  connectionId: string;
   id: string;
-  email: string;
   position: Vector2;
   velocity: Vector2;
   lastProcessedInputSequence: number;
@@ -23,9 +25,11 @@ interface PlayerState {
 }
 
 export interface RealtimeSession {
+  connectionId: string;
   authenticated: boolean;
+  accountKey: string | null;
+  authToken: string | null;
   playerId: string | null;
-  email: string | null;
   worldId: string | null;
 }
 
@@ -36,7 +40,6 @@ export interface RealtimeSocketData {
 function toSnapshot(player: PlayerState): PlayerSnapshot {
   return {
     id: player.id,
-    email: player.email,
     position: player.position,
     velocity: player.velocity,
     lastProcessedInputSequence: player.lastProcessedInputSequence,
@@ -66,32 +69,13 @@ function resolvePosition(
   next: Vector2,
   fallback: Vector2,
 ): Vector2 {
-  const clamped = {
-    x: Math.max(0, Math.min(map.width, next.x)),
-    y: Math.max(0, Math.min(map.height, next.y)),
-  };
-
   for (const shape of map.collisions) {
-    if (collides(shape, clamped)) {
+    if (collides(shape, next)) {
       return fallback;
     }
   }
 
-  return clamped;
-}
-
-function calcVelocity(input: PlayerInputState, speed: number): Vector2 {
-  const horizontal = Number(input.right) - Number(input.left);
-  const vertical = Number(input.down) - Number(input.up);
-  if (horizontal === 0 && vertical === 0) {
-    return { x: 0, y: 0 };
-  }
-
-  const length = Math.hypot(horizontal, vertical) || 1;
-  return {
-    x: (horizontal / length) * speed,
-    y: (vertical / length) * speed,
-  };
+  return next;
 }
 
 class WorldInstance {
@@ -114,16 +98,16 @@ class WorldInstance {
   }
 
   addPlayer(
+    connectionId: string,
     playerId: string,
-    email: string,
     socket: ServerWebSocket<RealtimeSocketData>,
   ): Vector2 {
     const spawn = findSpawnPoint(this.map, this.map.playerSpawnId) ??
       this.map.spawnPoints[0] ?? { x: 120, y: 120 };
 
     const player: PlayerState = {
+      connectionId,
       id: playerId,
-      email,
       socket,
       position: { x: spawn.x, y: spawn.y },
       velocity: { x: 0, y: 0 },
@@ -141,9 +125,12 @@ class WorldInstance {
     return player.position;
   }
 
-  removePlayer(playerId: string): void {
+  removePlayer(playerId: string, connectionId: string): void {
     const removed = this.players.get(playerId);
     if (!removed) {
+      return;
+    }
+    if (removed.connectionId !== connectionId) {
       return;
     }
 
@@ -158,22 +145,25 @@ class WorldInstance {
 
   applyInput(
     playerId: string,
+    connectionId: string,
     message: Extract<ClientToServerMessage, { type: "player.input" }>,
   ): void {
     const player = this.players.get(playerId);
     if (!player) {
       return;
     }
+    if (player.connectionId !== connectionId) {
+      return;
+    }
 
-    const dtSeconds = Math.max(0.005, Math.min(message.dtMs, 80)) / 1000;
-    const velocity = calcVelocity(message.input, 240);
+    const velocity = inputToVelocity(message.input);
+    const next = integrateMovement(player.position, velocity, message.dtMs);
 
-    const next = {
-      x: player.position.x + velocity.x * dtSeconds,
-      y: player.position.y + velocity.y * dtSeconds,
-    };
-
-    player.position = resolvePosition(this.map, next, player.position);
+    player.position = resolvePosition(
+      this.map,
+      clampToWorldBounds(next, this.map),
+      player.position,
+    );
     player.velocity = velocity;
     player.lastProcessedInputSequence = message.sequence;
 
@@ -231,9 +221,11 @@ export class WorldManager {
   createSocketData(): RealtimeSocketData {
     return {
       session: {
+        connectionId: crypto.randomUUID(),
         authenticated: false,
+        accountKey: null,
+        authToken: null,
         playerId: null,
-        email: null,
         worldId: null,
       },
     };
@@ -243,7 +235,6 @@ export class WorldManager {
     socket: ServerWebSocket<RealtimeSocketData>,
     worldId: string,
     playerId: string,
-    email: string,
   ): Vector2 | null {
     const instance = this.getOrCreate(worldId);
     if (!instance) {
@@ -255,7 +246,11 @@ export class WorldManager {
       this.leaveWorld(socket);
     }
 
-    const spawn = instance.addPlayer(playerId, email, socket);
+    const spawn = instance.addPlayer(
+      socket.data.session.connectionId,
+      playerId,
+      socket,
+    );
     socket.data.session.worldId = worldId;
 
     socket.send(
@@ -272,7 +267,7 @@ export class WorldManager {
   }
 
   leaveWorld(socket: ServerWebSocket<RealtimeSocketData>): void {
-    const { playerId, worldId } = socket.data.session;
+    const { connectionId, playerId, worldId } = socket.data.session;
     if (!playerId || !worldId) {
       return;
     }
@@ -283,7 +278,7 @@ export class WorldManager {
       return;
     }
 
-    instance.removePlayer(playerId);
+    instance.removePlayer(playerId, connectionId);
     socket.data.session.worldId = null;
 
     if (instance.size === 0) {
@@ -296,7 +291,7 @@ export class WorldManager {
     socket: ServerWebSocket<RealtimeSocketData>,
     message: Extract<ClientToServerMessage, { type: "player.input" }>,
   ): void {
-    const { playerId, worldId } = socket.data.session;
+    const { connectionId, playerId, worldId } = socket.data.session;
     if (!playerId || !worldId) {
       return;
     }
@@ -306,7 +301,7 @@ export class WorldManager {
       return;
     }
 
-    instance.applyInput(playerId, message);
+    instance.applyInput(playerId, connectionId, message);
   }
 
   acknowledgeDrop(

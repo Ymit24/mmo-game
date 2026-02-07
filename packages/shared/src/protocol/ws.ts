@@ -12,7 +12,6 @@ export interface PlayerInputState {
 
 export interface PlayerSnapshot {
   id: string;
-  email: string;
   position: Vector2;
   velocity: Vector2;
   lastProcessedInputSequence: number;
@@ -34,6 +33,7 @@ export type ClientToServerMessage =
   | {
       type: "auth.hello";
       token: string;
+      forceTakeover?: boolean;
     }
   | {
       type: "world.join";
@@ -54,7 +54,6 @@ export type ServerToClientMessage =
   | {
       type: "auth.ok";
       playerId: string;
-      email: string;
     }
   | {
       type: "auth.error";
@@ -95,6 +94,14 @@ export type ServerToClientMessage =
   | {
       type: "error";
       error: string;
+    }
+  | {
+      type: "session.kicked";
+      reason: string;
+    }
+  | {
+      type: "session.conflict";
+      reason: string;
     };
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -137,12 +144,18 @@ export function parseClientMessage(raw: string): ClientToServerMessage | null {
 
   switch (parsed.type) {
     case "auth.hello":
-      if (typeof parsed.token !== "string" || parsed.token.length === 0) {
+      if (
+        typeof parsed.token !== "string" ||
+        parsed.token.length === 0 ||
+        (parsed.forceTakeover !== undefined &&
+          typeof parsed.forceTakeover !== "boolean")
+      ) {
         return null;
       }
       return {
         type: "auth.hello",
         token: parsed.token,
+        forceTakeover: parsed.forceTakeover,
       };
 
     case "world.join":

@@ -12,8 +12,16 @@ export interface DropRequest {
   quantity: number;
 }
 
+export type GameModalKind = "conflict" | "kicked" | "error";
+
+export interface GameModalState {
+  kind: GameModalKind;
+  message: string;
+}
+
 export interface GameBridgeState {
   connectionStatus: "idle" | "connecting" | "connected" | "error";
+  modal: GameModalState | null;
   worldId: string | null;
   localPlayerId: string | null;
   localPosition: Vector2 | null;
@@ -28,9 +36,11 @@ export interface GameBridgeState {
 
 type StateListener = (state: GameBridgeState) => void;
 type DropListener = (request: DropRequest) => void;
+type TakeoverListener = () => void;
 
 const DEFAULT_STATE: GameBridgeState = {
   connectionStatus: "idle",
+  modal: null,
   worldId: null,
   localPlayerId: null,
   localPosition: null,
@@ -47,6 +57,7 @@ export class GameBridge {
   private state: GameBridgeState;
   private stateListeners = new Set<StateListener>();
   private dropListeners = new Set<DropListener>();
+  private takeoverListeners = new Set<TakeoverListener>();
 
   constructor(initialState: Partial<GameBridgeState> = {}) {
     this.state = {
@@ -89,6 +100,23 @@ export class GameBridge {
     for (const listener of this.dropListeners) {
       listener(request);
     }
+  }
+
+  onTakeoverRequest(listener: TakeoverListener): () => void {
+    this.takeoverListeners.add(listener);
+    return () => {
+      this.takeoverListeners.delete(listener);
+    };
+  }
+
+  requestTakeover(): void {
+    for (const listener of this.takeoverListeners) {
+      listener();
+    }
+  }
+
+  resetForReconnect(): void {
+    this.updateState(DEFAULT_STATE);
   }
 }
 

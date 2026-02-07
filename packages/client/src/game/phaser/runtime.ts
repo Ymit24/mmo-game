@@ -1,8 +1,13 @@
 import {
   type ClientToServerMessage,
   HUB_ALPHA_MAP,
+  PLAYER_MOVE_SPEED,
   type PlayerInputState,
   type ServerToClientMessage,
+  clampInputDtMs,
+  clampToWorldBounds,
+  inputToVelocity,
+  integrateMovement,
 } from "@mmo/shared";
 import Phaser from "phaser";
 
@@ -38,27 +43,16 @@ function toWsUrl(apiBaseUrl: string): string {
   return `${protocol}//${window.location.host}${wsPath}`;
 }
 
-function applyInput(
+function applyPredictedInput(
   position: Phaser.Math.Vector2,
   input: PlayerInputState,
   dtMs: number,
 ): void {
-  const speed = 240;
-  const horizontal = Number(input.right) - Number(input.left);
-  const vertical = Number(input.down) - Number(input.up);
+  const velocity = inputToVelocity(input, PLAYER_MOVE_SPEED);
+  const integrated = integrateMovement(position, velocity, dtMs);
+  const clamped = clampToWorldBounds(integrated, HUB_ALPHA_MAP);
 
-  if (horizontal === 0 && vertical === 0) {
-    return;
-  }
-
-  const length = Math.hypot(horizontal, vertical) || 1;
-  const dtSeconds = Math.max(5, Math.min(dtMs, 80)) / 1000;
-
-  position.x += (horizontal / length) * speed * dtSeconds;
-  position.y += (vertical / length) * speed * dtSeconds;
-
-  position.x = Math.max(0, Math.min(HUB_ALPHA_MAP.width, position.x));
-  position.y = Math.max(0, Math.min(HUB_ALPHA_MAP.height, position.y));
+  position.set(clamped.x, clamped.y);
 }
 
 class HubScene extends Phaser.Scene {
@@ -76,6 +70,8 @@ class HubScene extends Phaser.Scene {
 
   private nextInputSequence = 1;
   private pendingInputs: PendingInput[] = [];
+  private inputLocked = true;
+  private conflictRetryCount = 0;
 
   private cursors!: {
     up: Phaser.Input.Keyboard.Key;
@@ -86,6 +82,7 @@ class HubScene extends Phaser.Scene {
   private arrowKeys: Phaser.Types.Input.Keyboard.CursorKeys | null = null;
 
   private unsubscribeDropRequest: (() => void) | null = null;
+  private unsubscribeTakeoverRequest: (() => void) | null = null;
 
   constructor(token: string, bridge: GameBridge) {
     super("hub-scene");
@@ -138,9 +135,13 @@ class HubScene extends Phaser.Scene {
         });
       },
     );
+    this.unsubscribeTakeoverRequest = this.bridge.onTakeoverRequest(() => {
+      this.authenticate(true);
+    });
 
     this.bridge.updateState({
       connectionStatus: "connecting",
+      modal: null,
       mapSize: {
         width: HUB_ALPHA_MAP.width,
         height: HUB_ALPHA_MAP.height,
@@ -154,6 +155,8 @@ class HubScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.unsubscribeDropRequest?.();
       this.unsubscribeDropRequest = null;
+      this.unsubscribeTakeoverRequest?.();
+      this.unsubscribeTakeoverRequest = null;
       if (this.socket) {
         this.socket.close();
         this.socket = null;
@@ -164,7 +167,7 @@ class HubScene extends Phaser.Scene {
   }
 
   override update(_: number, dt: number): void {
-    if (!this.localPlayer) {
+    if (!this.localPlayer || this.inputLocked) {
       return;
     }
 
@@ -181,10 +184,10 @@ class HubScene extends Phaser.Scene {
     }
 
     const sequence = this.nextInputSequence++;
-    const dtMs = Math.round(dt);
+    const dtMs = clampInputDtMs(Math.round(dt));
 
     this.pendingInputs.push({ sequence, input, dtMs });
-    applyInput(this.predictedPosition, input, dtMs);
+    applyPredictedInput(this.predictedPosition, input, dtMs);
     this.localPlayer.setPosition(
       this.predictedPosition.x,
       this.predictedPosition.y,
@@ -266,13 +269,11 @@ class HubScene extends Phaser.Scene {
   private connect(): void {
     const ws = new WebSocket(toWsUrl(API_BASE_URL));
     this.socket = ws;
+    this.conflictRetryCount = 0;
 
     ws.addEventListener("open", () => {
-      this.bridge.updateState({ connectionStatus: "connected" });
-      this.sendMessage({
-        type: "auth.hello",
-        token: this.token,
-      });
+      this.bridge.updateState({ connectionStatus: "connecting", modal: null });
+      this.authenticate(false);
     });
 
     ws.addEventListener("message", (event) => {
@@ -291,16 +292,26 @@ class HubScene extends Phaser.Scene {
     });
 
     ws.addEventListener("close", () => {
+      const current = this.bridge.getState();
+      this.inputLocked = true;
       this.bridge.updateState({
         connectionStatus: "error",
-        lastMessage: "Disconnected from server.",
+        lastMessage:
+          current.modal?.message ??
+          current.lastMessage ??
+          "Disconnected from server.",
       });
     });
 
     ws.addEventListener("error", () => {
+      const current = this.bridge.getState();
+      this.inputLocked = true;
       this.bridge.updateState({
         connectionStatus: "error",
-        lastMessage: "Realtime connection failed.",
+        lastMessage:
+          current.modal?.message ??
+          current.lastMessage ??
+          "Realtime connection failed.",
       });
     });
   }
@@ -311,22 +322,38 @@ class HubScene extends Phaser.Scene {
         this.playerId = message.playerId;
         this.bridge.updateState({
           localPlayerId: message.playerId,
+          modal: null,
+          connectionStatus: "connecting",
+        });
+        this.sendMessage({
+          type: "world.join",
+          worldId: HUB_ALPHA_MAP.id,
         });
         return;
 
       case "auth.error":
+        this.inputLocked = true;
         this.bridge.updateState({
           connectionStatus: "error",
+          modal: {
+            kind: "error",
+            message: message.error,
+          },
           lastMessage: message.error,
         });
         this.socket?.close();
         return;
 
       case "world.joined": {
+        this.playerId = message.playerId;
         this.bridge.updateState({
           worldId: message.worldId,
           lastMessage: `Joined ${message.worldId}`,
+          connectionStatus: "connected",
+          modal: null,
+          localPlayerId: message.playerId,
         });
+        this.inputLocked = false;
 
         if (!this.localPlayer) {
           this.localPlayer = this.add.circle(
@@ -348,6 +375,7 @@ class HubScene extends Phaser.Scene {
             y: message.spawn.y,
           },
         });
+        this.syncOverlayPlayers();
         return;
       }
 
@@ -414,7 +442,11 @@ class HubScene extends Phaser.Scene {
         );
 
         for (const pending of this.pendingInputs) {
-          applyInput(this.predictedPosition, pending.input, pending.dtMs);
+          applyPredictedInput(
+            this.predictedPosition,
+            pending.input,
+            pending.dtMs,
+          );
         }
 
         if (this.localPlayer) {
@@ -447,15 +479,85 @@ class HubScene extends Phaser.Scene {
         });
         return;
 
+      case "session.kicked":
+        this.inputLocked = true;
+        this.clearWorldActors();
+        this.bridge.updateState({
+          connectionStatus: "error",
+          modal: {
+            kind: "kicked",
+            message: message.reason,
+          },
+          worldId: null,
+          lastMessage: message.reason,
+          players: [],
+        });
+        this.socket?.close();
+        return;
+
+      case "session.conflict":
+        this.inputLocked = true;
+        this.clearWorldActors();
+        if (this.conflictRetryCount < 1) {
+          this.conflictRetryCount += 1;
+          this.bridge.updateState({
+            connectionStatus: "connecting",
+            modal: null,
+            worldId: null,
+            lastMessage: "Reconnecting to existing session...",
+            players: [],
+          });
+          setTimeout(() => {
+            this.authenticate(false);
+          }, 350);
+          return;
+        }
+        this.bridge.updateState({
+          connectionStatus: "error",
+          modal: {
+            kind: "conflict",
+            message: message.reason,
+          },
+          worldId: null,
+          lastMessage: message.reason,
+          players: [],
+        });
+        return;
+
       default:
         return;
     }
   }
 
+  private authenticate(forceTakeover: boolean): void {
+    this.sendMessage({
+      type: "auth.hello",
+      token: this.token,
+      forceTakeover,
+    });
+  }
+
+  private clearWorldActors(): void {
+    this.localPlayer?.destroy();
+    this.localPlayer = null;
+    for (const sprite of this.remotePlayers.values()) {
+      sprite.destroy();
+    }
+    this.remotePlayers.clear();
+    this.pendingInputs = [];
+    this.playerId = null;
+    this.predictedPosition.set(0, 0);
+    this.bridge.updateState({
+      localPlayerId: null,
+      localPosition: null,
+      players: [],
+    });
+  }
+
   private syncOverlayPlayers(): void {
     const players: OverlayPlayer[] = [];
 
-    if (this.playerId) {
+    if (this.playerId && this.localPlayer && this.bridge.getState().worldId) {
       players.push({
         id: this.playerId,
         isLocal: true,

@@ -25,7 +25,6 @@ function createMockSocket(manager: WorldManager, playerId: string): MockSocket {
   };
 
   socket.data.session.playerId = playerId;
-  socket.data.session.email = `${playerId}@example.com`;
 
   return socket;
 }
@@ -79,18 +78,8 @@ describe("world manager", () => {
     const socketA = createMockSocket(manager, "player-a");
     const socketB = createMockSocket(manager, "player-b");
 
-    manager.joinWorld(
-      asServerSocket(socketA),
-      HUB_ALPHA_MAP.id,
-      "player-a",
-      "a@example.com",
-    );
-    manager.joinWorld(
-      asServerSocket(socketB),
-      HUB_ALPHA_MAP.id,
-      "player-b",
-      "b@example.com",
-    );
+    manager.joinWorld(asServerSocket(socketA), HUB_ALPHA_MAP.id, "player-a");
+    manager.joinWorld(asServerSocket(socketB), HUB_ALPHA_MAP.id, "player-b");
 
     cleanup.push(() => manager.leaveWorld(asServerSocket(socketA)));
     cleanup.push(() => manager.leaveWorld(asServerSocket(socketB)));
@@ -133,7 +122,6 @@ describe("world manager", () => {
       asServerSocket(socket),
       HUB_ALPHA_MAP.id,
       "player-a",
-      "a@example.com",
     );
     cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
 
@@ -189,5 +177,36 @@ describe("world manager", () => {
     }
 
     expect(response.error).toContain("Invalid drop payload");
+  });
+
+  test("closing an old connection does not remove a newer connection for the same player", () => {
+    const manager = new WorldManager();
+    const oldSocket = createMockSocket(manager, "player-a");
+    const newSocket = createMockSocket(manager, "player-a");
+
+    manager.joinWorld(asServerSocket(oldSocket), HUB_ALPHA_MAP.id, "player-a");
+    manager.joinWorld(asServerSocket(newSocket), HUB_ALPHA_MAP.id, "player-a");
+
+    manager.leaveWorld(asServerSocket(oldSocket));
+
+    newSocket.sent = [];
+    manager.applyInput(asServerSocket(newSocket), {
+      type: "player.input",
+      sequence: 1,
+      dtMs: 16,
+      input: {
+        up: false,
+        down: false,
+        left: false,
+        right: true,
+      },
+    });
+
+    const playerState = parseMessages(newSocket).find(
+      (message) => message.type === "player.state",
+    );
+    expect(playerState?.type).toBe("player.state");
+
+    cleanup.push(() => manager.leaveWorld(asServerSocket(newSocket)));
   });
 });

@@ -8,6 +8,10 @@ import { AppRoutes } from "../AppRoutes";
 import { AUTH_SESSION_STORAGE_KEY } from "../lib/auth/sessionStorage";
 import { AuthProvider } from "./AuthContext";
 
+vi.mock("../game/phaser/runtime", () => ({
+  mountGameRuntime: () => () => {},
+}));
+
 function renderApp(initialPath: string) {
   return render(
     <AuthProvider>
@@ -74,7 +78,7 @@ describe("auth flow", () => {
     );
 
     expect(
-      await screen.findByRole("heading", { name: "Play Client Coming Soon" }),
+      await screen.findByRole("heading", { name: "Joining World" }),
     ).toBeInTheDocument();
 
     const storedSession = localStorage.getItem(AUTH_SESSION_STORAGE_KEY);

@@ -1,5 +1,10 @@
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const MIN_PASSWORD_LENGTH = 8;
+import {
+  MIN_PASSWORD_LENGTH,
+  isEmailFormatValid,
+  normalizeEmail,
+} from "@mmo/shared";
+
+export { normalizeEmail };
 
 export interface AuthCredentials {
   email: string;
@@ -18,10 +23,6 @@ export interface ValidationFailure {
 
 export type ValidationResult = ValidationSuccess | ValidationFailure;
 
-export function normalizeEmail(email: string): string {
-  return email.trim().toLowerCase();
-}
-
 export function validateAuthCredentials(input: unknown): ValidationResult {
   if (!input || typeof input !== "object") {
     return { ok: false, error: "Request body must be a JSON object." };
@@ -35,7 +36,7 @@ export function validateAuthCredentials(input: unknown): ValidationResult {
   }
 
   const email = normalizeEmail(rawEmail);
-  if (!EMAIL_REGEX.test(email)) {
+  if (!isEmailFormatValid(email)) {
     return { ok: false, error: "Email is invalid." };
   }
 
