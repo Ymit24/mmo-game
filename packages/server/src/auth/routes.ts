@@ -68,10 +68,7 @@ export async function handleSignup(
     throw error;
   }
 
-  const issuedToken = await issueAccessToken(
-    { sub: userId },
-    config,
-  );
+  const issuedToken = await issueAccessToken({ sub: userId }, config);
 
   return json(201, {
     token: issuedToken.token,
@@ -111,10 +108,7 @@ export async function handleSignin(
     return json(401, { error: INVALID_CREDENTIALS_MESSAGE });
   }
 
-  const issuedToken = await issueAccessToken(
-    { sub: user.id },
-    config,
-  );
+  const issuedToken = await issueAccessToken({ sub: user.id }, config);
 
   return json(200, {
     token: issuedToken.token,

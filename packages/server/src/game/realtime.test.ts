@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { ServerWebSocket } from "bun";
 
-import type { ServerConfig } from "../config";
 import { issueAccessToken } from "../auth/jwt";
+import type { ServerConfig } from "../config";
 import { createRealtimeGateway } from "./realtime";
 import type { RealtimeSocketData } from "./world";
 
