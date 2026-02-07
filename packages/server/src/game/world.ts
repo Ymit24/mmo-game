@@ -108,13 +108,7 @@ class WorldInstance {
     this.snapshotTimer = setInterval(() => {
       this.broadcast({
         type: "world.snapshot",
-        payload: {
-          worldId: this.worldId,
-          serverTimeMs: Date.now(),
-          players: [...this.players.values()].map((player) =>
-            toSnapshot(player),
-          ),
-        },
+        payload: this.createSnapshotPayload(),
       });
     }, 100);
   }
@@ -201,12 +195,33 @@ class WorldInstance {
     }
   }
 
+  sendSnapshotTo(socket: ServerWebSocket<RealtimeSocketData>): void {
+    socket.send(
+      stringifyServerMessage({
+        type: "world.snapshot",
+        payload: this.createSnapshotPayload(),
+      }),
+    );
+  }
+
   dispose(): void {
     clearInterval(this.snapshotTimer);
   }
 
   get size(): number {
     return this.players.size;
+  }
+
+  private createSnapshotPayload(): {
+    worldId: string;
+    serverTimeMs: number;
+    players: PlayerSnapshot[];
+  } {
+    return {
+      worldId: this.worldId,
+      serverTimeMs: Date.now(),
+      players: [...this.players.values()].map((player) => toSnapshot(player)),
+    };
   }
 }
 
@@ -251,6 +266,7 @@ export class WorldManager {
         spawn,
       }),
     );
+    instance.sendSnapshotTo(socket);
 
     return spawn;
   }

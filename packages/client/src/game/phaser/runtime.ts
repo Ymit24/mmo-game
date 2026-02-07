@@ -83,6 +83,7 @@ class HubScene extends Phaser.Scene {
     left: Phaser.Input.Keyboard.Key;
     right: Phaser.Input.Keyboard.Key;
   };
+  private arrowKeys: Phaser.Types.Input.Keyboard.CursorKeys | null = null;
 
   private unsubscribeDropRequest: (() => void) | null = null;
 
@@ -110,6 +111,7 @@ class HubScene extends Phaser.Scene {
       left: Phaser.Input.Keyboard.KeyCodes.A,
       right: Phaser.Input.Keyboard.KeyCodes.D,
     }) as HubScene["cursors"];
+    this.arrowKeys = this.input.keyboard?.createCursorKeys() ?? null;
 
     this.input.on("pointermove", (pointer: Phaser.Input.Pointer) => {
       this.pointerWorld.set(pointer.worldX, pointer.worldY);
@@ -167,10 +169,10 @@ class HubScene extends Phaser.Scene {
     }
 
     const input: PlayerInputState = {
-      up: this.cursors.up.isDown,
-      down: this.cursors.down.isDown,
-      left: this.cursors.left.isDown,
-      right: this.cursors.right.isDown,
+      up: this.cursors.up.isDown || !!this.arrowKeys?.up.isDown,
+      down: this.cursors.down.isDown || !!this.arrowKeys?.down.isDown,
+      left: this.cursors.left.isDown || !!this.arrowKeys?.left.isDown,
+      right: this.cursors.right.isDown || !!this.arrowKeys?.right.isDown,
     };
 
     const hasInput = input.up || input.down || input.left || input.right;

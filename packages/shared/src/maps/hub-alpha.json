@@ -9,7 +9,7 @@
   },
   "playerSpawnId": "central_spawn",
   "spawnPoints": [
-    { "id": "central_spawn", "x": 1100, "y": 700 },
+    { "id": "central_spawn", "x": 1100, "y": 520 },
     { "id": "north_gate", "x": 1100, "y": 180 },
     { "id": "south_gate", "x": 1100, "y": 1220 }
   ],
