@@ -15,4 +15,11 @@ bun run dev:client
 bun run dev:server
 bun run build
 bun run typecheck
+bun run lint
+bun run test
+bun run ci
 ```
+
+## CI
+
+GitHub Actions runs `bun run ci` on pull requests and merge queue events to enforce lint, typecheck, and server test pass status before merge.
