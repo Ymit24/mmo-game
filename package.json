@@ -1,0 +1,14 @@
+{
+  "name": "mmo-game",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:client": "bun run --filter @mmo/client dev",
+    "dev:server": "bun run --filter @mmo/server dev",
+    "build": "bun run --filter '*' build",
+    "typecheck": "bun run --filter '*' typecheck"
+  }
+}
