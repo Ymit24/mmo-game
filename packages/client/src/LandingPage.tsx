@@ -1,4 +1,7 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
+
+import { useAuth } from "./auth/AuthContext";
 import { WorldGrid } from "./components/WorldGrid";
 
 const GAME_FEATURES = [
@@ -36,6 +39,8 @@ function StatusDot({ status }: { status: "online" | "offline" | "starting" }) {
 }
 
 function Navbar() {
+  const auth = useAuth();
+
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 py-4 md:px-10">
       <div className="flex items-center gap-3">
@@ -59,12 +64,12 @@ function Navbar() {
         >
           How it works
         </a>
-        <button
-          className="font-display font-medium text-amber hover:text-amber-glow transition-colors duration-200 cursor-pointer"
-          type="button"
+        <Link
+          to={auth.isAuthenticated ? "/play" : "/signin"}
+          className="font-display font-medium text-amber hover:text-amber-glow transition-colors duration-200"
         >
-          Log in
-        </button>
+          {auth.isAuthenticated ? "Play" : "Log in"}
+        </Link>
       </div>
     </nav>
   );
@@ -72,6 +77,7 @@ function Navbar() {
 
 function Hero() {
   const [hovered, setHovered] = useState(false);
+  const auth = useAuth();
 
   return (
     <section className="relative z-10 flex flex-col items-center justify-center min-h-[100dvh] px-6 text-center">
@@ -111,8 +117,8 @@ function Hero() {
         className="animate-fade-in-up flex flex-col items-center gap-4"
         style={{ animationDelay: "0.55s" }}
       >
-        <button
-          type="button"
+        <Link
+          to={auth.isAuthenticated ? "/play" : "/signup"}
           onMouseEnter={() => setHovered(true)}
           onMouseLeave={() => setHovered(false)}
           className={`
@@ -125,7 +131,7 @@ function Hero() {
           `}
         >
           <span className="relative z-10 flex items-center gap-2">
-            Play Now
+            {auth.isAuthenticated ? "Continue" : "Play Now"}
             <svg
               className="w-4 h-4 transition-transform duration-300 group-hover:translate-x-1"
               fill="none"
@@ -140,7 +146,7 @@ function Hero() {
               />
             </svg>
           </span>
-        </button>
+        </Link>
         <span className="text-xs text-muted font-mono">
           Free to play &middot; No account required to spectate
         </span>
@@ -264,6 +270,8 @@ function TechStack() {
 }
 
 function BottomCTA() {
+  const auth = useAuth();
+
   return (
     <section className="relative z-10 px-6 md:px-10 py-32 md:py-40 text-center">
       {/* Separator line */}
@@ -275,12 +283,12 @@ function BottomCTA() {
       <p className="text-muted mb-10 max-w-sm mx-auto">
         The world is running right now. Pick a name and you&apos;re in.
       </p>
-      <button
-        type="button"
+      <Link
+        to={auth.isAuthenticated ? "/play" : "/signup"}
         className="font-display font-semibold text-lg px-10 py-3.5 rounded-md bg-amber text-void cursor-pointer transition-all duration-300 ease-out hover:bg-amber-glow hover:scale-[1.03] active:scale-[0.98] glow-amber"
       >
-        Enter the World
-      </button>
+        {auth.isAuthenticated ? "Return to World" : "Enter the World"}
+      </Link>
     </section>
   );
 }

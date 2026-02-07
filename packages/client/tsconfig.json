@@ -3,9 +3,8 @@
   "compilerOptions": {
     "jsx": "react-jsx",
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
-    "types": ["vite/client"],
+    "types": ["vite/client", "vitest/config", "vitest/globals", "@testing-library/jest-dom"],
     "composite": true
   },
-  "include": ["src", "vite.config.ts"],
-  "references": [{ "path": "../shared" }]
+  "include": ["src"]
 }

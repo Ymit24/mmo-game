@@ -1,2 +1,10 @@
-// REST auth endpoints and WebSocket game gateway will be implemented here.
-console.log("MMO server scaffold");
+import { createApp } from "./app";
+
+const app = createApp();
+
+const server = Bun.serve({
+  fetch: app.fetch,
+  port: Number.parseInt(process.env.PORT ?? "3001", 10),
+});
+
+console.log(`MMO server listening on http://localhost:${server.port}`);

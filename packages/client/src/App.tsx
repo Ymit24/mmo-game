@@ -1,18 +1,14 @@
-import { LandingPage } from "./LandingPage";
+import { BrowserRouter } from "react-router-dom";
 
-/**
- * Root application component.
- *
- * Currently renders the landing page directly. When auth and account
- * management are added, this will become the routing root:
- *
- *   / -> LandingPage
- *   /login -> LoginPage
- *   /register -> RegisterPage
- *   /account -> AccountPage (authenticated)
- *   /play -> GameClient (authenticated, WebSocket)
- */
+import { AuthProvider } from "./auth/AuthContext";
+import { AppRoutes } from "./AppRoutes";
+
 export function App() {
-  // TODO: add router (react-router or custom) + auth context provider
-  return <LandingPage />;
+  return (
+    <AuthProvider>
+      <BrowserRouter>
+        <AppRoutes />
+      </BrowserRouter>
+    </AuthProvider>
+  );
 }
