@@ -80,3 +80,7 @@
   - `bun run test`
   - `bun run ci`
 - Merge policy expectation: branch protection should require `CI / quality` to pass before merge.
+
+## Commit conventions
+
+- Always use Conventional Commits for commit messages.
