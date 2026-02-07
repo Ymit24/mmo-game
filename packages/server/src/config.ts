@@ -29,7 +29,9 @@ export function createServerConfig(
 ): ServerConfig {
   const jwtSecret = overrides.jwtSecret ?? env.JWT_SECRET;
   if (!jwtSecret || jwtSecret.length < MIN_JWT_SECRET_LENGTH) {
-    throw new Error(`JWT secret must be at least ${MIN_JWT_SECRET_LENGTH} characters.`);
+    throw new Error(
+      `JWT secret must be at least ${MIN_JWT_SECRET_LENGTH} characters.`,
+    );
   }
 
   const jwtExpiresInSeconds =

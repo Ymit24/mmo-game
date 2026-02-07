@@ -92,11 +92,13 @@
   }
 
   .glow-amber {
-    box-shadow: 0 0 20px rgba(232, 168, 50, 0.15), 0 0 60px rgba(232, 168, 50, 0.05);
+    box-shadow: 0 0 20px rgba(232, 168, 50, 0.15), 0 0 60px
+      rgba(232, 168, 50, 0.05);
   }
 
   .glow-cyan {
-    box-shadow: 0 0 20px rgba(34, 211, 238, 0.12), 0 0 60px rgba(34, 211, 238, 0.04);
+    box-shadow: 0 0 20px rgba(34, 211, 238, 0.12), 0 0 60px
+      rgba(34, 211, 238, 0.04);
   }
 
   .text-glow-amber {
@@ -121,18 +123,31 @@
 }
 
 @keyframes fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes pulse-slow {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.7; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
 }
 
 @keyframes grid-scroll {
-  from { transform: translate(0, 0); }
-  to { transform: translate(40px, 40px); }
+  from {
+    transform: translate(0, 0);
+  }
+  to {
+    transform: translate(40px, 40px);
+  }
 }
 
 .animate-fade-in-up {

@@ -32,7 +32,10 @@ function mapUserRow(row: UserRow): UserRecord {
   };
 }
 
-export function findUserByEmail(db: Database, email: string): UserRecord | null {
+export function findUserByEmail(
+  db: Database,
+  email: string,
+): UserRecord | null {
   const row = db
     .query<UserRow, [string]>(
       `SELECT id, email, password_hash, created_at, updated_at

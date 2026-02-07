@@ -6,30 +6,19 @@
     "useIgnoreFile": true
   },
   "files": {
-    "ignore": [
-      "node_modules",
-      "dist",
-      "coverage",
-      "**/*.tsbuildinfo"
-    ]
+    "ignore": ["node_modules", "dist", "coverage", "**/*.tsbuildinfo"]
   },
   "formatter": {
-    "enabled": false
+    "enabled": true,
+    "indentStyle": "space"
   },
   "linter": {
     "enabled": true,
     "rules": {
-      "recommended": true,
-      "a11y": {
-        "noSvgWithoutTitle": "off",
-        "noAriaHiddenOnFocusable": "off"
-      },
-      "style": {
-        "noNonNullAssertion": "off"
-      }
+      "recommended": true
     }
   },
   "organizeImports": {
-    "enabled": false
+    "enabled": true
   }
 }
