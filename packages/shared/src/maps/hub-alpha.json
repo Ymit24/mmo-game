@@ -1,0 +1,41 @@
+{
+  "id": "hub:alpha",
+  "name": "Hub Alpha",
+  "width": 2200,
+  "height": 1400,
+  "background": {
+    "color": "#071018",
+    "gridSize": 48
+  },
+  "playerSpawnId": "central_spawn",
+  "spawnPoints": [
+    { "id": "central_spawn", "x": 1100, "y": 700 },
+    { "id": "north_gate", "x": 1100, "y": 180 },
+    { "id": "south_gate", "x": 1100, "y": 1220 }
+  ],
+  "collisions": [
+    { "type": "rect", "x": 360, "y": 260, "width": 200, "height": 360 },
+    { "type": "rect", "x": 1640, "y": 260, "width": 200, "height": 360 },
+    { "type": "rect", "x": 360, "y": 780, "width": 200, "height": 360 },
+    { "type": "rect", "x": 1640, "y": 780, "width": 200, "height": 360 },
+    { "type": "circle", "x": 1100, "y": 700, "radius": 90 }
+  ],
+  "regions": [
+    {
+      "id": "hub_market",
+      "name": "Market",
+      "shape": {
+        "type": "rect",
+        "x": 820,
+        "y": 580,
+        "width": 560,
+        "height": 240
+      }
+    },
+    {
+      "id": "hub_portal_ring",
+      "name": "Portal Ring",
+      "shape": { "type": "circle", "x": 1100, "y": 700, "radius": 220 }
+    }
+  ]
+}
