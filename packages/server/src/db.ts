@@ -1,6 +1,22 @@
 import { Database } from "bun:sqlite";
+import { mkdirSync } from "node:fs";
+import { dirname } from "node:path";
+
+function ensureDatabaseDirectory(dbPath: string): void {
+  if (dbPath === ":memory:" || dbPath.startsWith("file:")) {
+    return;
+  }
+
+  const directory = dirname(dbPath);
+  if (directory === ".") {
+    return;
+  }
+
+  mkdirSync(directory, { recursive: true });
+}
 
 export function createDatabase(dbPath: string): Database {
+  ensureDatabaseDirectory(dbPath);
   const db = new Database(dbPath, { create: true, strict: true });
   bootstrapDatabase(db);
   return db;
