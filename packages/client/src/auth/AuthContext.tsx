@@ -1,19 +1,26 @@
-import type { AuthCredentials, AuthSuccessResponse, AuthUser } from "@mmo/shared";
+import type {
+  AuthCredentials,
+  AuthSuccessResponse,
+  AuthUser,
+} from "@mmo/shared";
 import {
+  type PropsWithChildren,
   createContext,
   useCallback,
   useContext,
   useMemo,
   useState,
-  type PropsWithChildren,
 } from "react";
 
-import { signin as signinRequest, signup as signupRequest } from "../lib/api/authApi";
 import {
+  signin as signinRequest,
+  signup as signupRequest,
+} from "../lib/api/authApi";
+import {
+  type AuthSession,
   clearSession,
   loadSession,
   saveSession,
-  type AuthSession,
 } from "../lib/auth/sessionStorage";
 
 type AuthStatus = "authenticated" | "unauthenticated";
@@ -39,23 +46,34 @@ function buildSession(response: AuthSuccessResponse): AuthSession {
 }
 
 export function AuthProvider({ children }: PropsWithChildren) {
-  const [session, setSession] = useState<AuthSession | null>(() => loadSession());
+  const [session, setSession] = useState<AuthSession | null>(() =>
+    loadSession(),
+  );
 
-  const setSessionFromResponse = useCallback((response: AuthSuccessResponse) => {
-    const nextSession = buildSession(response);
-    saveSession(nextSession);
-    setSession(nextSession);
-  }, []);
+  const setSessionFromResponse = useCallback(
+    (response: AuthSuccessResponse) => {
+      const nextSession = buildSession(response);
+      saveSession(nextSession);
+      setSession(nextSession);
+    },
+    [],
+  );
 
-  const signup = useCallback(async (credentials: AuthCredentials) => {
-    const response = await signupRequest(credentials);
-    setSessionFromResponse(response);
-  }, [setSessionFromResponse]);
+  const signup = useCallback(
+    async (credentials: AuthCredentials) => {
+      const response = await signupRequest(credentials);
+      setSessionFromResponse(response);
+    },
+    [setSessionFromResponse],
+  );
 
-  const signin = useCallback(async (credentials: AuthCredentials) => {
-    const response = await signinRequest(credentials);
-    setSessionFromResponse(response);
-  }, [setSessionFromResponse]);
+  const signin = useCallback(
+    async (credentials: AuthCredentials) => {
+      const response = await signinRequest(credentials);
+      setSessionFromResponse(response);
+    },
+    [setSessionFromResponse],
+  );
 
   const signout = useCallback(() => {
     clearSession();

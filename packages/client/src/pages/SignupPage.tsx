@@ -13,7 +13,13 @@ export function SignupPage() {
     <AuthLayout
       title="Create your identity"
       subtitle="Claim your account now and enter the persistent world."
-      footer={<AuthSwitchLink prompt="Already registered?" cta="Sign in" to="/signin" />}
+      footer={
+        <AuthSwitchLink
+          prompt="Already registered?"
+          cta="Sign in"
+          to="/signin"
+        />
+      }
     >
       <AuthCredentialsForm
         submitLabel="Create Account"

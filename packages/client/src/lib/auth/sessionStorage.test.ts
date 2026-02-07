@@ -2,11 +2,11 @@ import { describe, expect, test } from "vitest";
 
 import {
   AUTH_SESSION_STORAGE_KEY,
+  type AuthSession,
   clearSession,
   isExpired,
   loadSession,
   saveSession,
-  type AuthSession,
 } from "./sessionStorage";
 
 function makeSession(overrides: Partial<AuthSession> = {}): AuthSession {
@@ -29,7 +29,10 @@ describe("sessionStorage", () => {
 
   test("returns null and clears expired session", () => {
     const expiredSession = makeSession({ expiresAtEpochMs: Date.now() - 1 });
-    localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(expiredSession));
+    localStorage.setItem(
+      AUTH_SESSION_STORAGE_KEY,
+      JSON.stringify(expiredSession),
+    );
 
     expect(loadSession()).toBeNull();
     expect(localStorage.getItem(AUTH_SESSION_STORAGE_KEY)).toBeNull();

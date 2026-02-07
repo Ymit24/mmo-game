@@ -1,6 +1,6 @@
+import type { AuthSuccessResponse } from "@mmo/shared";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { AuthSuccessResponse } from "@mmo/shared";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, test, vi } from "vitest";
 
@@ -18,7 +18,9 @@ function renderApp(initialPath: string) {
   );
 }
 
-function makeSuccessResponse(overrides: Partial<AuthSuccessResponse> = {}): AuthSuccessResponse {
+function makeSuccessResponse(
+  overrides: Partial<AuthSuccessResponse> = {},
+): AuthSuccessResponse {
   return {
     token: "jwt-token",
     expiresInSeconds: 60,
@@ -51,7 +53,9 @@ describe("auth flow", () => {
 
     await user.click(screen.getByRole("button", { name: "Sign In" }));
     expect(await screen.findByText("Email is required.")).toBeInTheDocument();
-    expect(await screen.findByText("Password is required.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Password is required."),
+    ).toBeInTheDocument();
 
     await user.type(screen.getByLabelText("Email"), "  PLAYER@Example.com  ");
     await user.type(screen.getByLabelText("Password"), "password123");
@@ -69,7 +73,9 @@ describe("auth flow", () => {
       }),
     );
 
-    expect(await screen.findByRole("heading", { name: "Play Client Coming Soon" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Play Client Coming Soon" }),
+    ).toBeInTheDocument();
 
     const storedSession = localStorage.getItem(AUTH_SESSION_STORAGE_KEY);
     expect(storedSession).toContain("player@example.com");
@@ -89,7 +95,9 @@ describe("auth flow", () => {
     await user.type(screen.getByLabelText("Password"), "password123");
     await user.click(screen.getByRole("button", { name: "Create Account" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Email already registered.");
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Email already registered.",
+    );
   });
 
   test("expired stored session is discarded and user is redirected to signin", async () => {
@@ -104,7 +112,9 @@ describe("auth flow", () => {
 
     renderApp("/play");
 
-    expect(await screen.findByRole("heading", { name: "Reconnect to the world" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Reconnect to the world" }),
+    ).toBeInTheDocument();
     expect(localStorage.getItem(AUTH_SESSION_STORAGE_KEY)).toBeNull();
   });
 });

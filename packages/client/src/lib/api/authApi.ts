@@ -1,4 +1,8 @@
-import type { AuthCredentials, AuthErrorResponse, AuthSuccessResponse } from "@mmo/shared";
+import type {
+  AuthCredentials,
+  AuthErrorResponse,
+  AuthSuccessResponse,
+} from "@mmo/shared";
 
 import { API_BASE_URL } from "../../config/env";
 

@@ -1,7 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 
-import { RequireAuth } from "./auth/RequireAuth";
 import { LandingPage } from "./LandingPage";
+import { RequireAuth } from "./auth/RequireAuth";
 import { PlayPage } from "./pages/PlayPage";
 import { SigninPage } from "./pages/SigninPage";
 import { SignupPage } from "./pages/SignupPage";

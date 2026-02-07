@@ -1,6 +1,9 @@
-import { useState, type FormEvent } from "react";
+import { type FormEvent, useState } from "react";
 
-import { validateAuthForm, type AuthFormErrors } from "../../lib/auth/validation";
+import {
+  type AuthFormErrors,
+  validateAuthForm,
+} from "../../lib/auth/validation";
 import { AuthErrorBanner } from "./AuthErrorBanner";
 import { AuthField } from "./AuthField";
 import { AuthSubmitButton } from "./AuthSubmitButton";
@@ -37,7 +40,8 @@ export function AuthCredentialsForm({
     try {
       await onSubmit({ email: email.trim().toLowerCase(), password });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unexpected error";
+      const message =
+        error instanceof Error ? error.message : "Unexpected error";
       setFormError(message);
     } finally {
       setIsSubmitting(false);
@@ -77,7 +81,11 @@ export function AuthCredentialsForm({
           }
         }}
       />
-      <AuthSubmitButton label={submitLabel} loadingLabel={loadingLabel} loading={isSubmitting} />
+      <AuthSubmitButton
+        label={submitLabel}
+        loadingLabel={loadingLabel}
+        loading={isSubmitting}
+      />
     </form>
   );
 }
