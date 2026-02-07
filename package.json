@@ -10,7 +10,7 @@
     "typecheck": "bun run --filter '*' typecheck",
     "lint": "biome check .",
     "lint:fix": "biome check . --write",
-    "test": "bun test packages/server/src",
+    "test": "bun run --filter @mmo/server test && bun run --filter @mmo/client test",
     "ci": "bun run lint && bun run typecheck && bun run test"
   },
   "devDependencies": {

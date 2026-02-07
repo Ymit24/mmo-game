@@ -1,3 +1,4 @@
+import { normalizeEmail } from "@mmo/shared";
 import { type FormEvent, useState } from "react";
 
 import {
@@ -38,7 +39,7 @@ export function AuthCredentialsForm({
 
     setIsSubmitting(true);
     try {
-      await onSubmit({ email: email.trim().toLowerCase(), password });
+      await onSubmit({ email: normalizeEmail(email), password });
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Unexpected error";

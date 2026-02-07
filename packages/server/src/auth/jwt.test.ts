@@ -11,22 +11,16 @@ const baseConfig: ServerConfig = {
 
 describe("jwt", () => {
   test("issues and verifies access token", async () => {
-    const issued = await issueAccessToken(
-      { sub: "user-1", email: "user@example.com" },
-      baseConfig,
-    );
+    const issued = await issueAccessToken({ sub: "user-1" }, baseConfig);
     const verified = await verifyAccessToken(issued.token, baseConfig);
 
     expect(issued.expiresInSeconds).toBe(1);
     expect(verified.payload.sub).toBe("user-1");
-    expect(verified.payload.email).toBe("user@example.com");
+    expect(verified.payload.email).toBeUndefined();
   });
 
   test("rejects tampered token", async () => {
-    const issued = await issueAccessToken(
-      { sub: "user-1", email: "user@example.com" },
-      baseConfig,
-    );
+    const issued = await issueAccessToken({ sub: "user-1" }, baseConfig);
     const tampered = `${issued.token}x`;
 
     let threw = false;
@@ -40,10 +34,7 @@ describe("jwt", () => {
   });
 
   test("rejects expired token", async () => {
-    const issued = await issueAccessToken(
-      { sub: "user-1", email: "user@example.com" },
-      baseConfig,
-    );
+    const issued = await issueAccessToken({ sub: "user-1" }, baseConfig);
 
     await Bun.sleep(1_200);
 

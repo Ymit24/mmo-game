@@ -5,9 +5,18 @@
 - Client: Vite + React app for landing page, auth flow, and account management.
 - Server: HTTP REST API for auth/account flows; JWT auth expected.
 - Security: keep JWT signing key private (server-only secret management).
-- Realtime game: browser 2D game client (Phaser/Pixi/custom canvas TBD) using WebSocket connection.
-- Server topology decision pending: single process handling REST + WS vs split services.
+- Realtime game: browser 2D game client built with Phaser 3 using WebSocket connection.
+- Server topology (phase 1): single Bun process handling REST + WS.
 - Shared package purpose: common models/protocol contracts/behavior utilities used by both client and server.
+
+## Game runtime decisions (phase 1)
+
+- Engine: Phaser 3.
+- UI architecture: React overlay for HUD/inventory/minimap/shop + Phaser world renderer via typed bridge events.
+- Networking: server-authoritative movement with client prediction/reconciliation.
+- World model: instance-per-worldId (starting with hub world), low-pop room broadcast in phase 1.
+- Protocol: JSON WebSocket message envelopes with shared discriminated unions in `@mmo/shared`.
+- Maps/content: handcrafted typed JSON only for phase 1.
 
 ## Server auth snapshot (implemented)
 
@@ -35,7 +44,7 @@
   - `users` table: `id`, `email` (unique), `password_hash`, timestamps.
   - Password hashes use Argon2id (`Bun.password.hash/verify`).
 - Not implemented yet:
-  - WS JWT auth handshake, refresh/session rotation, password reset, email verification.
+  - WS JWT auth handshake (planned as first game milestone), refresh/session rotation, password reset, email verification.
 
 ## Client auth snapshot (implemented)
 

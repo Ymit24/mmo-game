@@ -4,7 +4,6 @@ import type { ServerConfig } from "../config";
 
 export interface AccessTokenClaims {
   sub: string;
-  email: string;
 }
 
 export interface IssuedAccessToken {
@@ -20,7 +19,7 @@ export async function issueAccessToken(
   claims: AccessTokenClaims,
   config: ServerConfig,
 ): Promise<IssuedAccessToken> {
-  const signer = new SignJWT({ email: claims.email })
+  const signer = new SignJWT()
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
     .setSubject(claims.sub)
     .setIssuedAt()

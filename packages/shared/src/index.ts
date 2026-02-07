@@ -17,3 +17,10 @@ export interface AuthSuccessResponse {
 export interface AuthErrorResponse {
   error: string;
 }
+
+export * from "./auth/credentials";
+export * from "./protocol/ws";
+export * from "./world/map";
+export * from "./world/mapData";
+export * from "./world/movement";
+export * from "./world/mapValidation";
