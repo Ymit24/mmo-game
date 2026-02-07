@@ -36,3 +36,29 @@
   - Password hashes use Argon2id (`Bun.password.hash/verify`).
 - Not implemented yet:
   - WS JWT auth handshake, refresh/session rotation, password reset, email verification.
+
+## Client auth snapshot (implemented)
+
+- Package scope: `packages/client`.
+- Routing:
+  - `/` -> landing page.
+  - `/signin` -> signin form.
+  - `/signup` -> signup form.
+  - `/play` -> protected placeholder page (requires auth).
+- Auth state:
+  - `AuthProvider` + `useAuth()` in `packages/client/src/auth/AuthContext.tsx`.
+  - Route protection via `packages/client/src/auth/RequireAuth.tsx`.
+- Session persistence:
+  - JWT session stored in `localStorage` key `mmo.auth.session.v1`.
+  - Stored payload: `{ token, user, expiresAtEpochMs }`.
+  - Expired/malformed sessions are cleared on load.
+- API integration:
+  - Client calls `POST /auth/signin` and `POST /auth/signup` through `packages/client/src/lib/api/authApi.ts`.
+  - Base URL: `VITE_API_BASE_URL` fallback to `/api`.
+  - Dev proxy in `packages/client/vite.config.ts`: `/api` -> `http://localhost:3001`.
+- Reusable auth UI:
+  - Components under `packages/client/src/components/auth`.
+  - Shared credential validation enforces email format and min password length 8.
+- Tests:
+  - `packages/client/src/auth/authFlow.test.tsx`.
+  - `packages/client/src/lib/auth/sessionStorage.test.ts`.
