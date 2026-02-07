@@ -41,9 +41,9 @@ export function createRealtimeGateway(config: ServerConfig): RealtimeGateway {
     try {
       const result = await verifyAccessToken(token, config);
       const playerId = result.payload.sub;
-      const email = result.payload.email;
+      const exp = result.payload.exp;
 
-      if (typeof playerId !== "string" || typeof email !== "string") {
+      if (typeof playerId !== "string" || typeof exp !== "number") {
         socket.send(
           stringifyServerMessage({
             type: "auth.error",
@@ -54,7 +54,7 @@ export function createRealtimeGateway(config: ServerConfig): RealtimeGateway {
         return;
       }
 
-      const accountKey = email.trim().toLowerCase();
+      const accountKey = playerId;
       const activeSocket = activeSocketsByAccountKey.get(accountKey);
       if (activeSocket && activeSocket !== socket) {
         const isSameTokenReconnect =
@@ -84,6 +84,7 @@ export function createRealtimeGateway(config: ServerConfig): RealtimeGateway {
       socket.data.session.authenticated = true;
       socket.data.session.accountKey = accountKey;
       socket.data.session.authToken = token;
+      socket.data.session.authExpiresAtEpochMs = exp * 1000;
       socket.data.session.playerId = playerId;
       activeSocketsByAccountKey.set(accountKey, socket);
 
@@ -141,6 +142,20 @@ export function createRealtimeGateway(config: ServerConfig): RealtimeGateway {
 
         if (!socket.data.session.authenticated) {
           sendError(socket, "Authenticate before sending world messages.");
+          return;
+        }
+        const authExpiresAtEpochMs = socket.data.session.authExpiresAtEpochMs;
+        if (
+          typeof authExpiresAtEpochMs !== "number" ||
+          Date.now() >= authExpiresAtEpochMs
+        ) {
+          socket.send(
+            stringifyServerMessage({
+              type: "auth.error",
+              error: "Session expired. Please sign in again.",
+            }),
+          );
+          socket.close();
           return;
         }
 

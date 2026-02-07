@@ -7,6 +7,7 @@ import { findUserByEmail, insertUser } from "./repository";
 import { validateAuthCredentials } from "./validation";
 
 const INVALID_CREDENTIALS_MESSAGE = "Invalid email or password.";
+const SIGNUP_FAILED_MESSAGE = "Unable to create account.";
 
 function json(status: number, body: unknown): Response {
   return Response.json(body, { status });
@@ -47,7 +48,7 @@ export async function handleSignup(
 
   const existingUser = findUserByEmail(db, validation.value.email);
   if (existingUser) {
-    return json(409, { error: "Email already registered." });
+    return json(409, { error: SIGNUP_FAILED_MESSAGE });
   }
 
   const userId = crypto.randomUUID();
@@ -61,14 +62,14 @@ export async function handleSignup(
     });
   } catch (error) {
     if (isUniqueConstraintError(error)) {
-      return json(409, { error: "Email already registered." });
+      return json(409, { error: SIGNUP_FAILED_MESSAGE });
     }
 
     throw error;
   }
 
   const issuedToken = await issueAccessToken(
-    { sub: userId, email: validation.value.email },
+    { sub: userId },
     config,
   );
 
@@ -111,7 +112,7 @@ export async function handleSignin(
   }
 
   const issuedToken = await issueAccessToken(
-    { sub: user.id, email: user.email },
+    { sub: user.id },
     config,
   );
 

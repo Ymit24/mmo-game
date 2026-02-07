@@ -113,7 +113,7 @@ function isVector2(value: unknown): value is Vector2 {
     return false;
   }
 
-  return typeof value.x === "number" && typeof value.y === "number";
+  return Number.isFinite(value.x) && Number.isFinite(value.y);
 }
 
 function isPlayerInputState(value: unknown): value is PlayerInputState {
@@ -167,10 +167,17 @@ export function parseClientMessage(raw: string): ClientToServerMessage | null {
         worldId: parsed.worldId,
       };
 
-    case "player.input":
+    case "player.input": {
+      const sequence = parsed.sequence;
+      const dtMs = parsed.dtMs;
       if (
-        typeof parsed.sequence !== "number" ||
-        typeof parsed.dtMs !== "number" ||
+        typeof sequence !== "number" ||
+        !Number.isSafeInteger(sequence) ||
+        sequence < 0 ||
+        typeof dtMs !== "number" ||
+        !Number.isFinite(dtMs) ||
+        dtMs < 0 ||
+        dtMs > 1_000 ||
         !isPlayerInputState(parsed.input)
       ) {
         return null;
@@ -178,17 +185,22 @@ export function parseClientMessage(raw: string): ClientToServerMessage | null {
 
       return {
         type: "player.input",
-        sequence: parsed.sequence,
-        dtMs: parsed.dtMs,
+        sequence,
+        dtMs,
         input: parsed.input,
       };
+    }
 
     case "inventory.drop": {
       const payload = parsed.payload;
+      const quantity = isObject(payload) ? payload.quantity : undefined;
       if (
         !isObject(payload) ||
         typeof payload.itemId !== "string" ||
-        typeof payload.quantity !== "number" ||
+        typeof quantity !== "number" ||
+        !Number.isSafeInteger(quantity) ||
+        quantity < 1 ||
+        quantity > 9_999 ||
         !isVector2(payload.position)
       ) {
         return null;
@@ -198,7 +210,7 @@ export function parseClientMessage(raw: string): ClientToServerMessage | null {
         type: "inventory.drop",
         payload: {
           itemId: payload.itemId,
-          quantity: payload.quantity,
+          quantity,
           position: payload.position,
         },
       };

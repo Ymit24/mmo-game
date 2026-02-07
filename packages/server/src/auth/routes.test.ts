@@ -58,7 +58,7 @@ describe("auth routes", () => {
 
     const verified = await verifyAccessToken(body.token, app.config);
     expect(verified.payload.sub).toBe(body.user.id);
-    expect(verified.payload.email).toBe("user@example.com");
+    expect(verified.payload.email).toBeUndefined();
   });
 
   test("signup rejects duplicate email", async () => {
@@ -79,6 +79,9 @@ describe("auth routes", () => {
     );
 
     expect(second.status).toBe(409);
+    expect(await second.json()).toEqual({
+      error: "Unable to create account.",
+    });
   });
 
   test("signin succeeds for existing user", async () => {

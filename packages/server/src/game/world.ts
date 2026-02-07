@@ -29,6 +29,7 @@ export interface RealtimeSession {
   authenticated: boolean;
   accountKey: string | null;
   authToken: string | null;
+  authExpiresAtEpochMs: number | null;
   playerId: string | null;
   worldId: string | null;
 }
@@ -225,6 +226,7 @@ export class WorldManager {
         authenticated: false,
         accountKey: null,
         authToken: null,
+        authExpiresAtEpochMs: null,
         playerId: null,
         worldId: null,
       },
@@ -309,8 +311,11 @@ export class WorldManager {
     message: Extract<ClientToServerMessage, { type: "inventory.drop" }>,
   ): void {
     if (
+      !Number.isSafeInteger(message.payload.quantity) ||
       message.payload.quantity <= 0 ||
-      message.payload.itemId.trim().length === 0
+      message.payload.itemId.trim().length === 0 ||
+      !Number.isFinite(message.payload.position.x) ||
+      !Number.isFinite(message.payload.position.y)
     ) {
       socket.send(
         stringifyServerMessage({

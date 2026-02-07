@@ -179,6 +179,23 @@ describe("world manager", () => {
     expect(response.error).toContain("Invalid drop payload");
   });
 
+  test("acknowledgeDrop rejects non-finite coordinates", () => {
+    const manager = new WorldManager();
+    const socket = createMockSocket(manager, "player-a");
+
+    manager.acknowledgeDrop(asServerSocket(socket), {
+      type: "inventory.drop",
+      payload: {
+        itemId: "health_potion",
+        quantity: 1,
+        position: { x: Number.NaN, y: 300 },
+      },
+    });
+
+    const response = parseMessages(socket)[0];
+    expect(response?.type).toBe("error");
+  });
+
   test("closing an old connection does not remove a newer connection for the same player", () => {
     const manager = new WorldManager();
     const oldSocket = createMockSocket(manager, "player-a");
