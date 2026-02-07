@@ -62,3 +62,21 @@
 - Tests:
   - `packages/client/src/auth/authFlow.test.tsx`.
   - `packages/client/src/lib/auth/sessionStorage.test.ts`.
+
+## CI and quality gates (implemented)
+
+- GitHub Actions workflow: `.github/workflows/ci.yml` (`CI` / `quality` job).
+- CI runs on `pull_request`, `merge_group`, and `workflow_dispatch`.
+- CI command sequence:
+  - `bun install --frozen-lockfile`
+  - `bun run lint`
+  - `bun run typecheck`
+  - `bun run test`
+- Linting/format/import-order checks are enforced via Biome (`biome.json`).
+- Root scripts for local parity with CI:
+  - `bun run lint`
+  - `bun run lint:fix`
+  - `bun run typecheck`
+  - `bun run test`
+  - `bun run ci`
+- Merge policy expectation: branch protection should require `CI / quality` to pass before merge.

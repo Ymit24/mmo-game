@@ -102,7 +102,10 @@ export async function handleSignin(
     return json(401, { error: INVALID_CREDENTIALS_MESSAGE });
   }
 
-  const passwordMatches = await verifyPassword(validation.value.password, user.passwordHash);
+  const passwordMatches = await verifyPassword(
+    validation.value.password,
+    user.passwordHash,
+  );
   if (!passwordMatches) {
     return json(401, { error: INVALID_CREDENTIALS_MESSAGE });
   }

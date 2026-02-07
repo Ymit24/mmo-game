@@ -45,7 +45,9 @@ function Navbar() {
     <nav className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 py-4 md:px-10">
       <div className="flex items-center gap-3">
         <div className="w-8 h-8 rounded border border-amber/40 bg-amber/10 flex items-center justify-center">
-          <span className="font-display font-bold text-amber text-sm leading-none">M</span>
+          <span className="font-display font-bold text-amber text-sm leading-none">
+            M
+          </span>
         </div>
         <span className="font-display font-semibold text-text-bright tracking-wide text-sm uppercase">
           MMO Game
@@ -133,6 +135,8 @@ function Hero() {
           <span className="relative z-10 flex items-center gap-2">
             {auth.isAuthenticated ? "Continue" : "Play Now"}
             <svg
+              aria-hidden="true"
+              focusable="false"
               className="w-4 h-4 transition-transform duration-300 group-hover:translate-x-1"
               fill="none"
               stroke="currentColor"
@@ -157,7 +161,9 @@ function Hero() {
         className="animate-fade-in absolute bottom-8 flex flex-col items-center gap-2 text-muted/50"
         style={{ animationDelay: "1.2s" }}
       >
-        <span className="text-[10px] font-mono uppercase tracking-[0.2em]">Scroll</span>
+        <span className="text-[10px] font-mono uppercase tracking-[0.2em]">
+          Scroll
+        </span>
         <div className="w-px h-8 bg-gradient-to-b from-muted/30 to-transparent" />
       </div>
     </section>
@@ -184,17 +190,19 @@ function About() {
         {/* Content */}
         <div className="space-y-4 text-muted leading-relaxed">
           <p>
-            This is a multiplayer game where everyone shares one persistent world. It runs
-            entirely in your browser &mdash; no client to download, no launcher to update, no
-            hardware requirements beyond "can open a webpage."
+            This is a multiplayer game where everyone shares one persistent
+            world. It runs entirely in your browser &mdash; no client to
+            download, no launcher to update, no hardware requirements beyond
+            "can open a webpage."
           </p>
           <p>
-            The world is real-time. Other players are real. The economy, the map, and the
-            consequences of your actions are all shared across every connected session.
+            The world is real-time. Other players are real. The economy, the
+            map, and the consequences of your actions are all shared across
+            every connected session.
           </p>
           <p className="text-text text-sm font-mono border-l-2 border-amber/30 pl-4">
-            Currently in active development. Core systems are being built. Follow along or
-            jump in early.
+            Currently in active development. Core systems are being built.
+            Follow along or jump in early.
           </p>
         </div>
       </div>
@@ -257,11 +265,16 @@ function TechStack() {
 
       <div className="grid grid-cols-2 md:grid-cols-3 gap-px bg-border/50 rounded-lg overflow-hidden border border-border">
         {items.map((item) => (
-          <div key={item.label} className="bg-deep p-5 hover:bg-surface/30 transition-colors duration-200">
+          <div
+            key={item.label}
+            className="bg-deep p-5 hover:bg-surface/30 transition-colors duration-200"
+          >
             <span className="block text-[10px] font-mono text-muted uppercase tracking-[0.15em] mb-1">
               {item.label}
             </span>
-            <span className="text-text-bright text-sm font-medium">{item.value}</span>
+            <span className="text-text-bright text-sm font-medium">
+              {item.value}
+            </span>
           </div>
         ))}
       </div>

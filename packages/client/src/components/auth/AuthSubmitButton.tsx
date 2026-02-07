@@ -4,7 +4,11 @@ interface AuthSubmitButtonProps {
   loading: boolean;
 }
 
-export function AuthSubmitButton({ label, loadingLabel, loading }: AuthSubmitButtonProps) {
+export function AuthSubmitButton({
+  label,
+  loadingLabel,
+  loading,
+}: AuthSubmitButtonProps) {
   return (
     <button
       type="submit"

@@ -2,13 +2,18 @@
   "name": "mmo-game",
   "private": true,
   "type": "module",
-  "workspaces": [
-    "packages/*"
-  ],
+  "workspaces": ["packages/*"],
   "scripts": {
     "dev:client": "bun run --filter @mmo/client dev",
     "dev:server": "bun run --filter @mmo/server dev",
     "build": "bun run --filter '*' build",
-    "typecheck": "bun run --filter '*' typecheck"
+    "typecheck": "bun run --filter '*' typecheck",
+    "lint": "biome check .",
+    "lint:fix": "biome check . --write",
+    "test": "bun test packages/server/src",
+    "ci": "bun run lint && bun run typecheck && bun run test"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4"
   }
 }

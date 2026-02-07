@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { createApp, type AppInstance } from "../app";
+import { type AppInstance, createApp } from "../app";
 import { verifyAccessToken } from "./jwt";
 
 const TEST_SECRET = "test-jwt-secret-at-least-32-characters-long";
@@ -52,7 +52,9 @@ describe("auth routes", () => {
     expect(body.expiresInSeconds).toBe(86_400);
     expect(body.user.email).toBe("user@example.com");
     expect(typeof body.user.id).toBe("string");
-    expect(Object.prototype.hasOwnProperty.call(body.user, "passwordHash")).toBe(false);
+    expect(
+      Object.prototype.hasOwnProperty.call(body.user, "passwordHash"),
+    ).toBe(false);
 
     const verified = await verifyAccessToken(body.token, app.config);
     expect(verified.payload.sub).toBe(body.user.id);

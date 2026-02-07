@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 
 import { handleSignin, handleSignup } from "./auth/routes";
-import { createServerConfig, type ServerConfig } from "./config";
+import { type ServerConfig, createServerConfig } from "./config";
 import { createDatabase } from "./db";
 
 export interface AppInstance {

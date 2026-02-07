@@ -21,7 +21,10 @@ export function AuthField({
 }: AuthFieldProps) {
   return (
     <div>
-      <label htmlFor={id} className="block text-xs font-mono uppercase tracking-[0.15em] text-muted mb-2">
+      <label
+        htmlFor={id}
+        className="block text-xs font-mono uppercase tracking-[0.15em] text-muted mb-2"
+      >
         {label}
       </label>
       <input

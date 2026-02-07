@@ -1,4 +1,4 @@
-import { useNavigate, useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthContext";
 import { AuthCredentialsForm } from "../components/auth/AuthCredentialsForm";
@@ -16,13 +16,20 @@ export function SigninPage() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const fromPath = (location.state as LocationState | null)?.from?.pathname ?? "/play";
+  const fromPath =
+    (location.state as LocationState | null)?.from?.pathname ?? "/play";
 
   return (
     <AuthLayout
       title="Reconnect to the world"
       subtitle="Sign in to continue your character, session, and progress."
-      footer={<AuthSwitchLink prompt="Need an account?" cta="Create one" to="/signup" />}
+      footer={
+        <AuthSwitchLink
+          prompt="Need an account?"
+          cta="Create one"
+          to="/signup"
+        />
+      }
     >
       <AuthCredentialsForm
         submitLabel="Sign In"
