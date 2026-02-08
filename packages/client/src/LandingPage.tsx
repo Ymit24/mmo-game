@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { useAuth } from "./auth/AuthContext";
@@ -40,6 +40,31 @@ function StatusDot({ status }: { status: "online" | "offline" | "starting" }) {
 
 function Navbar() {
   const auth = useAuth();
+  const [profileOpen, setProfileOpen] = useState(false);
+  const profileRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function onWindowClick(event: MouseEvent): void {
+      if (!profileRef.current) {
+        return;
+      }
+      if (!profileRef.current.contains(event.target as Node)) {
+        setProfileOpen(false);
+      }
+    }
+
+    if (profileOpen) {
+      window.addEventListener("click", onWindowClick);
+    }
+    return () => {
+      window.removeEventListener("click", onWindowClick);
+    };
+  }, [profileOpen]);
+
+  const userInitial =
+    auth.user?.email && auth.user.email.length > 0
+      ? auth.user.email[0]?.toUpperCase()
+      : "P";
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 py-4 md:px-10">
@@ -66,12 +91,66 @@ function Navbar() {
         >
           How it works
         </a>
-        <Link
-          to={auth.isAuthenticated ? "/play" : "/signin"}
-          className="font-display font-medium text-amber hover:text-amber-glow transition-colors duration-200"
-        >
-          {auth.isAuthenticated ? "Play" : "Log in"}
-        </Link>
+        {auth.isAuthenticated ? (
+          <>
+            <Link
+              to="/characters"
+              className="text-muted hover:text-text-bright transition-colors duration-200"
+            >
+              Characters
+            </Link>
+            <div className="relative" ref={profileRef}>
+              <button
+                type="button"
+                onClick={() => setProfileOpen((open) => !open)}
+                className="flex items-center gap-2 rounded-full border border-border bg-deep/85 px-2 py-1.5 hover:border-amber/60"
+              >
+                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-amber font-mono text-xs font-bold text-void">
+                  {userInitial}
+                </span>
+                <span className="max-w-32 truncate text-xs text-text-bright">
+                  {auth.user?.email}
+                </span>
+              </button>
+
+              {profileOpen ? (
+                <div className="absolute right-0 mt-2 w-44 rounded-lg border border-border bg-abyss p-1 shadow-xl">
+                  <Link
+                    to="/play"
+                    onClick={() => setProfileOpen(false)}
+                    className="block rounded px-3 py-2 text-sm text-text hover:bg-deep"
+                  >
+                    Enter World
+                  </Link>
+                  <Link
+                    to="/characters"
+                    onClick={() => setProfileOpen(false)}
+                    className="block rounded px-3 py-2 text-sm text-text hover:bg-deep"
+                  >
+                    Manage Characters
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProfileOpen(false);
+                      auth.signout();
+                    }}
+                    className="block w-full rounded px-3 py-2 text-left text-sm text-muted hover:bg-deep hover:text-text"
+                  >
+                    Sign out
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          </>
+        ) : (
+          <Link
+            to="/signin"
+            className="font-display font-medium text-amber hover:text-amber-glow transition-colors duration-200"
+          >
+            Log in
+          </Link>
+        )}
       </div>
     </nav>
   );

@@ -90,11 +90,16 @@ export function CharacterCreatePage() {
 
               setIsSubmitting(true);
               try {
-                await createCharacter(token, {
+                const response = await createCharacter(token, {
                   nickname: nickname.trim(),
                   class: characterClass,
                 });
-                navigate("/play", { replace: true });
+                navigate(
+                  `/world?characterId=${encodeURIComponent(response.character.id)}`,
+                  {
+                    replace: true,
+                  },
+                );
               } catch (requestError) {
                 const message =
                   requestError instanceof CharacterApiError

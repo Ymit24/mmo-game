@@ -1,5 +1,5 @@
 import { type DragEvent, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthContext";
 import { type GameBridgeState, createGameBridge } from "./bridge";
@@ -136,13 +136,10 @@ export function GameShell({ characterId }: GameShellProps) {
               )}
               <button
                 type="button"
-                onClick={() => {
-                  auth.signout();
-                  navigate("/signin", { replace: true });
-                }}
+                onClick={() => navigate("/play", { replace: true })}
                 className="rounded border border-border px-3 py-1.5 text-sm text-text hover:border-amber/60"
               >
-                Sign out
+                Back to Characters
               </button>
             </div>
           </div>
@@ -169,21 +166,12 @@ export function GameShell({ characterId }: GameShellProps) {
               <span className="rounded border border-border px-2 py-1 font-mono uppercase tracking-[0.15em] text-muted">
                 players {uiState.players.length}
               </span>
-              <Link
-                to="/play"
-                className="rounded border border-border px-2 py-1 text-text hover:border-amber/50 hover:text-text-bright"
-              >
-                Characters
-              </Link>
               <button
                 type="button"
-                onClick={() => {
-                  auth.signout();
-                  navigate("/signin", { replace: true });
-                }}
+                onClick={() => navigate("/play", { replace: true })}
                 className="rounded bg-amber px-3 py-1 font-display text-void hover:bg-amber-glow"
               >
-                Sign out
+                Disconnect
               </button>
             </div>
           </header>
