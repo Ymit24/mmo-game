@@ -2,6 +2,9 @@ import type { Vector2 } from "@mmo/shared";
 
 export interface OverlayPlayer {
   id: string;
+  nickname: string;
+  className: string;
+  colorHex: string;
   x: number;
   y: number;
   isLocal: boolean;

@@ -17,6 +17,7 @@ import type { GameBridge, OverlayPlayer } from "../bridge";
 interface RuntimeOptions {
   container: HTMLDivElement;
   token: string;
+  characterId: string;
   bridge: GameBridge;
 }
 
@@ -24,6 +25,14 @@ interface PendingInput {
   sequence: number;
   input: PlayerInputState;
   dtMs: number;
+}
+
+interface PlayerActor {
+  sprite: Phaser.GameObjects.Rectangle;
+  label: Phaser.GameObjects.Text;
+  nickname: string;
+  className: string;
+  colorHex: string;
 }
 
 function toWsUrl(apiBaseUrl: string): string {
@@ -59,15 +68,24 @@ function applyPredictedInput(
   position.set(resolved.x, resolved.y);
 }
 
+function hexToNumber(colorHex: string): number {
+  const parsed = Number.parseInt(colorHex.replace("#", ""), 16);
+  if (Number.isNaN(parsed)) {
+    return 0xfbbf24;
+  }
+  return parsed;
+}
+
 class HubScene extends Phaser.Scene {
   private readonly token: string;
+  private readonly characterId: string;
   private readonly bridge: GameBridge;
 
   private socket: WebSocket | null = null;
-  private playerId: string | null = null;
+  private localCharacterId: string | null = null;
 
-  private localPlayer: Phaser.GameObjects.Rectangle | null = null;
-  private remotePlayers = new Map<string, Phaser.GameObjects.Rectangle>();
+  private localPlayer: PlayerActor | null = null;
+  private remotePlayers = new Map<string, PlayerActor>();
 
   private pointerWorld = new Phaser.Math.Vector2();
   private predictedPosition = new Phaser.Math.Vector2();
@@ -88,9 +106,10 @@ class HubScene extends Phaser.Scene {
   private unsubscribeDropRequest: (() => void) | null = null;
   private unsubscribeTakeoverRequest: (() => void) | null = null;
 
-  constructor(token: string, bridge: GameBridge) {
+  constructor(token: string, characterId: string, bridge: GameBridge) {
     super("hub-scene");
     this.token = token;
+    this.characterId = characterId;
     this.bridge = bridge;
   }
 
@@ -192,9 +211,13 @@ class HubScene extends Phaser.Scene {
 
     this.pendingInputs.push({ sequence, input, dtMs });
     applyPredictedInput(this.predictedPosition, input, dtMs);
-    this.localPlayer.setPosition(
+    this.localPlayer.sprite.setPosition(
       this.predictedPosition.x,
       this.predictedPosition.y,
+    );
+    this.localPlayer.label.setPosition(
+      this.predictedPosition.x,
+      this.predictedPosition.y - 30,
     );
 
     this.cameras.main.centerOn(
@@ -311,15 +334,14 @@ class HubScene extends Phaser.Scene {
   private handleServerMessage(message: ServerToClientMessage): void {
     switch (message.type) {
       case "auth.ok":
-        this.playerId = message.playerId;
         this.bridge.updateState({
-          localPlayerId: message.playerId,
           modal: null,
           connectionStatus: "connecting",
         });
         this.sendMessage({
           type: "world.join",
           worldId: HUB_ALPHA_MAP.id,
+          characterId: this.characterId,
         });
         return;
 
@@ -337,29 +359,49 @@ class HubScene extends Phaser.Scene {
         return;
 
       case "world.joined": {
-        this.playerId = message.playerId;
+        this.localCharacterId = message.characterId;
         this.bridge.updateState({
           worldId: message.worldId,
           lastMessage: `Joined ${message.worldId}`,
           connectionStatus: "connected",
           modal: null,
-          localPlayerId: message.playerId,
+          localPlayerId: message.characterId,
         });
         this.inputLocked = false;
 
         if (!this.localPlayer) {
-          this.localPlayer = this.add.rectangle(
+          const sprite = this.add.rectangle(
             message.spawn.x,
             message.spawn.y,
             PLAYER_COLLIDER_SIZE.width,
             PLAYER_COLLIDER_SIZE.height,
-            0xfbbf24,
+            hexToNumber(message.colorHex),
             1,
           );
+          const label = this.add
+            .text(message.spawn.x, message.spawn.y - 30, message.nickname, {
+              fontFamily: "JetBrains Mono",
+              fontSize: "11px",
+              color: message.colorHex,
+              stroke: "#05070b",
+              strokeThickness: 2,
+            })
+            .setOrigin(0.5, 0.5);
+          this.localPlayer = {
+            sprite,
+            label,
+            nickname: message.nickname,
+            className: message.class,
+            colorHex: message.colorHex,
+          };
         }
 
         this.predictedPosition.set(message.spawn.x, message.spawn.y);
-        this.localPlayer.setPosition(message.spawn.x, message.spawn.y);
+        this.localPlayer.sprite.setPosition(message.spawn.x, message.spawn.y);
+        this.localPlayer.label
+          .setText(message.nickname)
+          .setColor(message.colorHex)
+          .setPosition(message.spawn.x, message.spawn.y - 30);
         this.cameras.main.centerOn(message.spawn.x, message.spawn.y);
 
         this.bridge.updateState({
@@ -373,7 +415,7 @@ class HubScene extends Phaser.Scene {
       }
 
       case "world.playerJoined": {
-        if (message.player.id === this.playerId) {
+        if (message.player.id === this.localCharacterId) {
           return;
         }
 
@@ -386,43 +428,92 @@ class HubScene extends Phaser.Scene {
           message.player.position.y,
           28,
           28,
-          0x22d3ee,
+          hexToNumber(message.player.colorHex),
           0.95,
         );
-        this.remotePlayers.set(message.player.id, sprite);
+        const label = this.add
+          .text(
+            message.player.position.x,
+            message.player.position.y - 30,
+            message.player.nickname,
+            {
+              fontFamily: "JetBrains Mono",
+              fontSize: "11px",
+              color: message.player.colorHex,
+              stroke: "#05070b",
+              strokeThickness: 2,
+            },
+          )
+          .setOrigin(0.5, 0.5);
+
+        this.remotePlayers.set(message.player.id, {
+          sprite,
+          label,
+          nickname: message.player.nickname,
+          className: message.player.class,
+          colorHex: message.player.colorHex,
+        });
         this.syncOverlayPlayers();
         return;
       }
 
       case "world.playerLeft": {
-        const sprite = this.remotePlayers.get(message.playerId);
-        sprite?.destroy();
-        this.remotePlayers.delete(message.playerId);
+        const actor = this.remotePlayers.get(message.characterId);
+        actor?.sprite.destroy();
+        actor?.label.destroy();
+        this.remotePlayers.delete(message.characterId);
         this.syncOverlayPlayers();
         return;
       }
 
       case "world.snapshot": {
         for (const player of message.payload.players) {
-          if (player.id === this.playerId) {
+          if (player.id === this.localCharacterId) {
             continue;
           }
 
-          const sprite = this.remotePlayers.get(player.id);
-          if (!sprite) {
-            const next = this.add.rectangle(
+          const actor = this.remotePlayers.get(player.id);
+          if (!actor) {
+            const sprite = this.add.rectangle(
               player.position.x,
               player.position.y,
               28,
               28,
-              0x22d3ee,
+              hexToNumber(player.colorHex),
               0.95,
             );
-            this.remotePlayers.set(player.id, next);
+            const label = this.add
+              .text(
+                player.position.x,
+                player.position.y - 30,
+                player.nickname,
+                {
+                  fontFamily: "JetBrains Mono",
+                  fontSize: "11px",
+                  color: player.colorHex,
+                  stroke: "#05070b",
+                  strokeThickness: 2,
+                },
+              )
+              .setOrigin(0.5, 0.5);
+            this.remotePlayers.set(player.id, {
+              sprite,
+              label,
+              nickname: player.nickname,
+              className: player.class,
+              colorHex: player.colorHex,
+            });
             continue;
           }
 
-          sprite.setPosition(player.position.x, player.position.y);
+          actor.sprite.setPosition(player.position.x, player.position.y);
+          actor.label
+            .setText(player.nickname)
+            .setColor(player.colorHex)
+            .setPosition(player.position.x, player.position.y - 30);
+          actor.nickname = player.nickname;
+          actor.className = player.class;
+          actor.colorHex = player.colorHex;
         }
 
         this.syncOverlayPlayers();
@@ -445,9 +536,13 @@ class HubScene extends Phaser.Scene {
         }
 
         if (this.localPlayer) {
-          this.localPlayer.setPosition(
+          this.localPlayer.sprite.setPosition(
             this.predictedPosition.x,
             this.predictedPosition.y,
+          );
+          this.localPlayer.label.setPosition(
+            this.predictedPosition.x,
+            this.predictedPosition.y - 30,
           );
         }
 
@@ -533,14 +628,16 @@ class HubScene extends Phaser.Scene {
   }
 
   private clearWorldActors(): void {
-    this.localPlayer?.destroy();
+    this.localPlayer?.sprite.destroy();
+    this.localPlayer?.label.destroy();
     this.localPlayer = null;
-    for (const sprite of this.remotePlayers.values()) {
-      sprite.destroy();
+    for (const actor of this.remotePlayers.values()) {
+      actor.sprite.destroy();
+      actor.label.destroy();
     }
     this.remotePlayers.clear();
     this.pendingInputs = [];
-    this.playerId = null;
+    this.localCharacterId = null;
     this.predictedPosition.set(0, 0);
     this.bridge.updateState({
       localPlayerId: null,
@@ -552,21 +649,31 @@ class HubScene extends Phaser.Scene {
   private syncOverlayPlayers(): void {
     const players: OverlayPlayer[] = [];
 
-    if (this.playerId && this.localPlayer && this.bridge.getState().worldId) {
+    if (
+      this.localCharacterId &&
+      this.localPlayer &&
+      this.bridge.getState().worldId
+    ) {
       players.push({
-        id: this.playerId,
+        id: this.localCharacterId,
+        nickname: this.localPlayer.nickname,
+        className: this.localPlayer.className,
+        colorHex: this.localPlayer.colorHex,
         isLocal: true,
         x: this.predictedPosition.x,
         y: this.predictedPosition.y,
       });
     }
 
-    for (const [id, sprite] of this.remotePlayers.entries()) {
+    for (const [id, actor] of this.remotePlayers.entries()) {
       players.push({
         id,
+        nickname: actor.nickname,
+        className: actor.className,
+        colorHex: actor.colorHex,
         isLocal: false,
-        x: sprite.x,
-        y: sprite.y,
+        x: actor.sprite.x,
+        y: actor.sprite.y,
       });
     }
 
@@ -585,6 +692,7 @@ class HubScene extends Phaser.Scene {
 export function mountGameRuntime({
   container,
   token,
+  characterId,
   bridge,
 }: RuntimeOptions): () => void {
   const game = new Phaser.Game({
@@ -596,7 +704,7 @@ export function mountGameRuntime({
       width: container.clientWidth,
       height: container.clientHeight,
     },
-    scene: [new HubScene(token, bridge)],
+    scene: [new HubScene(token, characterId, bridge)],
     physics: {
       default: "arcade",
       arcade: {

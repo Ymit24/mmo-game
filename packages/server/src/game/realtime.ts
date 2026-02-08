@@ -1,7 +1,16 @@
-import { parseClientMessage, stringifyServerMessage } from "@mmo/shared";
+import type { Database } from "bun:sqlite";
+import {
+  getCharacterClassColorHex,
+  parseClientMessage,
+  stringifyServerMessage,
+} from "@mmo/shared";
 import type { Server, ServerWebSocket, WebSocketHandler } from "bun";
 
 import { verifyAccessToken } from "../auth/jwt";
+import {
+  findCharacterByIdForUser,
+  setLastUsedCharacterIdForUser,
+} from "../characters/repository";
 import type { ServerConfig } from "../config";
 import { WorldManager } from "./world";
 import type { RealtimeSocketData } from "./world";
@@ -26,7 +35,10 @@ function sendError(
   socket.send(stringifyServerMessage({ type: "error", error }));
 }
 
-export function createRealtimeGateway(config: ServerConfig): RealtimeGateway {
+export function createRealtimeGateway(
+  config: ServerConfig,
+  db: Database,
+): RealtimeGateway {
   const worlds = new WorldManager();
   const activeSocketsByAccountKey = new Map<
     string,
@@ -40,10 +52,10 @@ export function createRealtimeGateway(config: ServerConfig): RealtimeGateway {
   ): Promise<void> {
     try {
       const result = await verifyAccessToken(token, config);
-      const playerId = result.payload.sub;
+      const userId = result.payload.sub;
       const exp = result.payload.exp;
 
-      if (typeof playerId !== "string" || typeof exp !== "number") {
+      if (typeof userId !== "string" || typeof exp !== "number") {
         socket.send(
           stringifyServerMessage({
             type: "auth.error",
@@ -54,7 +66,7 @@ export function createRealtimeGateway(config: ServerConfig): RealtimeGateway {
         return;
       }
 
-      const accountKey = playerId;
+      const accountKey = userId;
       const activeSocket = activeSocketsByAccountKey.get(accountKey);
       if (activeSocket && activeSocket !== socket) {
         const isSameTokenReconnect =
@@ -85,13 +97,13 @@ export function createRealtimeGateway(config: ServerConfig): RealtimeGateway {
       socket.data.session.accountKey = accountKey;
       socket.data.session.authToken = token;
       socket.data.session.authExpiresAtEpochMs = exp * 1000;
-      socket.data.session.playerId = playerId;
+      socket.data.session.userId = userId;
       activeSocketsByAccountKey.set(accountKey, socket);
 
       socket.send(
         stringifyServerMessage({
           type: "auth.ok",
-          playerId,
+          userId,
         }),
       );
     } catch {
@@ -161,16 +173,41 @@ export function createRealtimeGateway(config: ServerConfig): RealtimeGateway {
 
         switch (incoming.type) {
           case "world.join": {
-            const playerId = socket.data.session.playerId;
-            if (!playerId) {
+            const userId = socket.data.session.userId;
+            if (!userId) {
               sendError(socket, "Session is missing identity information.");
               return;
             }
+            const character = findCharacterByIdForUser(
+              db,
+              userId,
+              incoming.characterId,
+            );
+            if (!character) {
+              sendError(socket, "Character selection is invalid.");
+              return;
+            }
 
-            const spawn = worlds.joinWorld(socket, incoming.worldId, playerId);
+            socket.data.session.characterId = character.id;
+            socket.data.session.characterNickname = character.nickname;
+            socket.data.session.characterClass = character.class;
+            socket.data.session.characterColorHex = getCharacterClassColorHex(
+              character.class,
+            );
+
+            const spawn = worlds.joinWorld(
+              socket,
+              incoming.worldId,
+              character.id,
+              character.nickname,
+              character.class,
+              getCharacterClassColorHex(character.class),
+            );
             if (!spawn) {
               sendError(socket, `Unknown world '${incoming.worldId}'.`);
+              return;
             }
+            setLastUsedCharacterIdForUser(db, userId, character.id);
             return;
           }
 

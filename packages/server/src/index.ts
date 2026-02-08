@@ -2,7 +2,7 @@ import { createApp } from "./app";
 import { createRealtimeGateway } from "./game/realtime";
 
 const app = createApp();
-const realtime = createRealtimeGateway(app.config);
+const realtime = createRealtimeGateway(app.config, app.db);
 
 const server = Bun.serve({
   fetch: (request, serverInstance) => {

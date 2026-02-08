@@ -16,7 +16,11 @@ const INVENTORY_SEED: InventoryItem[] = [
   { id: "mana_cube", label: "Mana Cube", quantity: 2 },
 ];
 
-export function GameShell() {
+interface GameShellProps {
+  characterId: string;
+}
+
+export function GameShell({ characterId }: GameShellProps) {
   const auth = useAuth();
   const navigate = useNavigate();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -42,9 +46,10 @@ export function GameShell() {
     return mountGameRuntime({
       container: containerRef.current,
       token: auth.token,
+      characterId,
       bridge,
     });
-  }, [auth.token, bridge]);
+  }, [auth.token, bridge, characterId]);
 
   const isReady = uiState.connectionStatus === "connected" && !!uiState.worldId;
 
@@ -165,10 +170,10 @@ export function GameShell() {
                 players {uiState.players.length}
               </span>
               <Link
-                to="/"
+                to="/play"
                 className="rounded border border-border px-2 py-1 text-text hover:border-amber/50 hover:text-text-bright"
               >
-                Home
+                Characters
               </Link>
               <button
                 type="button"

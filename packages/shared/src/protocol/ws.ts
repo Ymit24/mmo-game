@@ -1,3 +1,5 @@
+import type { CharacterClass } from "../characters";
+
 export interface Vector2 {
   x: number;
   y: number;
@@ -12,6 +14,9 @@ export interface PlayerInputState {
 
 export interface PlayerSnapshot {
   id: string;
+  nickname: string;
+  class: CharacterClass;
+  colorHex: string;
   position: Vector2;
   velocity: Vector2;
   lastProcessedInputSequence: number;
@@ -38,6 +43,7 @@ export type ClientToServerMessage =
   | {
       type: "world.join";
       worldId: string;
+      characterId: string;
     }
   | {
       type: "player.input";
@@ -53,7 +59,7 @@ export type ClientToServerMessage =
 export type ServerToClientMessage =
   | {
       type: "auth.ok";
-      playerId: string;
+      userId: string;
     }
   | {
       type: "auth.error";
@@ -62,7 +68,10 @@ export type ServerToClientMessage =
   | {
       type: "world.joined";
       worldId: string;
-      playerId: string;
+      characterId: string;
+      nickname: string;
+      class: CharacterClass;
+      colorHex: string;
       spawn: Vector2;
     }
   | {
@@ -73,7 +82,7 @@ export type ServerToClientMessage =
   | {
       type: "world.playerLeft";
       worldId: string;
-      playerId: string;
+      characterId: string;
     }
   | {
       type: "world.snapshot";
@@ -159,12 +168,18 @@ export function parseClientMessage(raw: string): ClientToServerMessage | null {
       };
 
     case "world.join":
-      if (typeof parsed.worldId !== "string" || parsed.worldId.length === 0) {
+      if (
+        typeof parsed.worldId !== "string" ||
+        parsed.worldId.length === 0 ||
+        typeof parsed.characterId !== "string" ||
+        parsed.characterId.length === 0
+      ) {
         return null;
       }
       return {
         type: "world.join",
         worldId: parsed.worldId,
+        characterId: parsed.characterId,
       };
 
     case "player.input": {
