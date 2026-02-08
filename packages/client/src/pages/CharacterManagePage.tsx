@@ -2,7 +2,11 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthContext";
-import { deleteCharacter, listCharacters } from "../lib/api/characterApi";
+import {
+  CharacterApiError,
+  deleteCharacter,
+  listCharacters,
+} from "../lib/api/characterApi";
 
 interface DeleteDialogState {
   id: string;
@@ -192,11 +196,16 @@ export function CharacterManagePage() {
                       navigate("/characters/new", { replace: true });
                     }
                   } catch (requestError) {
-                    setError(
-                      requestError instanceof Error
-                        ? requestError.message
-                        : "Delete failed.",
-                    );
+                    const message =
+                      requestError instanceof CharacterApiError
+                        ? requestError.code ===
+                          "CHARACTER_LAST_DELETE_FORBIDDEN"
+                          ? "You must keep at least one character."
+                          : requestError.message
+                        : requestError instanceof Error
+                          ? requestError.message
+                          : "Delete failed.";
+                    setError(message);
                   } finally {
                     setIsDeleting(false);
                   }

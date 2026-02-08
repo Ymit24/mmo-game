@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import {
+  CHARACTER_ERROR_CODES,
   type CharacterClass,
   type CreateCharacterRequest,
   MAX_CHARACTERS_PER_ACCOUNT,
@@ -21,12 +22,19 @@ import {
 
 const UNAUTHORIZED_MESSAGE = "Authentication is required.";
 const INVALID_CHARACTER_MESSAGE = "Character payload is invalid.";
-const CHARACTER_CREATE_FAILED_MESSAGE = "Unable to create character.";
 const LAST_CHARACTER_DELETE_MESSAGE =
   "Cannot delete your last remaining character.";
 
 function json(status: number, body: unknown): Response {
   return Response.json(body, { status });
+}
+
+function characterError(
+  status: number,
+  code: (typeof CHARACTER_ERROR_CODES)[keyof typeof CHARACTER_ERROR_CODES],
+  error: string,
+): Response {
+  return json(status, { code, error });
 }
 
 function extractBearerToken(request: Request): string | null {
@@ -49,7 +57,11 @@ async function authenticateRequest(
   if (!token) {
     return {
       ok: false,
-      response: json(401, { error: UNAUTHORIZED_MESSAGE }),
+      response: characterError(
+        401,
+        CHARACTER_ERROR_CODES.unauthorized,
+        UNAUTHORIZED_MESSAGE,
+      ),
     };
   }
 
@@ -59,14 +71,22 @@ async function authenticateRequest(
     if (typeof userId !== "string" || userId.length === 0) {
       return {
         ok: false,
-        response: json(401, { error: UNAUTHORIZED_MESSAGE }),
+        response: characterError(
+          401,
+          CHARACTER_ERROR_CODES.unauthorized,
+          UNAUTHORIZED_MESSAGE,
+        ),
       };
     }
     return { ok: true, userId };
   } catch {
     return {
       ok: false,
-      response: json(401, { error: UNAUTHORIZED_MESSAGE }),
+      response: characterError(
+        401,
+        CHARACTER_ERROR_CODES.unauthorized,
+        UNAUTHORIZED_MESSAGE,
+      ),
     };
   }
 }
@@ -142,16 +162,28 @@ export async function handleCreateCharacter(
   }
 
   if (!canCreateCharacter(db, auth.userId)) {
-    return json(409, { error: CHARACTER_CREATE_FAILED_MESSAGE });
+    return characterError(
+      409,
+      CHARACTER_ERROR_CODES.maxReached,
+      "Character limit reached.",
+    );
   }
 
   const body = await parseJsonBody(request);
   if (!body) {
-    return json(415, { error: "Request must be valid application/json." });
+    return characterError(
+      415,
+      CHARACTER_ERROR_CODES.requestNotJson,
+      "Request must be valid application/json.",
+    );
   }
   const validation = validateCreateBody(body);
   if (!validation.ok) {
-    return json(400, { error: INVALID_CHARACTER_MESSAGE });
+    return characterError(
+      400,
+      CHARACTER_ERROR_CODES.invalidPayload,
+      INVALID_CHARACTER_MESSAGE,
+    );
   }
 
   try {
@@ -164,7 +196,11 @@ export async function handleCreateCharacter(
     return json(201, { character });
   } catch (error) {
     if (isUniqueConstraintError(error)) {
-      return json(409, { error: CHARACTER_CREATE_FAILED_MESSAGE });
+      return characterError(
+        409,
+        CHARACTER_ERROR_CODES.duplicateNickname,
+        "Nickname is already used on this account.",
+      );
     }
     throw error;
   }
@@ -181,17 +217,21 @@ export async function handleDeleteCharacter(
     return auth.response;
   }
   if (!characterId) {
-    return json(404, { error: "Not found." });
+    return characterError(404, CHARACTER_ERROR_CODES.notFound, "Not found.");
   }
 
   const characters = listCharactersForUser(db, auth.userId);
   if (characters.length <= 1) {
-    return json(409, { error: LAST_CHARACTER_DELETE_MESSAGE });
+    return characterError(
+      409,
+      CHARACTER_ERROR_CODES.lastCharacterDeleteForbidden,
+      LAST_CHARACTER_DELETE_MESSAGE,
+    );
   }
 
   const target = findCharacterByIdForUser(db, auth.userId, characterId);
   if (!target) {
-    return json(404, { error: "Not found." });
+    return characterError(404, CHARACTER_ERROR_CODES.notFound, "Not found.");
   }
 
   deleteCharacterForUser(db, auth.userId, characterId);

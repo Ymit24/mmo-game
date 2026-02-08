@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthContext";
-import { listCharacters } from "../lib/api/characterApi";
+import { CharacterApiError, listCharacters } from "../lib/api/characterApi";
 
 export function PlayPage() {
   const auth = useAuth();
@@ -40,9 +40,13 @@ export function PlayPage() {
           return;
         }
         const message =
-          requestError instanceof Error
-            ? requestError.message
-            : "Unable to load characters.";
+          requestError instanceof CharacterApiError
+            ? requestError.code === "CHARACTER_UNAUTHORIZED"
+              ? "Session expired. Please sign in again."
+              : requestError.message
+            : requestError instanceof Error
+              ? requestError.message
+              : "Unable to load characters.";
         setError(message);
       } finally {
         if (!isCancelled) {

@@ -103,6 +103,10 @@ describe("character routes", () => {
       }),
     );
     expect(second.status).toBe(409);
+    expect(await second.json()).toEqual({
+      code: "CHARACTER_DUPLICATE_NICKNAME",
+      error: "Nickname is already used on this account.",
+    });
   });
 
   test("disallows deleting last remaining character", async () => {
@@ -124,5 +128,9 @@ describe("character routes", () => {
       createJsonRequest(`/characters/${created.character.id}`, "DELETE", token),
     );
     expect(deleteResponse.status).toBe(409);
+    expect(await deleteResponse.json()).toEqual({
+      code: "CHARACTER_LAST_DELETE_FORBIDDEN",
+      error: "Cannot delete your last remaining character.",
+    });
   });
 });

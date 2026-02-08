@@ -31,8 +31,31 @@ export interface CreateCharacterResponse {
   character: CharacterSummary;
 }
 
+export const CHARACTER_ERROR_CODES = {
+  unauthorized: "CHARACTER_UNAUTHORIZED",
+  requestNotJson: "CHARACTER_REQUEST_NOT_JSON",
+  invalidPayload: "CHARACTER_INVALID_PAYLOAD",
+  maxReached: "CHARACTER_MAX_REACHED",
+  duplicateNickname: "CHARACTER_DUPLICATE_NICKNAME",
+  lastCharacterDeleteForbidden: "CHARACTER_LAST_DELETE_FORBIDDEN",
+  notFound: "CHARACTER_NOT_FOUND",
+  requestFailed: "CHARACTER_REQUEST_FAILED",
+} as const;
+
+export type CharacterErrorCode =
+  (typeof CHARACTER_ERROR_CODES)[keyof typeof CHARACTER_ERROR_CODES];
+
+export function isCharacterErrorCode(
+  value: string,
+): value is CharacterErrorCode {
+  return (Object.values(CHARACTER_ERROR_CODES) as readonly string[]).includes(
+    value,
+  );
+}
+
 export interface CharacterErrorResponse {
   error: string;
+  code: CharacterErrorCode;
 }
 
 export function normalizeNickname(nickname: string): string {

@@ -7,7 +7,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthContext";
-import { createCharacter } from "../lib/api/characterApi";
+import { CharacterApiError, createCharacter } from "../lib/api/characterApi";
 
 const CHARACTER_CLASSES: CharacterClass[] = ["knight", "mage"];
 
@@ -97,9 +97,15 @@ export function CharacterCreatePage() {
                 navigate("/play", { replace: true });
               } catch (requestError) {
                 const message =
-                  requestError instanceof Error
-                    ? requestError.message
-                    : "Unable to create character.";
+                  requestError instanceof CharacterApiError
+                    ? requestError.code === "CHARACTER_MAX_REACHED"
+                      ? "You reached the max of 6 characters."
+                      : requestError.code === "CHARACTER_DUPLICATE_NICKNAME"
+                        ? "That nickname is already used on this account."
+                        : requestError.message
+                    : requestError instanceof Error
+                      ? requestError.message
+                      : "Unable to create character.";
                 setError(message);
               } finally {
                 setIsSubmitting(false);
