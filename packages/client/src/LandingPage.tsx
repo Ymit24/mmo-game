@@ -94,7 +94,7 @@ function Navbar() {
         {auth.isAuthenticated ? (
           <>
             <Link
-              to="/characters"
+              to="/play"
               className="text-muted hover:text-text-bright transition-colors duration-200"
             >
               Characters
@@ -123,11 +123,11 @@ function Navbar() {
                     Enter World
                   </Link>
                   <Link
-                    to="/characters"
+                    to="/play"
                     onClick={() => setProfileOpen(false)}
                     className="block rounded px-3 py-2 text-sm text-text hover:bg-deep"
                   >
-                    Manage Characters
+                    Character Hub
                   </Link>
                   <button
                     type="button"

@@ -106,7 +106,9 @@ describe("auth flow", () => {
     );
 
     expect(
-      await screen.findByRole("heading", { name: "Choose Character" }),
+      await screen.findByRole("heading", {
+        name: "Select and Manage Characters",
+      }),
     ).toBeInTheDocument();
 
     const storedSession = localStorage.getItem(AUTH_SESSION_STORAGE_KEY);
