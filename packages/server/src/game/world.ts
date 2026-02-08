@@ -34,8 +34,6 @@ interface JoinWorldOptions {
   spawnOverride?: Vector2;
 }
 
-const PORTAL_TRAVEL_COOLDOWN_MS = 750;
-
 export interface RealtimeSession {
   connectionId: string;
   authenticated: boolean;
@@ -48,7 +46,6 @@ export interface RealtimeSession {
   characterClass: CharacterClass | null;
   characterColorHex: string | null;
   worldId: string | null;
-  lastPortalTravelAtEpochMs: number | null;
 }
 
 export interface RealtimeSocketData {
@@ -186,6 +183,10 @@ class WorldInstance {
     player.velocity = velocity;
     player.lastProcessedInputSequence = message.sequence;
 
+    const portal = this.map.portals.find((candidate) =>
+      intersectsPlayerBounds(player.position, candidate.shape),
+    );
+
     player.socket.send(
       stringifyServerMessage({
         type: "player.state",
@@ -195,11 +196,7 @@ class WorldInstance {
       }),
     );
 
-    return (
-      this.map.portals.find((portal) =>
-        intersectsPlayerBounds(player.position, portal.shape),
-      ) ?? null
-    );
+    return portal ?? null;
   }
 
   broadcast(
@@ -263,7 +260,6 @@ export class WorldManager {
         characterClass: null,
         characterColorHex: null,
         worldId: null,
-        lastPortalTravelAtEpochMs: null,
       },
     };
   }
@@ -358,58 +354,7 @@ export class WorldManager {
       return;
     }
 
-    const { characterNickname, characterClass, characterColorHex } =
-      socket.data.session;
-    if (!characterNickname || !characterClass || !characterColorHex) {
-      return;
-    }
-
-    const now = Date.now();
-    const lastPortalTravelAtEpochMs =
-      socket.data.session.lastPortalTravelAtEpochMs;
-    if (
-      typeof lastPortalTravelAtEpochMs === "number" &&
-      now - lastPortalTravelAtEpochMs < PORTAL_TRAVEL_COOLDOWN_MS
-    ) {
-      return;
-    }
-
-    const targetMap = WORLD_MAPS_BY_ID.get(portal.targetWorldId);
-    if (!targetMap) {
-      return;
-    }
-
-    const targetSpawn = findSpawnPoint(targetMap, portal.targetSpawnId);
-    if (!targetSpawn) {
-      return;
-    }
-
-    socket.data.session.lastPortalTravelAtEpochMs = now;
-    const fromWorldId = worldId;
-    this.leaveWorld(socket);
-    socket.send(
-      stringifyServerMessage({
-        type: "world.transitioning",
-        fromWorldId,
-        toWorldId: portal.targetWorldId,
-        portalId: portal.id,
-        reason: "portal",
-      }),
-    );
-    this.joinWorld(
-      socket,
-      portal.targetWorldId,
-      characterId,
-      characterNickname,
-      characterClass,
-      characterColorHex,
-      {
-        spawnOverride: {
-          x: targetSpawn.x + portal.exitOffset.x,
-          y: targetSpawn.y + portal.exitOffset.y,
-        },
-      },
-    );
+    this.tryTravelThroughPortal(socket, portal);
   }
 
   acknowledgeDrop(
@@ -456,5 +401,63 @@ export class WorldManager {
     const created = new WorldInstance(worldId, map);
     this.instances.set(worldId, created);
     return created;
+  }
+
+  private tryTravelThroughPortal(
+    socket: ServerWebSocket<RealtimeSocketData>,
+    portal: PortalTrigger,
+  ): void {
+    const {
+      characterId,
+      worldId,
+      characterNickname,
+      characterClass,
+      characterColorHex,
+    } = socket.data.session;
+    if (
+      !characterId ||
+      !worldId ||
+      !characterNickname ||
+      !characterClass ||
+      !characterColorHex
+    ) {
+      return;
+    }
+
+    const targetMap = WORLD_MAPS_BY_ID.get(portal.targetWorldId);
+    if (!targetMap) {
+      return;
+    }
+
+    const targetSpawn = findSpawnPoint(targetMap, portal.targetSpawnId);
+    if (!targetSpawn) {
+      return;
+    }
+
+    const fromWorldId = worldId;
+    this.leaveWorld(socket);
+    socket.send(
+      stringifyServerMessage({
+        type: "world.transitioning",
+        fromWorldId,
+        toWorldId: portal.targetWorldId,
+        portalId: portal.id,
+        reason: "portal",
+      }),
+    );
+    this.joinWorld(
+      socket,
+      portal.targetWorldId,
+      characterId,
+      characterNickname,
+      characterClass,
+      characterColorHex,
+      {
+        spawnOverride: {
+          x: targetSpawn.x + portal.exitOffset.x,
+          y: targetSpawn.y + portal.exitOffset.y,
+        },
+      },
+    );
   }
 }

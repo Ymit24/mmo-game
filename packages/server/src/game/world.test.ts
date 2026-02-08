@@ -331,7 +331,7 @@ describe("world manager", () => {
     cleanup.push(() => manager.leaveWorld(asServerSocket(socketC)));
   });
 
-  test("portal exit offset and cooldown avoid immediate bounce loop", () => {
+  test("portal exit offset avoids immediate bounce on the next input tick", () => {
     const manager = new WorldManager();
     const socket = createMockSocket(manager, "user-a", "character-a");
 
@@ -386,6 +386,92 @@ describe("world manager", () => {
         message.type === "world.joined" && message.worldId === HUB_ALPHA_MAP.id,
     );
     expect(immediateRejoin).toBeUndefined();
+
+    cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
+  });
+
+  test("player can return through the opposite portal immediately after transition", () => {
+    const manager = new WorldManager();
+    const socket = createMockSocket(manager, "user-a", "character-a");
+
+    manager.joinWorld(
+      asServerSocket(socket),
+      WILDS_BETA_MAP.id,
+      "character-a",
+      "Alpha",
+      "knight",
+      "#E8A832",
+    );
+
+    let traveledToHub = false;
+    for (let sequence = 1; sequence <= 20; sequence += 1) {
+      manager.applyInput(asServerSocket(socket), {
+        type: "player.input",
+        sequence,
+        dtMs: 80,
+        input: {
+          up: false,
+          down: false,
+          left: true,
+          right: false,
+        },
+      });
+
+      const inHubNow = parseMessages(socket).some(
+        (message) =>
+          message.type === "world.joined" &&
+          message.worldId === HUB_ALPHA_MAP.id,
+      );
+      if (inHubNow) {
+        traveledToHub = true;
+        break;
+      }
+    }
+
+    expect(traveledToHub).toBe(true);
+
+    socket.sent = [];
+    manager.applyInput(asServerSocket(socket), {
+      type: "player.input",
+      sequence: 99,
+      dtMs: 80,
+      input: {
+        up: false,
+        down: false,
+        left: false,
+        right: true,
+      },
+    });
+    manager.applyInput(asServerSocket(socket), {
+      type: "player.input",
+      sequence: 100,
+      dtMs: 80,
+      input: {
+        up: false,
+        down: false,
+        left: false,
+        right: true,
+      },
+    });
+
+    manager.applyInput(asServerSocket(socket), {
+      type: "player.input",
+      sequence: 101,
+      dtMs: 80,
+      input: {
+        up: false,
+        down: false,
+        left: false,
+        right: true,
+      },
+    });
+
+    const returnedToWilds = parseMessages(socket).some(
+      (message) =>
+        message.type === "world.joined" &&
+        message.worldId === WILDS_BETA_MAP.id,
+    );
+    expect(returnedToWilds).toBe(true);
 
     cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
   });
