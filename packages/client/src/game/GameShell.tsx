@@ -51,7 +51,14 @@ export function GameShell({ characterId }: GameShellProps) {
     });
   }, [auth.token, bridge, characterId]);
 
-  const isReady = uiState.connectionStatus === "connected" && !!uiState.worldId;
+  const isReady = uiState.isInWorld;
+  const isTransitioning =
+    !uiState.isInWorld &&
+    uiState.connectionStatus === "connected" &&
+    !!uiState.transitionMessage;
+  const showConnectionModal =
+    !!uiState.modal ||
+    (uiState.connectionStatus !== "connected" && !isTransitioning);
 
   function reconnect(): void {
     window.location.reload();
@@ -99,7 +106,7 @@ export function GameShell({ characterId }: GameShellProps) {
     <div className="relative h-dvh w-full overflow-hidden bg-void text-text">
       <div ref={containerRef} className="absolute inset-0" />
 
-      {!isReady || uiState.modal ? (
+      {showConnectionModal ? (
         <div className="absolute inset-0 z-30 flex items-center justify-center bg-void/90 p-4 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-xl border border-border bg-abyss/95 p-5 shadow-xl">
             <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-cyan">
@@ -147,7 +154,7 @@ export function GameShell({ characterId }: GameShellProps) {
       ) : null}
 
       {uiState.transitionMessage ? (
-        <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-void/35 backdrop-blur-[1px]">
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-void p-4">
           <div className="rounded-lg border border-cyan/40 bg-abyss/90 px-5 py-3 shadow-xl shadow-cyan/10">
             <p className="font-mono text-xs uppercase tracking-[0.18em] text-cyan">
               {uiState.transitionMessage}

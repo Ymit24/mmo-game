@@ -25,6 +25,7 @@ export interface GameModalState {
 export interface GameBridgeState {
   connectionStatus: "idle" | "connecting" | "connected" | "error";
   modal: GameModalState | null;
+  isInWorld: boolean;
   transitionMessage: string | null;
   worldId: string | null;
   localPlayerId: string | null;
@@ -45,6 +46,7 @@ type TakeoverListener = () => void;
 const DEFAULT_STATE: GameBridgeState = {
   connectionStatus: "idle",
   modal: null,
+  isInWorld: false,
   transitionMessage: null,
   worldId: null,
   localPlayerId: null,

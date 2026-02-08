@@ -385,6 +385,17 @@ export class WorldManager {
     }
 
     socket.data.session.lastPortalTravelAtEpochMs = now;
+    const fromWorldId = worldId;
+    this.leaveWorld(socket);
+    socket.send(
+      stringifyServerMessage({
+        type: "world.transitioning",
+        fromWorldId,
+        toWorldId: portal.targetWorldId,
+        portalId: portal.id,
+        reason: "portal",
+      }),
+    );
     this.joinWorld(
       socket,
       portal.targetWorldId,

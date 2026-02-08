@@ -99,7 +99,6 @@ class HubScene extends Phaser.Scene {
   private currentMap: WorldMap;
   private mapBackgroundGraphics: Phaser.GameObjects.Graphics | null = null;
   private mapOverlayGraphics: Phaser.GameObjects.Graphics | null = null;
-  private travelTransitionTimer: ReturnType<typeof setTimeout> | null = null;
 
   private cursors!: {
     up: Phaser.Input.Keyboard.Key;
@@ -154,6 +153,9 @@ class HubScene extends Phaser.Scene {
 
     this.unsubscribeDropRequest = this.bridge.onDropRequest(
       ({ itemId, quantity }) => {
+        if (!this.bridge.getState().isInWorld) {
+          return;
+        }
         this.sendMessage({
           type: "inventory.drop",
           payload: {
@@ -174,6 +176,7 @@ class HubScene extends Phaser.Scene {
     this.bridge.updateState({
       connectionStatus: "connecting",
       modal: null,
+      isInWorld: false,
       transitionMessage: null,
       pointerWorld: {
         x: this.pointerWorld.x,
@@ -186,10 +189,6 @@ class HubScene extends Phaser.Scene {
       this.unsubscribeDropRequest = null;
       this.unsubscribeTakeoverRequest?.();
       this.unsubscribeTakeoverRequest = null;
-      if (this.travelTransitionTimer) {
-        clearTimeout(this.travelTransitionTimer);
-        this.travelTransitionTimer = null;
-      }
       if (this.socket) {
         this.socket.close();
         this.socket = null;
@@ -339,8 +338,12 @@ class HubScene extends Phaser.Scene {
     ws.addEventListener("close", () => {
       const current = this.bridge.getState();
       this.inputLocked = true;
+      this.clearWorldActors();
       this.bridge.updateState({
         connectionStatus: "error",
+        isInWorld: false,
+        transitionMessage: null,
+        worldId: null,
         lastMessage:
           current.modal?.message ??
           current.lastMessage ??
@@ -351,8 +354,12 @@ class HubScene extends Phaser.Scene {
     ws.addEventListener("error", () => {
       const current = this.bridge.getState();
       this.inputLocked = true;
+      this.clearWorldActors();
       this.bridge.updateState({
         connectionStatus: "error",
+        isInWorld: false,
+        transitionMessage: null,
+        worldId: null,
         lastMessage:
           current.modal?.message ??
           current.lastMessage ??
@@ -377,37 +384,38 @@ class HubScene extends Phaser.Scene {
 
       case "auth.error":
         this.inputLocked = true;
+        this.clearWorldActors();
         this.bridge.updateState({
           connectionStatus: "error",
           modal: {
             kind: "error",
             message: message.error,
           },
+          isInWorld: false,
+          transitionMessage: null,
+          worldId: null,
           lastMessage: message.error,
         });
         this.socket?.close();
         return;
 
+      case "world.transitioning":
+        this.startWorldTransition(
+          resolveMapById(message.toWorldId)?.name ?? message.toWorldId,
+        );
+        return;
+
       case "world.joined": {
-        const previousWorldId = this.bridge.getState().worldId;
-        const worldChanged =
-          !!previousWorldId && previousWorldId !== message.worldId;
         const nextMap = resolveMapById(message.worldId);
         if (nextMap) {
           this.applyWorldMap(nextMap);
-        }
-        if (worldChanged) {
-          this.clearRemotePlayers();
-          this.showTravelTransition(
-            nextMap ? `Traveling to ${nextMap.name}` : "Traveling...",
-          );
-        } else {
-          this.bridge.updateState({ transitionMessage: null });
         }
 
         this.localCharacterId = message.characterId;
         this.pendingInputs = [];
         this.bridge.updateState({
+          isInWorld: true,
+          transitionMessage: null,
           worldId: message.worldId,
           lastMessage: `Joined ${message.worldId}`,
           connectionStatus: "connected",
@@ -646,6 +654,7 @@ class HubScene extends Phaser.Scene {
             kind: "kicked",
             message: message.reason,
           },
+          isInWorld: false,
           transitionMessage: null,
           worldId: null,
           lastMessage: message.reason,
@@ -662,6 +671,7 @@ class HubScene extends Phaser.Scene {
           this.bridge.updateState({
             connectionStatus: "connecting",
             modal: null,
+            isInWorld: false,
             transitionMessage: null,
             worldId: null,
             lastMessage: "Reconnecting to existing session...",
@@ -678,6 +688,7 @@ class HubScene extends Phaser.Scene {
             kind: "conflict",
             message: message.reason,
           },
+          isInWorld: false,
           transitionMessage: null,
           worldId: null,
           lastMessage: message.reason,
@@ -698,6 +709,16 @@ class HubScene extends Phaser.Scene {
     });
   }
 
+  private startWorldTransition(destinationName: string): void {
+    this.inputLocked = true;
+    this.clearWorldActors();
+    this.bridge.updateState({
+      isInWorld: false,
+      transitionMessage: `Traveling to ${destinationName}`,
+      lastMessage: `Traveling to ${destinationName}`,
+    });
+  }
+
   private clearWorldActors(): void {
     this.localPlayer?.sprite.destroy();
     this.localPlayer?.label.destroy();
@@ -708,6 +729,8 @@ class HubScene extends Phaser.Scene {
     this.localCharacterId = null;
     this.predictedPosition.set(0, 0);
     this.bridge.updateState({
+      isInWorld: false,
+      worldId: null,
       transitionMessage: null,
       localPlayerId: null,
       localPosition: null,
@@ -721,20 +744,6 @@ class HubScene extends Phaser.Scene {
       actor.label.destroy();
     }
     this.remotePlayers.clear();
-  }
-
-  private showTravelTransition(message: string): void {
-    this.bridge.updateState({
-      transitionMessage: message,
-      lastMessage: message,
-    });
-    if (this.travelTransitionTimer) {
-      clearTimeout(this.travelTransitionTimer);
-    }
-    this.travelTransitionTimer = setTimeout(() => {
-      this.bridge.updateState({ transitionMessage: null });
-      this.travelTransitionTimer = null;
-    }, 500);
   }
 
   private syncOverlayPlayers(): void {

@@ -208,7 +208,7 @@ describe("world manager", () => {
     cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
   });
 
-  test("portal travel moves player into second world and sends world.joined", () => {
+  test("portal travel emits world.transitioning before world.joined for destination world", () => {
     const manager = new WorldManager();
     const socket = createMockSocket(manager, "user-a", "character-a");
 
@@ -248,6 +248,17 @@ describe("world manager", () => {
     }
 
     expect(travelJoined).toBe(true);
+    const messages = parseMessages(socket);
+    const transitionIndex = messages.findIndex(
+      (message) => message.type === "world.transitioning",
+    );
+    const destinationJoinIndex = messages.findIndex(
+      (message) =>
+        message.type === "world.joined" &&
+        message.worldId === WILDS_BETA_MAP.id,
+    );
+    expect(transitionIndex).toBeGreaterThan(-1);
+    expect(destinationJoinIndex).toBeGreaterThan(transitionIndex);
     expect(socket.data.session.worldId).toBe(WILDS_BETA_MAP.id);
     cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
   });
