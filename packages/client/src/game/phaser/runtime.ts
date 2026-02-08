@@ -337,8 +337,7 @@ class HubScene extends Phaser.Scene {
 
     ws.addEventListener("close", () => {
       const current = this.bridge.getState();
-      this.inputLocked = true;
-      this.clearWorldActors();
+      this.resetWorldPresence();
       this.bridge.updateState({
         connectionStatus: "error",
         isInWorld: false,
@@ -353,8 +352,7 @@ class HubScene extends Phaser.Scene {
 
     ws.addEventListener("error", () => {
       const current = this.bridge.getState();
-      this.inputLocked = true;
-      this.clearWorldActors();
+      this.resetWorldPresence();
       this.bridge.updateState({
         connectionStatus: "error",
         isInWorld: false,
@@ -383,8 +381,7 @@ class HubScene extends Phaser.Scene {
         return;
 
       case "auth.error":
-        this.inputLocked = true;
-        this.clearWorldActors();
+        this.resetWorldPresence();
         this.bridge.updateState({
           connectionStatus: "error",
           modal: {
@@ -646,8 +643,7 @@ class HubScene extends Phaser.Scene {
         return;
 
       case "session.kicked":
-        this.inputLocked = true;
-        this.clearWorldActors();
+        this.resetWorldPresence();
         this.bridge.updateState({
           connectionStatus: "error",
           modal: {
@@ -664,8 +660,7 @@ class HubScene extends Phaser.Scene {
         return;
 
       case "session.conflict":
-        this.inputLocked = true;
-        this.clearWorldActors();
+        this.resetWorldPresence();
         if (this.conflictRetryCount < 1) {
           this.conflictRetryCount += 1;
           this.bridge.updateState({
@@ -710,8 +705,7 @@ class HubScene extends Phaser.Scene {
   }
 
   private startWorldTransition(destinationName: string): void {
-    this.inputLocked = true;
-    this.clearWorldActors();
+    this.resetWorldPresence();
     this.bridge.updateState({
       isInWorld: false,
       transitionMessage: `Traveling to ${destinationName}`,
@@ -736,6 +730,11 @@ class HubScene extends Phaser.Scene {
       localPosition: null,
       players: [],
     });
+  }
+
+  private resetWorldPresence(): void {
+    this.inputLocked = true;
+    this.clearWorldActors();
   }
 
   private clearRemotePlayers(): void {
