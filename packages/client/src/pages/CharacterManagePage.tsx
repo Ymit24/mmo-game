@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthContext";
+import { CharacterHubTopbar } from "../components/characters/CharacterHubTopbar";
 import {
   CharacterApiError,
   deleteCharacter,
@@ -71,9 +72,10 @@ export function CharacterManagePage() {
   }
 
   return (
-    <main className="min-h-dvh bg-void px-4 py-8 text-text md:px-8">
-      <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
-        <header className="flex flex-wrap items-center justify-between gap-3">
+    <main className="min-h-dvh bg-void text-text">
+      <CharacterHubTopbar />
+      <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-8 md:px-8">
+        <header className="flex flex-wrap items-center gap-3">
           <div>
             <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-cyan">
               Character Control
@@ -81,20 +83,6 @@ export function CharacterManagePage() {
             <h1 className="mt-2 font-display text-3xl font-bold text-text-bright">
               Manage Characters
             </h1>
-          </div>
-          <div className="flex items-center gap-2">
-            <Link
-              to="/characters/new"
-              className="rounded border border-border px-3 py-2 text-sm hover:border-amber/60"
-            >
-              New Character
-            </Link>
-            <Link
-              to="/play"
-              className="rounded border border-border px-3 py-2 text-sm hover:border-amber/60"
-            >
-              Back to Select
-            </Link>
           </div>
         </header>
 

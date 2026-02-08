@@ -4,9 +4,10 @@ import {
   validateCharacterNickname,
 } from "@mmo/shared";
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthContext";
+import { CharacterHubTopbar } from "../components/characters/CharacterHubTopbar";
 import { CharacterApiError, createCharacter } from "../lib/api/characterApi";
 
 const CHARACTER_CLASSES: CharacterClass[] = ["knight", "mage"];
@@ -26,9 +27,10 @@ export function CharacterCreatePage() {
   }
 
   return (
-    <main className="min-h-dvh bg-void px-4 py-8 text-text md:px-8">
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
-        <header className="flex flex-wrap items-center justify-between gap-3">
+    <main className="min-h-dvh bg-void text-text">
+      <CharacterHubTopbar />
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-8 md:px-8">
+        <header className="flex flex-wrap items-center gap-3">
           <div>
             <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-cyan">
               Character Setup
@@ -37,12 +39,6 @@ export function CharacterCreatePage() {
               Create Your First Character
             </h1>
           </div>
-          <Link
-            to="/play"
-            className="rounded border border-border px-3 py-2 text-sm hover:border-amber/60"
-          >
-            Back to Character Select
-          </Link>
         </header>
 
         <section className="grid gap-6 rounded-xl border border-border bg-abyss/80 p-5 md:grid-cols-[1.2fr_1fr]">
