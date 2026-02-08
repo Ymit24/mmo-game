@@ -135,6 +135,27 @@ describe("character routes", () => {
     });
   });
 
+  test("returns not found when deleting unknown character id", async () => {
+    const token = await signupAndGetToken(app, "player404@example.com");
+
+    const createResponse = await app.fetch(
+      createJsonRequest("/characters", "POST", token, {
+        nickname: "OnlyOne",
+        class: "mage",
+      }),
+    );
+    expect(createResponse.status).toBe(201);
+
+    const deleteResponse = await app.fetch(
+      createJsonRequest("/characters/does-not-exist", "DELETE", token),
+    );
+    expect(deleteResponse.status).toBe(404);
+    expect(await deleteResponse.json()).toEqual({
+      code: "CHARACTER_NOT_FOUND",
+      error: "Not found.",
+    });
+  });
+
   test("preserves last-used character when deleting a different character", async () => {
     const token = await signupAndGetToken(app, "player4@example.com");
 

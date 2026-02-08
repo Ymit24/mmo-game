@@ -107,12 +107,14 @@ export function countCharactersForUser(db: Database, userId: string): number {
   return row?.count ?? 0;
 }
 
-export function createCharacter(
+function insertCharacter(
   db: Database,
   input: NewCharacterInput,
+  timestamp: string,
 ): CharacterSummary {
-  const timestamp = new Date().toISOString();
   const normalizedNickname = normalizeNickname(input.nickname);
+  const nickname = input.nickname.trim();
+
   db.query(
     `INSERT INTO characters (
       id,
@@ -126,7 +128,7 @@ export function createCharacter(
   ).run(
     input.id,
     input.userId,
-    input.nickname.trim(),
+    nickname,
     normalizedNickname,
     input.class,
     timestamp,
@@ -136,7 +138,7 @@ export function createCharacter(
   setLastUsedCharacterIdForUser(db, input.userId, input.id);
   return {
     id: input.id,
-    nickname: input.nickname.trim(),
+    nickname,
     class: input.class,
     createdAt: timestamp,
     updatedAt: timestamp,
@@ -144,12 +146,18 @@ export function createCharacter(
   };
 }
 
+export function createCharacter(
+  db: Database,
+  input: NewCharacterInput,
+): CharacterSummary {
+  return insertCharacter(db, input, new Date().toISOString());
+}
+
 export function createCharacterIfWithinLimit(
   db: Database,
   input: NewCharacterInput,
 ): CharacterSummary | null {
   const timestamp = new Date().toISOString();
-  const normalizedNickname = normalizeNickname(input.nickname);
   let committed = false;
 
   db.exec("BEGIN IMMEDIATE;");
@@ -159,38 +167,11 @@ export function createCharacterIfWithinLimit(
       return null;
     }
 
-    db.query(
-      `INSERT INTO characters (
-        id,
-        user_id,
-        nickname,
-        nickname_normalized,
-        class,
-        created_at,
-        updated_at
-      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
-    ).run(
-      input.id,
-      input.userId,
-      input.nickname.trim(),
-      normalizedNickname,
-      input.class,
-      timestamp,
-      timestamp,
-    );
-
-    setLastUsedCharacterIdForUser(db, input.userId, input.id);
+    const character = insertCharacter(db, input, timestamp);
     db.exec("COMMIT;");
     committed = true;
 
-    return {
-      id: input.id,
-      nickname: input.nickname.trim(),
-      class: input.class,
-      createdAt: timestamp,
-      updatedAt: timestamp,
-      isLastUsed: true,
-    };
+    return character;
   } finally {
     if (!committed) {
       try {

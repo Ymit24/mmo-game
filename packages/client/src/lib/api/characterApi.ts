@@ -55,9 +55,7 @@ export async function listCharacters(
 ): Promise<ListCharactersResponse> {
   const response = await fetch(`${API_BASE_URL}/characters`, {
     method: "GET",
-    headers: {
-      authorization: `Bearer ${token}`,
-    },
+    headers: authHeaders(token),
   });
   if (!response.ok) {
     throw await parseError(response);
@@ -86,9 +84,7 @@ export async function deleteCharacter(
 ): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/characters/${characterId}`, {
     method: "DELETE",
-    headers: {
-      authorization: `Bearer ${token}`,
-    },
+    headers: authHeaders(token),
   });
   if (!response.ok) {
     throw await parseError(response);

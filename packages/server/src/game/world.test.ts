@@ -154,6 +154,50 @@ describe("world manager", () => {
     expect(playerIds).toEqual(["character-b"]);
   });
 
+  test("invalid world join does not remove player from current world", () => {
+    const manager = new WorldManager();
+    const socket = createMockSocket(manager, "user-a", "character-a");
+
+    manager.joinWorld(
+      asServerSocket(socket),
+      HUB_ALPHA_MAP.id,
+      "character-a",
+      "Alpha",
+      "knight",
+      "#E8A832",
+    );
+
+    const invalidJoin = manager.joinWorld(
+      asServerSocket(socket),
+      "missing-world",
+      "character-a",
+      "Alpha",
+      "knight",
+      "#E8A832",
+    );
+    expect(invalidJoin).toBeNull();
+
+    socket.sent = [];
+    manager.applyInput(asServerSocket(socket), {
+      type: "player.input",
+      sequence: 1,
+      dtMs: 16,
+      input: {
+        up: false,
+        down: false,
+        left: false,
+        right: true,
+      },
+    });
+
+    const playerState = parseMessages(socket).find(
+      (message) => message.type === "player.state",
+    );
+    expect(playerState?.type).toBe("player.state");
+
+    cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
+  });
+
   test("spawn point is outside collision geometry", () => {
     const spawn = findSpawnPoint(HUB_ALPHA_MAP, HUB_ALPHA_MAP.playerSpawnId);
     expect(spawn).toBeDefined();

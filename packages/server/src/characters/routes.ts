@@ -202,6 +202,11 @@ export async function handleDeleteCharacter(
     return characterError(404, CHARACTER_ERROR_CODES.notFound, "Not found.");
   }
 
+  const target = findCharacterByIdForUser(db, auth.userId, characterId);
+  if (!target) {
+    return characterError(404, CHARACTER_ERROR_CODES.notFound, "Not found.");
+  }
+
   const characters = listCharactersForUser(db, auth.userId);
   if (characters.length <= 1) {
     return characterError(
@@ -209,11 +214,6 @@ export async function handleDeleteCharacter(
       CHARACTER_ERROR_CODES.lastCharacterDeleteForbidden,
       LAST_CHARACTER_DELETE_MESSAGE,
     );
-  }
-
-  const target = findCharacterByIdForUser(db, auth.userId, characterId);
-  if (!target) {
-    return characterError(404, CHARACTER_ERROR_CODES.notFound, "Not found.");
   }
 
   const lastUsedCharacterId = getLastUsedCharacterIdForUser(db, auth.userId);
