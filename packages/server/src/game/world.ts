@@ -101,11 +101,14 @@ class WorldInstance {
 
     this.players.set(characterId, player);
 
-    this.broadcast({
-      type: "world.playerJoined",
-      worldId: this.worldId,
-      player: toSnapshot(player),
-    });
+    this.broadcast(
+      {
+        type: "world.playerJoined",
+        worldId: this.worldId,
+        player: toSnapshot(player),
+      },
+      connectionId,
+    );
 
     return player.position;
   }
@@ -161,10 +164,16 @@ class WorldInstance {
     );
   }
 
-  broadcast(message: ServerToClientMessage): void {
+  broadcast(
+    message: ServerToClientMessage,
+    excludeConnectionId?: string,
+  ): void {
     const wire = stringifyServerMessage(message);
 
     for (const player of this.players.values()) {
+      if (excludeConnectionId && player.connectionId === excludeConnectionId) {
+        continue;
+      }
       player.socket.send(wire);
     }
   }

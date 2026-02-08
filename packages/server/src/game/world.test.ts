@@ -99,6 +99,26 @@ describe("world manager", () => {
     expect(playerIds).toEqual(["player-a", "player-b"]);
   });
 
+  test("join does not emit world.playerJoined for the joining player", () => {
+    const manager = new WorldManager();
+    const socket = createMockSocket(manager, "user-a", "player-a");
+
+    manager.joinWorld(
+      asServerSocket(socket),
+      HUB_ALPHA_MAP.id,
+      "player-a",
+      "Alpha",
+      "knight",
+      "#E8A832",
+    );
+    cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
+
+    const joinEvents = parseMessages(socket).filter(
+      (message) => message.type === "world.playerJoined",
+    );
+    expect(joinEvents).toHaveLength(0);
+  });
+
   test("spawn point is outside collision geometry", () => {
     const spawn = findSpawnPoint(HUB_ALPHA_MAP, HUB_ALPHA_MAP.playerSpawnId);
     expect(spawn).toBeDefined();
