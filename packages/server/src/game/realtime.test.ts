@@ -3,6 +3,7 @@ import type { ServerWebSocket } from "bun";
 
 import { issueAccessToken } from "../auth/jwt";
 import type { ServerConfig } from "../config";
+import { createDatabase } from "../db";
 import { createRealtimeGateway } from "./realtime";
 import type { RealtimeSocketData } from "./world";
 
@@ -57,7 +58,8 @@ function parseLastMessage(socket: MockSocket): {
 
 describe("realtime gateway", () => {
   test("authenticates with minimal JWT claims", async () => {
-    const gateway = createRealtimeGateway(baseConfig);
+    const db = createDatabase(":memory:");
+    const gateway = createRealtimeGateway(baseConfig, db);
     const socket = createMockSocket(gateway.createSocketData);
     const token = await issueAccessToken({ sub: "player-a" }, baseConfig);
 
@@ -72,10 +74,13 @@ describe("realtime gateway", () => {
     expect(socket.data.session.authenticated).toBe(true);
     const authMessage = parseLastMessage(socket);
     expect(authMessage.type).toBe("auth.ok");
+    expect(authMessage.userId).toBeUndefined();
+    db.close();
   });
 
   test("disconnects authenticated sockets after token expiry when processing messages", async () => {
-    const gateway = createRealtimeGateway(baseConfig);
+    const db = createDatabase(":memory:");
+    const gateway = createRealtimeGateway(baseConfig, db);
     const socket = createMockSocket(gateway.createSocketData);
     const token = await issueAccessToken({ sub: "player-a" }, baseConfig);
 
@@ -93,11 +98,13 @@ describe("realtime gateway", () => {
       JSON.stringify({
         type: "world.join",
         worldId: "hub-alpha",
+        characterId: "character-1",
       }),
     );
 
     expect(socket.closed).toBe(true);
     const message = parseLastMessage(socket);
     expect(message.type).toBe("auth.error");
+    db.close();
   });
 });

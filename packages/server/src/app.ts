@@ -1,6 +1,11 @@
 import type { Database } from "bun:sqlite";
 
 import { handleSignin, handleSignup } from "./auth/routes";
+import {
+  handleCreateCharacter,
+  handleDeleteCharacter,
+  handleListCharacters,
+} from "./characters/routes";
 import { type ServerConfig, createServerConfig } from "./config";
 import { createDatabase } from "./db";
 
@@ -44,6 +49,22 @@ export function createApp(options: CreateAppOptions = {}): AppInstance {
 
     if (request.method === "POST" && url.pathname === "/auth/signin") {
       return handleSignin(request, db, config);
+    }
+
+    if (request.method === "GET" && url.pathname === "/characters") {
+      return handleListCharacters(request, db, config);
+    }
+
+    if (request.method === "POST" && url.pathname === "/characters") {
+      return handleCreateCharacter(request, db, config);
+    }
+
+    if (
+      request.method === "DELETE" &&
+      url.pathname.startsWith("/characters/")
+    ) {
+      const characterId = url.pathname.slice("/characters/".length);
+      return handleDeleteCharacter(request, db, config, characterId);
     }
 
     return json(404, { error: "Not found." });

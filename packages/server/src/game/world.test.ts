@@ -17,7 +17,11 @@ interface MockSocket {
   send: (message: string) => void;
 }
 
-function createMockSocket(manager: WorldManager, playerId: string): MockSocket {
+function createMockSocket(
+  manager: WorldManager,
+  userId: string,
+  characterId: string,
+): MockSocket {
   const socket: MockSocket = {
     data: manager.createSocketData(),
     sent: [],
@@ -26,7 +30,8 @@ function createMockSocket(manager: WorldManager, playerId: string): MockSocket {
     },
   };
 
-  socket.data.session.playerId = playerId;
+  socket.data.session.userId = userId;
+  socket.data.session.characterId = characterId;
 
   return socket;
 }
@@ -52,11 +57,25 @@ describe("world manager", () => {
 
   test("join sends immediate snapshot containing already connected players", () => {
     const manager = new WorldManager();
-    const socketA = createMockSocket(manager, "player-a");
-    const socketB = createMockSocket(manager, "player-b");
+    const socketA = createMockSocket(manager, "user-a", "player-a");
+    const socketB = createMockSocket(manager, "user-b", "player-b");
 
-    manager.joinWorld(asServerSocket(socketA), HUB_ALPHA_MAP.id, "player-a");
-    manager.joinWorld(asServerSocket(socketB), HUB_ALPHA_MAP.id, "player-b");
+    manager.joinWorld(
+      asServerSocket(socketA),
+      HUB_ALPHA_MAP.id,
+      "player-a",
+      "Alpha",
+      "knight",
+      "#E8A832",
+    );
+    manager.joinWorld(
+      asServerSocket(socketB),
+      HUB_ALPHA_MAP.id,
+      "player-b",
+      "Beta",
+      "mage",
+      "#22D3EE",
+    );
 
     cleanup.push(() => manager.leaveWorld(asServerSocket(socketA)));
     cleanup.push(() => manager.leaveWorld(asServerSocket(socketB)));
@@ -80,6 +99,105 @@ describe("world manager", () => {
     expect(playerIds).toEqual(["player-a", "player-b"]);
   });
 
+  test("join does not emit world.playerJoined for the joining player", () => {
+    const manager = new WorldManager();
+    const socket = createMockSocket(manager, "user-a", "player-a");
+
+    manager.joinWorld(
+      asServerSocket(socket),
+      HUB_ALPHA_MAP.id,
+      "player-a",
+      "Alpha",
+      "knight",
+      "#E8A832",
+    );
+    cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
+
+    const joinEvents = parseMessages(socket).filter(
+      (message) => message.type === "world.playerJoined",
+    );
+    expect(joinEvents).toHaveLength(0);
+  });
+
+  test("rejoin in same world with a different character replaces previous character entry", () => {
+    const manager = new WorldManager();
+    const socket = createMockSocket(manager, "user-a", "character-a");
+
+    manager.joinWorld(
+      asServerSocket(socket),
+      HUB_ALPHA_MAP.id,
+      "character-a",
+      "Alpha",
+      "knight",
+      "#E8A832",
+    );
+    manager.joinWorld(
+      asServerSocket(socket),
+      HUB_ALPHA_MAP.id,
+      "character-b",
+      "Bravo",
+      "mage",
+      "#22D3EE",
+    );
+    cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
+
+    const snapshot = parseMessages(socket)
+      .filter((message) => message.type === "world.snapshot")
+      .at(-1);
+
+    expect(snapshot?.type).toBe("world.snapshot");
+    if (!snapshot || snapshot.type !== "world.snapshot") {
+      throw new Error("missing world snapshot");
+    }
+
+    const playerIds = snapshot.payload.players.map((player) => player.id);
+    expect(playerIds).toEqual(["character-b"]);
+  });
+
+  test("invalid world join does not remove player from current world", () => {
+    const manager = new WorldManager();
+    const socket = createMockSocket(manager, "user-a", "character-a");
+
+    manager.joinWorld(
+      asServerSocket(socket),
+      HUB_ALPHA_MAP.id,
+      "character-a",
+      "Alpha",
+      "knight",
+      "#E8A832",
+    );
+
+    const invalidJoin = manager.joinWorld(
+      asServerSocket(socket),
+      "missing-world",
+      "character-a",
+      "Alpha",
+      "knight",
+      "#E8A832",
+    );
+    expect(invalidJoin).toBeNull();
+
+    socket.sent = [];
+    manager.applyInput(asServerSocket(socket), {
+      type: "player.input",
+      sequence: 1,
+      dtMs: 16,
+      input: {
+        up: false,
+        down: false,
+        left: false,
+        right: true,
+      },
+    });
+
+    const playerState = parseMessages(socket).find(
+      (message) => message.type === "player.state",
+    );
+    expect(playerState?.type).toBe("player.state");
+
+    cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
+  });
+
   test("spawn point is outside collision geometry", () => {
     const spawn = findSpawnPoint(HUB_ALPHA_MAP, HUB_ALPHA_MAP.playerSpawnId);
     expect(spawn).toBeDefined();
@@ -95,12 +213,15 @@ describe("world manager", () => {
 
   test("applyInput returns authoritative player.state with moved position", () => {
     const manager = new WorldManager();
-    const socket = createMockSocket(manager, "player-a");
+    const socket = createMockSocket(manager, "user-a", "player-a");
 
     const spawn = manager.joinWorld(
       asServerSocket(socket),
       HUB_ALPHA_MAP.id,
       "player-a",
+      "Alpha",
+      "knight",
+      "#E8A832",
     );
     cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
 
@@ -137,7 +258,7 @@ describe("world manager", () => {
 
   test("acknowledgeDrop validates payload and responds with error for invalid item", () => {
     const manager = new WorldManager();
-    const socket = createMockSocket(manager, "player-a");
+    const socket = createMockSocket(manager, "user-a", "player-a");
 
     manager.acknowledgeDrop(asServerSocket(socket), {
       type: "inventory.drop",
@@ -160,7 +281,7 @@ describe("world manager", () => {
 
   test("acknowledgeDrop rejects non-finite coordinates", () => {
     const manager = new WorldManager();
-    const socket = createMockSocket(manager, "player-a");
+    const socket = createMockSocket(manager, "user-a", "player-a");
 
     manager.acknowledgeDrop(asServerSocket(socket), {
       type: "inventory.drop",
@@ -177,11 +298,25 @@ describe("world manager", () => {
 
   test("closing an old connection does not remove a newer connection for the same player", () => {
     const manager = new WorldManager();
-    const oldSocket = createMockSocket(manager, "player-a");
-    const newSocket = createMockSocket(manager, "player-a");
+    const oldSocket = createMockSocket(manager, "user-a", "player-a");
+    const newSocket = createMockSocket(manager, "user-a", "player-a");
 
-    manager.joinWorld(asServerSocket(oldSocket), HUB_ALPHA_MAP.id, "player-a");
-    manager.joinWorld(asServerSocket(newSocket), HUB_ALPHA_MAP.id, "player-a");
+    manager.joinWorld(
+      asServerSocket(oldSocket),
+      HUB_ALPHA_MAP.id,
+      "player-a",
+      "Alpha",
+      "knight",
+      "#E8A832",
+    );
+    manager.joinWorld(
+      asServerSocket(newSocket),
+      HUB_ALPHA_MAP.id,
+      "player-a",
+      "Alpha",
+      "knight",
+      "#E8A832",
+    );
 
     manager.leaveWorld(asServerSocket(oldSocket));
 
@@ -208,9 +343,16 @@ describe("world manager", () => {
 
   test("diagonal movement slides along obstacle instead of full stop", () => {
     const manager = new WorldManager();
-    const socket = createMockSocket(manager, "player-a");
+    const socket = createMockSocket(manager, "user-a", "player-a");
 
-    manager.joinWorld(asServerSocket(socket), HUB_ALPHA_MAP.id, "player-a");
+    manager.joinWorld(
+      asServerSocket(socket),
+      HUB_ALPHA_MAP.id,
+      "player-a",
+      "Alpha",
+      "knight",
+      "#E8A832",
+    );
     cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
 
     socket.sent = [];

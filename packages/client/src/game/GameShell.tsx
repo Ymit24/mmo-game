@@ -1,5 +1,5 @@
 import { type DragEvent, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthContext";
 import { type GameBridgeState, createGameBridge } from "./bridge";
@@ -16,7 +16,11 @@ const INVENTORY_SEED: InventoryItem[] = [
   { id: "mana_cube", label: "Mana Cube", quantity: 2 },
 ];
 
-export function GameShell() {
+interface GameShellProps {
+  characterId: string;
+}
+
+export function GameShell({ characterId }: GameShellProps) {
   const auth = useAuth();
   const navigate = useNavigate();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -42,9 +46,10 @@ export function GameShell() {
     return mountGameRuntime({
       container: containerRef.current,
       token: auth.token,
+      characterId,
       bridge,
     });
-  }, [auth.token, bridge]);
+  }, [auth.token, bridge, characterId]);
 
   const isReady = uiState.connectionStatus === "connected" && !!uiState.worldId;
 
@@ -131,13 +136,10 @@ export function GameShell() {
               )}
               <button
                 type="button"
-                onClick={() => {
-                  auth.signout();
-                  navigate("/signin", { replace: true });
-                }}
+                onClick={() => navigate("/play", { replace: true })}
                 className="rounded border border-border px-3 py-1.5 text-sm text-text hover:border-amber/60"
               >
-                Sign out
+                Back to Characters
               </button>
             </div>
           </div>
@@ -151,7 +153,7 @@ export function GameShell() {
               <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-cyan">
                 Live Session
               </p>
-              <p className="text-sm text-text-bright">{auth.user?.email}</p>
+              <p className="text-sm text-text-bright">Authenticated Session</p>
             </div>
 
             <div className="flex items-center gap-2 text-xs">
@@ -164,21 +166,12 @@ export function GameShell() {
               <span className="rounded border border-border px-2 py-1 font-mono uppercase tracking-[0.15em] text-muted">
                 players {uiState.players.length}
               </span>
-              <Link
-                to="/"
-                className="rounded border border-border px-2 py-1 text-text hover:border-amber/50 hover:text-text-bright"
-              >
-                Home
-              </Link>
               <button
                 type="button"
-                onClick={() => {
-                  auth.signout();
-                  navigate("/signin", { replace: true });
-                }}
+                onClick={() => navigate("/play", { replace: true })}
                 className="rounded bg-amber px-3 py-1 font-display text-void hover:bg-amber-glow"
               >
-                Sign out
+                Disconnect
               </button>
             </div>
           </header>

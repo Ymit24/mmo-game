@@ -1,4 +1,5 @@
 import type {
+  CharacterClass,
   ClientToServerMessage,
   PlayerSnapshot,
   ServerToClientMessage,
@@ -17,6 +18,9 @@ import type { ServerWebSocket } from "bun";
 interface PlayerState {
   connectionId: string;
   id: string;
+  nickname: string;
+  class: CharacterClass;
+  colorHex: string;
   position: Vector2;
   velocity: Vector2;
   lastProcessedInputSequence: number;
@@ -29,7 +33,11 @@ export interface RealtimeSession {
   accountKey: string | null;
   authToken: string | null;
   authExpiresAtEpochMs: number | null;
-  playerId: string | null;
+  userId: string | null;
+  characterId: string | null;
+  characterNickname: string | null;
+  characterClass: CharacterClass | null;
+  characterColorHex: string | null;
   worldId: string | null;
 }
 
@@ -40,6 +48,9 @@ export interface RealtimeSocketData {
 function toSnapshot(player: PlayerState): PlayerSnapshot {
   return {
     id: player.id,
+    nickname: player.nickname,
+    class: player.class,
+    colorHex: player.colorHex,
     position: player.position,
     velocity: player.velocity,
     lastProcessedInputSequence: player.lastProcessedInputSequence,
@@ -67,7 +78,10 @@ class WorldInstance {
 
   addPlayer(
     connectionId: string,
-    playerId: string,
+    characterId: string,
+    nickname: string,
+    characterClass: CharacterClass,
+    colorHex: string,
     socket: ServerWebSocket<RealtimeSocketData>,
   ): Vector2 {
     const spawn = findSpawnPoint(this.map, this.map.playerSpawnId) ??
@@ -75,26 +89,32 @@ class WorldInstance {
 
     const player: PlayerState = {
       connectionId,
-      id: playerId,
+      id: characterId,
+      nickname,
+      class: characterClass,
+      colorHex,
       socket,
       position: { x: spawn.x, y: spawn.y },
       velocity: { x: 0, y: 0 },
       lastProcessedInputSequence: 0,
     };
 
-    this.players.set(playerId, player);
+    this.players.set(characterId, player);
 
-    this.broadcast({
-      type: "world.playerJoined",
-      worldId: this.worldId,
-      player: toSnapshot(player),
-    });
+    this.broadcast(
+      {
+        type: "world.playerJoined",
+        worldId: this.worldId,
+        player: toSnapshot(player),
+      },
+      connectionId,
+    );
 
     return player.position;
   }
 
-  removePlayer(playerId: string, connectionId: string): void {
-    const removed = this.players.get(playerId);
+  removePlayer(characterId: string, connectionId: string): void {
+    const removed = this.players.get(characterId);
     if (!removed) {
       return;
     }
@@ -102,21 +122,21 @@ class WorldInstance {
       return;
     }
 
-    this.players.delete(playerId);
+    this.players.delete(characterId);
 
     this.broadcast({
       type: "world.playerLeft",
       worldId: this.worldId,
-      playerId,
+      characterId,
     });
   }
 
   applyInput(
-    playerId: string,
+    characterId: string,
     connectionId: string,
     message: Extract<ClientToServerMessage, { type: "player.input" }>,
   ): void {
-    const player = this.players.get(playerId);
+    const player = this.players.get(characterId);
     if (!player) {
       return;
     }
@@ -144,10 +164,16 @@ class WorldInstance {
     );
   }
 
-  broadcast(message: ServerToClientMessage): void {
+  broadcast(
+    message: ServerToClientMessage,
+    excludeConnectionId?: string,
+  ): void {
     const wire = stringifyServerMessage(message);
 
     for (const player of this.players.values()) {
+      if (excludeConnectionId && player.connectionId === excludeConnectionId) {
+        continue;
+      }
       player.socket.send(wire);
     }
   }
@@ -193,7 +219,11 @@ export class WorldManager {
         accountKey: null,
         authToken: null,
         authExpiresAtEpochMs: null,
-        playerId: null,
+        userId: null,
+        characterId: null,
+        characterNickname: null,
+        characterClass: null,
+        characterColorHex: null,
         worldId: null,
       },
     };
@@ -202,7 +232,10 @@ export class WorldManager {
   joinWorld(
     socket: ServerWebSocket<RealtimeSocketData>,
     worldId: string,
-    playerId: string,
+    characterId: string,
+    nickname: string,
+    characterClass: CharacterClass,
+    colorHex: string,
   ): Vector2 | null {
     const instance = this.getOrCreate(worldId);
     if (!instance) {
@@ -210,22 +243,32 @@ export class WorldManager {
     }
 
     const currentWorldId = socket.data.session.worldId;
-    if (currentWorldId && currentWorldId !== worldId) {
+    if (currentWorldId) {
       this.leaveWorld(socket);
     }
 
     const spawn = instance.addPlayer(
       socket.data.session.connectionId,
-      playerId,
+      characterId,
+      nickname,
+      characterClass,
+      colorHex,
       socket,
     );
     socket.data.session.worldId = worldId;
+    socket.data.session.characterId = characterId;
+    socket.data.session.characterNickname = nickname;
+    socket.data.session.characterClass = characterClass;
+    socket.data.session.characterColorHex = colorHex;
 
     socket.send(
       stringifyServerMessage({
         type: "world.joined",
         worldId,
-        playerId,
+        characterId,
+        nickname,
+        class: characterClass,
+        colorHex,
         spawn,
       }),
     );
@@ -235,8 +278,8 @@ export class WorldManager {
   }
 
   leaveWorld(socket: ServerWebSocket<RealtimeSocketData>): void {
-    const { connectionId, playerId, worldId } = socket.data.session;
-    if (!playerId || !worldId) {
+    const { connectionId, characterId, worldId } = socket.data.session;
+    if (!characterId || !worldId) {
       return;
     }
 
@@ -246,7 +289,7 @@ export class WorldManager {
       return;
     }
 
-    instance.removePlayer(playerId, connectionId);
+    instance.removePlayer(characterId, connectionId);
     socket.data.session.worldId = null;
 
     if (instance.size === 0) {
@@ -259,8 +302,8 @@ export class WorldManager {
     socket: ServerWebSocket<RealtimeSocketData>,
     message: Extract<ClientToServerMessage, { type: "player.input" }>,
   ): void {
-    const { connectionId, playerId, worldId } = socket.data.session;
-    if (!playerId || !worldId) {
+    const { connectionId, characterId, worldId } = socket.data.session;
+    if (!characterId || !worldId) {
       return;
     }
 
@@ -269,7 +312,7 @@ export class WorldManager {
       return;
     }
 
-    instance.applyInput(playerId, connectionId, message);
+    instance.applyInput(characterId, connectionId, message);
   }
 
   acknowledgeDrop(

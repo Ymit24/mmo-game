@@ -26,7 +26,7 @@ export function SignupPage() {
         loadingLabel="Creating account..."
         onSubmit={async (credentials) => {
           await auth.signup(credentials);
-          navigate("/play", { replace: true });
+          navigate("/characters/new", { replace: true });
         }}
       />
     </AuthLayout>

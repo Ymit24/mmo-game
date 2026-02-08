@@ -47,10 +47,38 @@ describe("auth flow", () => {
 
   test("signin validates fields and redirects to /play on success", async () => {
     const user = userEvent.setup();
-    const fetchMock = vi.fn(async () => ({
-      ok: true,
-      json: async () => makeSuccessResponse(),
-    }));
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/auth/signin")) {
+        return {
+          ok: true,
+          json: async () => makeSuccessResponse(),
+        };
+      }
+      if (url.endsWith("/characters")) {
+        return {
+          ok: true,
+          json: async () => ({
+            characters: [
+              {
+                id: "char-1",
+                nickname: "Alpha",
+                class: "knight",
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+                isLastUsed: true,
+              },
+            ],
+            maxCharacters: 6,
+            lastUsedCharacterId: "char-1",
+          }),
+        };
+      }
+      return {
+        ok: false,
+        json: async () => ({ error: "Unexpected request" }),
+      };
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     renderApp("/signin");
@@ -78,7 +106,9 @@ describe("auth flow", () => {
     );
 
     expect(
-      await screen.findByRole("heading", { name: "Joining World" }),
+      await screen.findByRole("heading", {
+        name: "Select and Manage Characters",
+      }),
     ).toBeInTheDocument();
 
     const storedSession = localStorage.getItem(AUTH_SESSION_STORAGE_KEY);

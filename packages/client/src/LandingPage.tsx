@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 
 import { useAuth } from "./auth/AuthContext";
 import { WorldGrid } from "./components/WorldGrid";
+import { SiteTopbar } from "./components/navigation/SiteTopbar";
 
 const GAME_FEATURES = [
   {
@@ -35,45 +36,6 @@ function StatusDot({ status }: { status: "online" | "offline" | "starting" }) {
         className={`absolute inline-block w-2 h-2 rounded-full ${colors[status]} animate-ping opacity-75`}
       />
     </span>
-  );
-}
-
-function Navbar() {
-  const auth = useAuth();
-
-  return (
-    <nav className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 py-4 md:px-10">
-      <div className="flex items-center gap-3">
-        <div className="w-8 h-8 rounded border border-amber/40 bg-amber/10 flex items-center justify-center">
-          <span className="font-display font-bold text-amber text-sm leading-none">
-            M
-          </span>
-        </div>
-        <span className="font-display font-semibold text-text-bright tracking-wide text-sm uppercase">
-          MMO Game
-        </span>
-      </div>
-      <div className="flex items-center gap-6 text-sm">
-        <a
-          href="#about"
-          className="text-muted hover:text-text-bright transition-colors duration-200"
-        >
-          About
-        </a>
-        <a
-          href="#features"
-          className="text-muted hover:text-text-bright transition-colors duration-200"
-        >
-          How it works
-        </a>
-        <Link
-          to={auth.isAuthenticated ? "/play" : "/signin"}
-          className="font-display font-medium text-amber hover:text-amber-glow transition-colors duration-200"
-        >
-          {auth.isAuthenticated ? "Play" : "Log in"}
-        </Link>
-      </div>
-    </nav>
   );
 }
 
@@ -326,7 +288,7 @@ export function LandingPage() {
   return (
     <div className="noise-overlay">
       <WorldGrid />
-      <Navbar />
+      <SiteTopbar mode="landing" />
       <Hero />
       <About />
       <Features />
