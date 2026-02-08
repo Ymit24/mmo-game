@@ -2,8 +2,8 @@
 
 - Runtime/tooling: Bun + TypeScript across all packages.
 - Monorepo layout: `client`, `server`, and `shared` packages.
-- Client: Vite + React app for landing page, auth flow, and account management.
-- Server: HTTP REST API for auth/account flows; JWT auth expected.
+- Client: Vite + React app for landing page, auth flow, account management, and character/world entry.
+- Server: HTTP REST API for auth/account + character flows; JWT auth expected.
 - Security: keep JWT signing key private (server-only secret management).
 - Realtime game: browser 2D game client built with Phaser 3 using WebSocket connection.
 - Server topology (phase 1): single Bun process handling REST + WS.
@@ -42,10 +42,39 @@
   - Optional: `JWT_EXPIRES_IN_SECONDS`, `AUTH_DB_PATH`, `JWT_ISSUER`, `JWT_AUDIENCE`.
 - DB:
   - SQLite via `bun:sqlite`.
-  - `users` table: `id`, `email` (unique), `password_hash`, timestamps.
+  - `users` table: `id`, `email` (unique), `password_hash`, `last_used_character_id`, timestamps.
   - Password hashes use Argon2id (`Bun.password.hash/verify`).
 - Not implemented yet:
-  - WS JWT auth handshake (planned as first game milestone), refresh/session rotation, password reset, email verification.
+  - Refresh/session rotation, password reset, email verification.
+
+## Character system snapshot (implemented)
+
+- Shared (`packages/shared`):
+  - Character contracts/utilities are centralized in `packages/shared/src/characters.ts`.
+  - Defines classes (`knight`, `mage`), nickname validation/normalization, max characters per account (`6`), and typed error codes.
+  - WS protocol now includes authenticated session and character-aware join semantics (`auth.hello`, `session.conflict`, `session.kicked`, `world.join` with `characterId`).
+- Server (`packages/server`):
+  - Character REST routes are wired in `packages/server/src/app.ts`:
+    - `GET /characters` -> `200` with `{ characters, maxCharacters, lastUsedCharacterId }`.
+    - `POST /characters` -> `201` with `{ character }`.
+    - `DELETE /characters/:id` -> `204` on success.
+  - Character routes require bearer JWT and return typed character error codes.
+  - DB schema includes:
+    - `characters` table with per-user normalized nickname uniqueness (`UNIQUE (user_id, nickname_normalized)`).
+    - `users.last_used_character_id` column used for default selection and reassignment after deletion.
+  - Realtime gateway now enforces WS auth handshake with JWT (`auth.hello`) before world messages and handles:
+    - token expiry disconnect (`auth.error`),
+    - one active connection per account with takeover flow (`session.conflict` / `session.kicked`),
+    - server-side character ownership validation before `world.join`.
+- Client (`packages/client`):
+  - New protected routes:
+    - `/characters/new` -> create character flow.
+    - `/characters` -> compatibility redirect to `/play`.
+    - `/play` -> character hub (list/select/delete).
+    - `/world` -> realtime world shell (requires `characterId` query param).
+  - Character API client lives in `packages/client/src/lib/api/characterApi.ts` for list/create/delete calls.
+  - Character hub now chooses `isLastUsed` character by default and supports guarded delete UX.
+  - Realtime client sends `auth.hello` then joins world with `characterId`; conflict/takeover UI is handled via bridge modal state.
 
 ## Client auth snapshot (implemented)
 
@@ -54,7 +83,9 @@
   - `/` -> landing page.
   - `/signin` -> signin form.
   - `/signup` -> signup form.
-  - `/play` -> protected placeholder page (requires auth).
+  - `/characters/new` -> protected character creation page.
+  - `/play` -> protected character hub page (list/select/delete).
+  - `/world` -> protected realtime game page.
 - Auth state:
   - `AuthProvider` + `useAuth()` in `packages/client/src/auth/AuthContext.tsx`.
   - Route protection via `packages/client/src/auth/RequireAuth.tsx`.
@@ -70,7 +101,7 @@
   - Components under `packages/client/src/components/auth`.
   - Shared credential validation enforces email format and min password length 8.
 - Tests:
-  - `packages/client/src/auth/authFlow.test.tsx`.
+  - `packages/client/src/auth/authFlow.vitest.tsx`.
   - `packages/client/src/lib/auth/sessionStorage.test.ts`.
 
 ## CI and quality gates (implemented)
