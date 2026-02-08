@@ -1,6 +1,7 @@
 import {
   type ClientToServerMessage,
   HUB_ALPHA_MAP,
+  PLAYER_COLLIDER_SIZE,
   PLAYER_MOVE_SPEED,
   type PlayerInputState,
   type ServerToClientMessage,
@@ -350,8 +351,8 @@ class HubScene extends Phaser.Scene {
           this.localPlayer = this.add.rectangle(
             message.spawn.x,
             message.spawn.y,
-            32,
-            32,
+            PLAYER_COLLIDER_SIZE.width,
+            PLAYER_COLLIDER_SIZE.height,
             0xfbbf24,
             1,
           );
