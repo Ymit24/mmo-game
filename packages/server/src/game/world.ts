@@ -7,10 +7,9 @@ import type {
 } from "@mmo/shared";
 import {
   HUB_ALPHA_MAP,
-  clampToWorldBounds,
   findSpawnPoint,
   inputToVelocity,
-  integrateMovement,
+  resolveMovementWithSliding,
   stringifyServerMessage,
 } from "@mmo/shared";
 import type { ServerWebSocket } from "bun";
@@ -45,38 +44,6 @@ function toSnapshot(player: PlayerState): PlayerSnapshot {
     velocity: player.velocity,
     lastProcessedInputSequence: player.lastProcessedInputSequence,
   };
-}
-
-function collides(
-  shape: WorldMap["collisions"][number],
-  position: Vector2,
-): boolean {
-  if (shape.type === "rect") {
-    return (
-      position.x >= shape.x &&
-      position.x <= shape.x + shape.width &&
-      position.y >= shape.y &&
-      position.y <= shape.y + shape.height
-    );
-  }
-
-  const dx = position.x - shape.x;
-  const dy = position.y - shape.y;
-  return dx * dx + dy * dy <= shape.radius * shape.radius;
-}
-
-function resolvePosition(
-  map: WorldMap,
-  next: Vector2,
-  fallback: Vector2,
-): Vector2 {
-  for (const shape of map.collisions) {
-    if (collides(shape, next)) {
-      return fallback;
-    }
-  }
-
-  return next;
 }
 
 class WorldInstance {
@@ -158,12 +125,11 @@ class WorldInstance {
     }
 
     const velocity = inputToVelocity(message.input);
-    const next = integrateMovement(player.position, velocity, message.dtMs);
-
-    player.position = resolvePosition(
-      this.map,
-      clampToWorldBounds(next, this.map),
+    player.position = resolveMovementWithSliding(
       player.position,
+      velocity,
+      message.dtMs,
+      this.map,
     );
     player.velocity = velocity;
     player.lastProcessedInputSequence = message.sequence;

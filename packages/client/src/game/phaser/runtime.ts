@@ -5,9 +5,8 @@ import {
   type PlayerInputState,
   type ServerToClientMessage,
   clampInputDtMs,
-  clampToWorldBounds,
   inputToVelocity,
-  integrateMovement,
+  resolveMovementWithSliding,
 } from "@mmo/shared";
 import Phaser from "phaser";
 
@@ -49,10 +48,14 @@ function applyPredictedInput(
   dtMs: number,
 ): void {
   const velocity = inputToVelocity(input, PLAYER_MOVE_SPEED);
-  const integrated = integrateMovement(position, velocity, dtMs);
-  const clamped = clampToWorldBounds(integrated, HUB_ALPHA_MAP);
+  const resolved = resolveMovementWithSliding(
+    position,
+    velocity,
+    dtMs,
+    HUB_ALPHA_MAP,
+  );
 
-  position.set(clamped.x, clamped.y);
+  position.set(resolved.x, resolved.y);
 }
 
 class HubScene extends Phaser.Scene {
@@ -62,8 +65,8 @@ class HubScene extends Phaser.Scene {
   private socket: WebSocket | null = null;
   private playerId: string | null = null;
 
-  private localPlayer: Phaser.GameObjects.Arc | null = null;
-  private remotePlayers = new Map<string, Phaser.GameObjects.Arc>();
+  private localPlayer: Phaser.GameObjects.Rectangle | null = null;
+  private remotePlayers = new Map<string, Phaser.GameObjects.Rectangle>();
 
   private pointerWorld = new Phaser.Math.Vector2();
   private predictedPosition = new Phaser.Math.Vector2();
@@ -240,29 +243,17 @@ class HubScene extends Phaser.Scene {
 
     graphics.fillStyle(0x1c3243, 0.5);
     for (const shape of HUB_ALPHA_MAP.collisions) {
-      if (shape.type === "rect") {
-        graphics.fillRect(shape.x, shape.y, shape.width, shape.height);
-      } else {
-        graphics.fillCircle(shape.x, shape.y, shape.radius);
-      }
+      graphics.fillRect(shape.x, shape.y, shape.width, shape.height);
     }
 
     graphics.lineStyle(2, 0xfbbf24, 0.4);
     for (const region of HUB_ALPHA_MAP.regions) {
-      if (region.shape.type === "rect") {
-        graphics.strokeRect(
-          region.shape.x,
-          region.shape.y,
-          region.shape.width,
-          region.shape.height,
-        );
-      } else {
-        graphics.strokeCircle(
-          region.shape.x,
-          region.shape.y,
-          region.shape.radius,
-        );
-      }
+      graphics.strokeRect(
+        region.shape.x,
+        region.shape.y,
+        region.shape.width,
+        region.shape.height,
+      );
     }
   }
 
@@ -356,10 +347,11 @@ class HubScene extends Phaser.Scene {
         this.inputLocked = false;
 
         if (!this.localPlayer) {
-          this.localPlayer = this.add.circle(
+          this.localPlayer = this.add.rectangle(
             message.spawn.x,
             message.spawn.y,
-            18,
+            32,
+            32,
             0xfbbf24,
             1,
           );
@@ -388,10 +380,11 @@ class HubScene extends Phaser.Scene {
           return;
         }
 
-        const sprite = this.add.circle(
+        const sprite = this.add.rectangle(
           message.player.position.x,
           message.player.position.y,
-          14,
+          28,
+          28,
           0x22d3ee,
           0.95,
         );
@@ -416,10 +409,11 @@ class HubScene extends Phaser.Scene {
 
           const sprite = this.remotePlayers.get(player.id);
           if (!sprite) {
-            const next = this.add.circle(
+            const next = this.add.rectangle(
               player.position.x,
               player.position.y,
-              14,
+              28,
+              28,
               0x22d3ee,
               0.95,
             );

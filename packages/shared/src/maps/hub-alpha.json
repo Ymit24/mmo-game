@@ -18,7 +18,7 @@
     { "type": "rect", "x": 1640, "y": 260, "width": 200, "height": 360 },
     { "type": "rect", "x": 360, "y": 780, "width": 200, "height": 360 },
     { "type": "rect", "x": 1640, "y": 780, "width": 200, "height": 360 },
-    { "type": "circle", "x": 1100, "y": 700, "radius": 90 }
+    { "type": "rect", "x": 1010, "y": 610, "width": 180, "height": 180 }
   ],
   "regions": [
     {
@@ -35,7 +35,13 @@
     {
       "id": "hub_portal_ring",
       "name": "Portal Ring",
-      "shape": { "type": "circle", "x": 1100, "y": 700, "radius": 220 }
+      "shape": {
+        "type": "rect",
+        "x": 880,
+        "y": 480,
+        "width": 440,
+        "height": 440
+      }
     }
   ]
 }

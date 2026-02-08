@@ -14,24 +14,16 @@ function isNumber(value: unknown): value is number {
 }
 
 function isCollisionShape(value: unknown): value is CollisionShape {
-  if (!isObject(value) || typeof value.type !== "string") {
+  if (!isObject(value) || value.type !== "rect") {
     return false;
   }
 
-  if (value.type === "rect") {
-    return (
-      isNumber(value.x) &&
-      isNumber(value.y) &&
-      isNumber(value.width) &&
-      isNumber(value.height)
-    );
-  }
-
-  if (value.type === "circle") {
-    return isNumber(value.x) && isNumber(value.y) && isNumber(value.radius);
-  }
-
-  return false;
+  return (
+    isNumber(value.x) &&
+    isNumber(value.y) &&
+    isNumber(value.width) &&
+    isNumber(value.height)
+  );
 }
 
 function isSpawnPoint(value: unknown): value is SpawnPoint {

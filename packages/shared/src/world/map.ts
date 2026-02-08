@@ -1,17 +1,10 @@
-export type CollisionShape =
-  | {
-      type: "rect";
-      x: number;
-      y: number;
-      width: number;
-      height: number;
-    }
-  | {
-      type: "circle";
-      x: number;
-      y: number;
-      radius: number;
-    };
+export type CollisionShape = {
+  type: "rect";
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
 
 export interface SpawnPoint {
   id: string;

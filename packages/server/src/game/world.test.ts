@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   HUB_ALPHA_MAP,
+  PLAYER_COLLIDER_SIZE,
   type PlayerInputState,
   type ServerToClientMessage,
   findSpawnPoint,
+  positionCollidesWithMap,
 } from "@mmo/shared";
 import type { ServerWebSocket } from "bun";
 
@@ -37,31 +39,6 @@ function asServerSocket(
 
 function parseMessages(socket: MockSocket): ServerToClientMessage[] {
   return socket.sent.map((raw) => JSON.parse(raw) as ServerToClientMessage);
-}
-
-function collides(position: { x: number; y: number }): boolean {
-  for (const shape of HUB_ALPHA_MAP.collisions) {
-    if (shape.type === "rect") {
-      const insideRect =
-        position.x >= shape.x &&
-        position.x <= shape.x + shape.width &&
-        position.y >= shape.y &&
-        position.y <= shape.y + shape.height;
-
-      if (insideRect) {
-        return true;
-      }
-      continue;
-    }
-
-    const dx = position.x - shape.x;
-    const dy = position.y - shape.y;
-    if (dx * dx + dy * dy <= shape.radius * shape.radius) {
-      return true;
-    }
-  }
-
-  return false;
 }
 
 describe("world manager", () => {
@@ -111,7 +88,9 @@ describe("world manager", () => {
       throw new Error("spawn not found");
     }
 
-    expect(collides(spawn)).toBe(false);
+    expect(
+      positionCollidesWithMap(spawn, HUB_ALPHA_MAP, PLAYER_COLLIDER_SIZE),
+    ).toBe(false);
   });
 
   test("applyInput returns authoritative player.state with moved position", () => {
@@ -225,5 +204,80 @@ describe("world manager", () => {
     expect(playerState?.type).toBe("player.state");
 
     cleanup.push(() => manager.leaveWorld(asServerSocket(newSocket)));
+  });
+
+  test("diagonal movement slides along obstacle instead of full stop", () => {
+    const manager = new WorldManager();
+    const socket = createMockSocket(manager, "player-a");
+
+    manager.joinWorld(asServerSocket(socket), HUB_ALPHA_MAP.id, "player-a");
+    cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
+
+    socket.sent = [];
+
+    for (let sequence = 1; sequence <= 20; sequence += 1) {
+      manager.applyInput(asServerSocket(socket), {
+        type: "player.input",
+        sequence,
+        dtMs: 80,
+        input: {
+          up: false,
+          down: true,
+          left: false,
+          right: true,
+        },
+      });
+    }
+
+    const states = parseMessages(socket).filter(
+      (
+        message,
+      ): message is Extract<ServerToClientMessage, { type: "player.state" }> =>
+        message.type === "player.state",
+    );
+
+    expect(states.length).toBeGreaterThan(0);
+
+    const first = states[0];
+    const last = states[states.length - 1];
+
+    if (!first || !last) {
+      throw new Error("missing player.state payloads");
+    }
+
+    let plateauIndex = -1;
+    for (let index = 1; index < states.length; index += 1) {
+      if (states[index]?.position.y === states[index - 1]?.position.y) {
+        plateauIndex = index;
+        break;
+      }
+    }
+
+    expect(plateauIndex).toBeGreaterThan(0);
+
+    if (plateauIndex < 0) {
+      throw new Error("expected to hit obstacle and plateau on y-axis");
+    }
+
+    const xAtPlateau = states[plateauIndex]?.position.x;
+    const yAtPlateau = states[plateauIndex]?.position.y;
+
+    expect(xAtPlateau).toBeDefined();
+    expect(yAtPlateau).toBeDefined();
+
+    if (xAtPlateau === undefined || yAtPlateau === undefined) {
+      throw new Error("missing plateau state");
+    }
+
+    const progressedWhileSliding = states
+      .slice(plateauIndex + 1)
+      .some(
+        (state) =>
+          state.position.y === yAtPlateau && state.position.x > xAtPlateau,
+      );
+
+    expect(progressedWhileSliding).toBe(true);
+    expect(last.position.x).toBeGreaterThan(first.position.x);
+    expect(last.position.y).toBeGreaterThan(first.position.y);
   });
 });
