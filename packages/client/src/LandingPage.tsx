@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 
 import { useAuth } from "./auth/AuthContext";
 import { WorldGrid } from "./components/WorldGrid";
+import { SiteTopbar } from "./components/navigation/SiteTopbar";
 
 const GAME_FEATURES = [
   {
@@ -35,124 +36,6 @@ function StatusDot({ status }: { status: "online" | "offline" | "starting" }) {
         className={`absolute inline-block w-2 h-2 rounded-full ${colors[status]} animate-ping opacity-75`}
       />
     </span>
-  );
-}
-
-function Navbar() {
-  const auth = useAuth();
-  const [profileOpen, setProfileOpen] = useState(false);
-  const profileRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    function onWindowClick(event: MouseEvent): void {
-      if (!profileRef.current) {
-        return;
-      }
-      if (!profileRef.current.contains(event.target as Node)) {
-        setProfileOpen(false);
-      }
-    }
-
-    if (profileOpen) {
-      window.addEventListener("click", onWindowClick);
-    }
-    return () => {
-      window.removeEventListener("click", onWindowClick);
-    };
-  }, [profileOpen]);
-
-  const userInitial =
-    auth.user?.email && auth.user.email.length > 0
-      ? auth.user.email[0]?.toUpperCase()
-      : "P";
-
-  return (
-    <nav className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 py-4 md:px-10">
-      <div className="flex items-center gap-3">
-        <div className="w-8 h-8 rounded border border-amber/40 bg-amber/10 flex items-center justify-center">
-          <span className="font-display font-bold text-amber text-sm leading-none">
-            M
-          </span>
-        </div>
-        <span className="font-display font-semibold text-text-bright tracking-wide text-sm uppercase">
-          MMO Game
-        </span>
-      </div>
-      <div className="flex items-center gap-6 text-sm">
-        <a
-          href="#about"
-          className="text-muted hover:text-text-bright transition-colors duration-200"
-        >
-          About
-        </a>
-        <a
-          href="#features"
-          className="text-muted hover:text-text-bright transition-colors duration-200"
-        >
-          How it works
-        </a>
-        {auth.isAuthenticated ? (
-          <>
-            <Link
-              to="/play"
-              className="text-muted hover:text-text-bright transition-colors duration-200"
-            >
-              Characters
-            </Link>
-            <div className="relative" ref={profileRef}>
-              <button
-                type="button"
-                onClick={() => setProfileOpen((open) => !open)}
-                className="flex items-center gap-2 rounded-full border border-border bg-deep/85 px-2 py-1.5 hover:border-amber/60"
-              >
-                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-amber font-mono text-xs font-bold text-void">
-                  {userInitial}
-                </span>
-                <span className="max-w-32 truncate text-xs text-text-bright">
-                  {auth.user?.email}
-                </span>
-              </button>
-
-              {profileOpen ? (
-                <div className="absolute right-0 mt-2 w-44 rounded-lg border border-border bg-abyss p-1 shadow-xl">
-                  <Link
-                    to="/play"
-                    onClick={() => setProfileOpen(false)}
-                    className="block rounded px-3 py-2 text-sm text-text hover:bg-deep"
-                  >
-                    Enter World
-                  </Link>
-                  <Link
-                    to="/play"
-                    onClick={() => setProfileOpen(false)}
-                    className="block rounded px-3 py-2 text-sm text-text hover:bg-deep"
-                  >
-                    Character Hub
-                  </Link>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setProfileOpen(false);
-                      auth.signout();
-                    }}
-                    className="block w-full rounded px-3 py-2 text-left text-sm text-muted hover:bg-deep hover:text-text"
-                  >
-                    Sign out
-                  </button>
-                </div>
-              ) : null}
-            </div>
-          </>
-        ) : (
-          <Link
-            to="/signin"
-            className="font-display font-medium text-amber hover:text-amber-glow transition-colors duration-200"
-          >
-            Log in
-          </Link>
-        )}
-      </div>
-    </nav>
   );
 }
 
@@ -405,7 +288,7 @@ export function LandingPage() {
   return (
     <div className="noise-overlay">
       <WorldGrid />
-      <Navbar />
+      <SiteTopbar mode="landing" />
       <Hero />
       <About />
       <Features />

@@ -153,7 +153,7 @@ export function GameShell({ characterId }: GameShellProps) {
               <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-cyan">
                 Live Session
               </p>
-              <p className="text-sm text-text-bright">{auth.user?.email}</p>
+              <p className="text-sm text-text-bright">Authenticated Session</p>
             </div>
 
             <div className="flex items-center gap-2 text-xs">

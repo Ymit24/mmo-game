@@ -91,7 +91,7 @@ export function PlayPage() {
   return (
     <main className="min-h-dvh bg-void text-text">
       <CharacterHubTopbar />
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-8 md:px-8">
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 pb-8 pt-24 md:px-8">
         <header className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-cyan">
