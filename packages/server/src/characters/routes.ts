@@ -234,8 +234,11 @@ export async function handleDeleteCharacter(
     return characterError(404, CHARACTER_ERROR_CODES.notFound, "Not found.");
   }
 
+  const lastUsedCharacterId = getLastUsedCharacterIdForUser(db, auth.userId);
   deleteCharacterForUser(db, auth.userId, characterId);
-  reassignLastUsedCharacterIdForUser(db, auth.userId);
+  if (lastUsedCharacterId === characterId) {
+    reassignLastUsedCharacterIdForUser(db, auth.userId);
+  }
   return new Response(null, { status: 204 });
 }
 

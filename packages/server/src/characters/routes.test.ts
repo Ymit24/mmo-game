@@ -133,4 +133,50 @@ describe("character routes", () => {
       error: "Cannot delete your last remaining character.",
     });
   });
+
+  test("preserves last-used character when deleting a different character", async () => {
+    const token = await signupAndGetToken(app, "player4@example.com");
+
+    const firstCreate = await app.fetch(
+      createJsonRequest("/characters", "POST", token, {
+        nickname: "AlphaOne",
+        class: "knight",
+      }),
+    );
+    const first = (await firstCreate.json()) as {
+      character: { id: string };
+    };
+
+    const secondCreate = await app.fetch(
+      createJsonRequest("/characters", "POST", token, {
+        nickname: "BetaTwo",
+        class: "mage",
+      }),
+    );
+    const second = (await secondCreate.json()) as {
+      character: { id: string };
+    };
+
+    const deleteFirst = await app.fetch(
+      createJsonRequest(`/characters/${first.character.id}`, "DELETE", token),
+    );
+    expect(deleteFirst.status).toBe(204);
+
+    const listResponse = await app.fetch(
+      createJsonRequest("/characters", "GET", token),
+    );
+    expect(listResponse.status).toBe(200);
+    const body = (await listResponse.json()) as {
+      lastUsedCharacterId: string | null;
+      characters: Array<{
+        id: string;
+        isLastUsed: boolean;
+      }>;
+    };
+
+    expect(body.lastUsedCharacterId).toBe(second.character.id);
+    expect(body.characters).toHaveLength(1);
+    expect(body.characters[0]?.id).toBe(second.character.id);
+    expect(body.characters[0]?.isLastUsed).toBe(true);
+  });
 });

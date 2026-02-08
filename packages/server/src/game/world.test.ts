@@ -119,6 +119,41 @@ describe("world manager", () => {
     expect(joinEvents).toHaveLength(0);
   });
 
+  test("rejoin in same world with a different character replaces previous character entry", () => {
+    const manager = new WorldManager();
+    const socket = createMockSocket(manager, "user-a", "character-a");
+
+    manager.joinWorld(
+      asServerSocket(socket),
+      HUB_ALPHA_MAP.id,
+      "character-a",
+      "Alpha",
+      "knight",
+      "#E8A832",
+    );
+    manager.joinWorld(
+      asServerSocket(socket),
+      HUB_ALPHA_MAP.id,
+      "character-b",
+      "Bravo",
+      "mage",
+      "#22D3EE",
+    );
+    cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
+
+    const snapshot = parseMessages(socket)
+      .filter((message) => message.type === "world.snapshot")
+      .at(-1);
+
+    expect(snapshot?.type).toBe("world.snapshot");
+    if (!snapshot || snapshot.type !== "world.snapshot") {
+      throw new Error("missing world snapshot");
+    }
+
+    const playerIds = snapshot.payload.players.map((player) => player.id);
+    expect(playerIds).toEqual(["character-b"]);
+  });
+
   test("spawn point is outside collision geometry", () => {
     const spawn = findSpawnPoint(HUB_ALPHA_MAP, HUB_ALPHA_MAP.playerSpawnId);
     expect(spawn).toBeDefined();

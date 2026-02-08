@@ -237,14 +237,14 @@ export class WorldManager {
     characterClass: CharacterClass,
     colorHex: string,
   ): Vector2 | null {
+    const currentWorldId = socket.data.session.worldId;
+    if (currentWorldId) {
+      this.leaveWorld(socket);
+    }
+
     const instance = this.getOrCreate(worldId);
     if (!instance) {
       return null;
-    }
-
-    const currentWorldId = socket.data.session.worldId;
-    if (currentWorldId && currentWorldId !== worldId) {
-      this.leaveWorld(socket);
     }
 
     const spawn = instance.addPlayer(
