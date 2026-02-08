@@ -10,9 +10,9 @@ import {
 
 import { verifyAccessToken } from "../auth/jwt";
 import type { ServerConfig } from "../config";
+import { isUniqueConstraintError, parseJsonBody } from "../http/utils";
 import {
-  canCreateCharacter,
-  createCharacter,
+  createCharacterIfWithinLimit,
   deleteCharacterForUser,
   findCharacterByIdForUser,
   getLastUsedCharacterIdForUser,
@@ -91,23 +91,6 @@ async function authenticateRequest(
   }
 }
 
-async function parseJsonBody(request: Request): Promise<unknown | null> {
-  const contentType = request.headers.get("content-type") ?? "";
-  if (!contentType.toLowerCase().includes("application/json")) {
-    return null;
-  }
-  try {
-    return await request.json();
-  } catch {
-    return null;
-  }
-}
-
-function isUniqueConstraintError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return message.includes("UNIQUE") || message.includes("constraint");
-}
-
 function validateCreateBody(
   body: unknown,
 ): { ok: true; value: CreateCharacterRequest } | { ok: false } {
@@ -161,14 +144,6 @@ export async function handleCreateCharacter(
     return auth.response;
   }
 
-  if (!canCreateCharacter(db, auth.userId)) {
-    return characterError(
-      409,
-      CHARACTER_ERROR_CODES.maxReached,
-      "Character limit reached.",
-    );
-  }
-
   const body = await parseJsonBody(request);
   if (!body) {
     return characterError(
@@ -187,12 +162,19 @@ export async function handleCreateCharacter(
   }
 
   try {
-    const character = createCharacter(db, {
+    const character = createCharacterIfWithinLimit(db, {
       id: crypto.randomUUID(),
       userId: auth.userId,
       nickname: validation.value.nickname,
       class: validation.value.class,
     });
+    if (!character) {
+      return characterError(
+        409,
+        CHARACTER_ERROR_CODES.maxReached,
+        "Character limit reached.",
+      );
+    }
     return json(201, { character });
   } catch (error) {
     if (isUniqueConstraintError(error)) {

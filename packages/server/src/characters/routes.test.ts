@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { MAX_CHARACTERS_PER_ACCOUNT } from "@mmo/shared";
 
 import { type AppInstance, createApp } from "../app";
 
@@ -178,5 +179,42 @@ describe("character routes", () => {
     expect(body.characters).toHaveLength(1);
     expect(body.characters[0]?.id).toBe(second.character.id);
     expect(body.characters[0]?.isLastUsed).toBe(true);
+  });
+
+  test("enforces max characters under concurrent create requests", async () => {
+    const token = await signupAndGetToken(app, "player5@example.com");
+
+    const createPromises = Array.from({
+      length: MAX_CHARACTERS_PER_ACCOUNT + 2,
+    }).map((_, index) =>
+      app.fetch(
+        createJsonRequest("/characters", "POST", token, {
+          nickname: `Hero${index + 1}`,
+          class: index % 2 === 0 ? "knight" : "mage",
+        }),
+      ),
+    );
+
+    const responses = await Promise.all(createPromises);
+    const created = responses.filter((response) => response.status === 201);
+    const maxReached = await Promise.all(
+      responses
+        .filter((response) => response.status === 409)
+        .map(async (response) => response.json()),
+    );
+
+    expect(created).toHaveLength(MAX_CHARACTERS_PER_ACCOUNT);
+    expect(maxReached).toContainEqual({
+      code: "CHARACTER_MAX_REACHED",
+      error: "Character limit reached.",
+    });
+
+    const listResponse = await app.fetch(
+      createJsonRequest("/characters", "GET", token),
+    );
+    const listBody = (await listResponse.json()) as {
+      characters: Array<{ id: string }>;
+    };
+    expect(listBody.characters).toHaveLength(MAX_CHARACTERS_PER_ACCOUNT);
   });
 });

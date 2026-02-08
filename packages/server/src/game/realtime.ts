@@ -103,7 +103,6 @@ export function createRealtimeGateway(
       socket.send(
         stringifyServerMessage({
           type: "auth.ok",
-          userId,
         }),
       );
     } catch {

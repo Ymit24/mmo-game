@@ -8,7 +8,8 @@ import { useNavigate } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthContext";
 import { CharacterHubTopbar } from "../components/characters/CharacterHubTopbar";
-import { CharacterApiError, createCharacter } from "../lib/api/characterApi";
+import { createCharacter } from "../lib/api/characterApi";
+import { getCharacterApiErrorMessage } from "../lib/api/characterApiErrorMessage";
 
 const CHARACTER_CLASSES: CharacterClass[] = ["knight", "mage"];
 
@@ -97,16 +98,15 @@ export function CharacterCreatePage() {
                   },
                 );
               } catch (requestError) {
-                const message =
-                  requestError instanceof CharacterApiError
-                    ? requestError.code === "CHARACTER_MAX_REACHED"
-                      ? "You reached the max of 6 characters."
-                      : requestError.code === "CHARACTER_DUPLICATE_NICKNAME"
-                        ? "That nickname is already used on this account."
-                        : requestError.message
-                    : requestError instanceof Error
-                      ? requestError.message
-                      : "Unable to create character.";
+                const message = getCharacterApiErrorMessage(requestError, {
+                  fallback: "Unable to create character.",
+                  codeMessages: {
+                    CHARACTER_MAX_REACHED:
+                      "You reached the max of 6 characters.",
+                    CHARACTER_DUPLICATE_NICKNAME:
+                      "That nickname is already used on this account.",
+                  },
+                });
                 setError(message);
               } finally {
                 setIsSubmitting(false);

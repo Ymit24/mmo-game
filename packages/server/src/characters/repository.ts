@@ -144,6 +144,64 @@ export function createCharacter(
   };
 }
 
+export function createCharacterIfWithinLimit(
+  db: Database,
+  input: NewCharacterInput,
+): CharacterSummary | null {
+  const timestamp = new Date().toISOString();
+  const normalizedNickname = normalizeNickname(input.nickname);
+  let committed = false;
+
+  db.exec("BEGIN IMMEDIATE;");
+  try {
+    const count = countCharactersForUser(db, input.userId);
+    if (count >= MAX_CHARACTERS_PER_ACCOUNT) {
+      return null;
+    }
+
+    db.query(
+      `INSERT INTO characters (
+        id,
+        user_id,
+        nickname,
+        nickname_normalized,
+        class,
+        created_at,
+        updated_at
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+    ).run(
+      input.id,
+      input.userId,
+      input.nickname.trim(),
+      normalizedNickname,
+      input.class,
+      timestamp,
+      timestamp,
+    );
+
+    setLastUsedCharacterIdForUser(db, input.userId, input.id);
+    db.exec("COMMIT;");
+    committed = true;
+
+    return {
+      id: input.id,
+      nickname: input.nickname.trim(),
+      class: input.class,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      isLastUsed: true,
+    };
+  } finally {
+    if (!committed) {
+      try {
+        db.exec("ROLLBACK;");
+      } catch {
+        // Transaction may already be closed by SQLite after an error.
+      }
+    }
+  }
+}
+
 export function deleteCharacterForUser(
   db: Database,
   userId: string,

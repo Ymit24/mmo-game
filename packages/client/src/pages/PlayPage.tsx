@@ -4,11 +4,8 @@ import { Link, useNavigate } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthContext";
 import { CharacterHubTopbar } from "../components/characters/CharacterHubTopbar";
-import {
-  CharacterApiError,
-  deleteCharacter,
-  listCharacters,
-} from "../lib/api/characterApi";
+import { deleteCharacter, listCharacters } from "../lib/api/characterApi";
+import { getCharacterApiErrorMessage } from "../lib/api/characterApiErrorMessage";
 
 interface DeleteDialogState {
   id: string;
@@ -54,14 +51,10 @@ export function PlayPage() {
         if (isCancelled) {
           return;
         }
-        const message =
-          requestError instanceof CharacterApiError
-            ? requestError.code === "CHARACTER_UNAUTHORIZED"
-              ? "Session expired. Please sign in again."
-              : requestError.message
-            : requestError instanceof Error
-              ? requestError.message
-              : "Unable to load characters.";
+        const message = getCharacterApiErrorMessage(requestError, {
+          fallback: "Unable to load characters.",
+          unauthorizedMessage: "Session expired. Please sign in again.",
+        });
         setError(message);
       } finally {
         if (!isCancelled) {
@@ -266,15 +259,13 @@ export function PlayPage() {
                       navigate("/characters/new", { replace: true });
                     }
                   } catch (requestError) {
-                    const message =
-                      requestError instanceof CharacterApiError
-                        ? requestError.code ===
-                          "CHARACTER_LAST_DELETE_FORBIDDEN"
-                          ? "You must keep at least one character."
-                          : requestError.message
-                        : requestError instanceof Error
-                          ? requestError.message
-                          : "Delete failed.";
+                    const message = getCharacterApiErrorMessage(requestError, {
+                      fallback: "Delete failed.",
+                      codeMessages: {
+                        CHARACTER_LAST_DELETE_FORBIDDEN:
+                          "You must keep at least one character.",
+                      },
+                    });
                     setError(message);
                   } finally {
                     setIsDeleting(false);

@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 
 import type { ServerConfig } from "../config";
+import { isUniqueConstraintError, parseJsonBody } from "../http/utils";
 import { issueAccessToken } from "./jwt";
 import { hashPassword, verifyPassword } from "./password";
 import { findUserByEmail, insertUser } from "./repository";
@@ -11,24 +12,6 @@ const SIGNUP_FAILED_MESSAGE = "Unable to create account.";
 
 function json(status: number, body: unknown): Response {
   return Response.json(body, { status });
-}
-
-async function parseJsonBody(request: Request): Promise<unknown | null> {
-  const contentType = request.headers.get("content-type") ?? "";
-  if (!contentType.toLowerCase().includes("application/json")) {
-    return null;
-  }
-
-  try {
-    return await request.json();
-  } catch {
-    return null;
-  }
-}
-
-function isUniqueConstraintError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return message.includes("UNIQUE") || message.includes("constraint");
 }
 
 export async function handleSignup(

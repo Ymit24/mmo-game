@@ -74,6 +74,7 @@ describe("realtime gateway", () => {
     expect(socket.data.session.authenticated).toBe(true);
     const authMessage = parseLastMessage(socket);
     expect(authMessage.type).toBe("auth.ok");
+    expect(authMessage.userId).toBeUndefined();
     db.close();
   });
 

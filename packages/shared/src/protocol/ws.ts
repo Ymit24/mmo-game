@@ -59,7 +59,6 @@ export type ClientToServerMessage =
 export type ServerToClientMessage =
   | {
       type: "auth.ok";
-      userId: string;
     }
   | {
       type: "auth.error";
