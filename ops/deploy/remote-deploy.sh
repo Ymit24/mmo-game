@@ -62,13 +62,23 @@ if [[ -f "$STAGE_DIR/BUILD_INFO" ]]; then
 fi
 
 chown -R "$APP_USER:$APP_GROUP" "$RELEASE_DIR"
+chmod -R u=rwX,go=rX "$RELEASE_DIR"
 
 ln -sfn "$RELEASE_DIR" "$CURRENT_LINK"
 
 systemctl daemon-reload
 systemctl restart "$SERVICE_NAME"
 
-if ! curl -fsS --max-time 10 "http://127.0.0.1:$APP_PORT/health" >/dev/null; then
+HEALTH_OK=0
+for _ in {1..20}; do
+  if curl -fsS --max-time 3 "http://127.0.0.1:$APP_PORT/health" >/dev/null; then
+    HEALTH_OK=1
+    break
+  fi
+  sleep 1
+done
+
+if [[ "$HEALTH_OK" != "1" ]]; then
   echo "Health check failed after restart; rolling back." >&2
   if [[ -n "$PREVIOUS_TARGET" && -d "$PREVIOUS_TARGET" ]]; then
     ln -sfn "$PREVIOUS_TARGET" "$CURRENT_LINK"

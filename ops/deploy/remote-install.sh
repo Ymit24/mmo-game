@@ -45,7 +45,9 @@ fi
 
 mkdir -p "$RELEASES_DIR" "$SHARED_DIR" "$DATA_DIR" "$ENV_DIR"
 chown -R "$APP_USER:$APP_GROUP" "$APP_ROOT" "$DATA_DIR"
-chmod 750 "$APP_ROOT" "$RELEASES_DIR" "$SHARED_DIR" "$DATA_DIR"
+# nginx (www-data) must traverse app directories to serve static client assets.
+chmod 755 "$APP_ROOT" "$RELEASES_DIR" "$SHARED_DIR"
+chmod 750 "$DATA_DIR"
 
 if [[ ! -f "$ENV_FILE" ]]; then
   GENERATED_SECRET="$(openssl rand -hex 32 2>/dev/null || LC_ALL=C head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
