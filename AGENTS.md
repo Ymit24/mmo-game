@@ -8,6 +8,7 @@
 - Realtime game: browser 2D game client built with Phaser 3 using WebSocket connection.
 - Server topology (phase 1): single Bun process handling REST + WS.
 - Shared package purpose: common models/protocol contracts/behavior utilities used by both client and server.
+- Shared code policy: when logic/types/utilities are needed by both `client` and `server`, place them in `shared` instead of duplicating; if duplication appears during feature work, refactor it, and do a quick duplicate-code pass before considering the feature done.
 
 ## Game runtime decisions (phase 1)
 
