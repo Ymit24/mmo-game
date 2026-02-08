@@ -146,6 +146,16 @@ export function GameShell({ characterId }: GameShellProps) {
         </div>
       ) : null}
 
+      {uiState.transitionMessage ? (
+        <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-void/35 backdrop-blur-[1px]">
+          <div className="rounded-lg border border-cyan/40 bg-abyss/90 px-5 py-3 shadow-xl shadow-cyan/10">
+            <p className="font-mono text-xs uppercase tracking-[0.18em] text-cyan">
+              {uiState.transitionMessage}
+            </p>
+          </div>
+        </div>
+      ) : null}
+
       {isReady ? (
         <div className="pointer-events-none absolute inset-0 z-20 flex flex-col justify-between p-4 md:p-6">
           <header className="pointer-events-auto flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/80 bg-abyss/85 p-3 backdrop-blur-sm">

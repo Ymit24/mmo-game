@@ -18,6 +18,18 @@ export interface RegionTrigger {
   shape: CollisionShape;
 }
 
+export interface PortalTrigger {
+  id: string;
+  name: string;
+  shape: CollisionShape;
+  targetWorldId: string;
+  targetSpawnId: string;
+  exitOffset: {
+    x: number;
+    y: number;
+  };
+}
+
 export interface WorldMap {
   id: string;
   name: string;
@@ -31,4 +43,5 @@ export interface WorldMap {
   spawnPoints: SpawnPoint[];
   collisions: CollisionShape[];
   regions: RegionTrigger[];
+  portals: PortalTrigger[];
 }

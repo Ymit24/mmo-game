@@ -1,13 +1,16 @@
 import type {
   CharacterClass,
   ClientToServerMessage,
+  CollisionShape,
   PlayerSnapshot,
+  PortalTrigger,
   ServerToClientMessage,
   Vector2,
   WorldMap,
 } from "@mmo/shared";
 import {
-  HUB_ALPHA_MAP,
+  PLAYER_COLLIDER_SIZE,
+  WORLD_MAPS_BY_ID,
   findSpawnPoint,
   inputToVelocity,
   resolveMovementWithSliding,
@@ -27,6 +30,12 @@ interface PlayerState {
   socket: ServerWebSocket<RealtimeSocketData>;
 }
 
+interface JoinWorldOptions {
+  spawnOverride?: Vector2;
+}
+
+const PORTAL_TRAVEL_COOLDOWN_MS = 750;
+
 export interface RealtimeSession {
   connectionId: string;
   authenticated: boolean;
@@ -39,6 +48,7 @@ export interface RealtimeSession {
   characterClass: CharacterClass | null;
   characterColorHex: string | null;
   worldId: string | null;
+  lastPortalTravelAtEpochMs: number | null;
 }
 
 export interface RealtimeSocketData {
@@ -55,6 +65,26 @@ function toSnapshot(player: PlayerState): PlayerSnapshot {
     velocity: player.velocity,
     lastProcessedInputSequence: player.lastProcessedInputSequence,
   };
+}
+
+function intersectsPlayerBounds(
+  position: Vector2,
+  shape: CollisionShape,
+): boolean {
+  const halfWidth = PLAYER_COLLIDER_SIZE.width / 2;
+  const halfHeight = PLAYER_COLLIDER_SIZE.height / 2;
+
+  const playerLeft = position.x - halfWidth;
+  const playerRight = position.x + halfWidth;
+  const playerTop = position.y - halfHeight;
+  const playerBottom = position.y + halfHeight;
+
+  return (
+    playerLeft < shape.x + shape.width &&
+    playerRight > shape.x &&
+    playerTop < shape.y + shape.height &&
+    playerBottom > shape.y
+  );
 }
 
 class WorldInstance {
@@ -83,9 +113,11 @@ class WorldInstance {
     characterClass: CharacterClass,
     colorHex: string,
     socket: ServerWebSocket<RealtimeSocketData>,
+    spawnOverride?: Vector2,
   ): Vector2 {
-    const spawn = findSpawnPoint(this.map, this.map.playerSpawnId) ??
+    const fallbackSpawn = findSpawnPoint(this.map, this.map.playerSpawnId) ??
       this.map.spawnPoints[0] ?? { x: 120, y: 120 };
+    const spawn = spawnOverride ?? fallbackSpawn;
 
     const player: PlayerState = {
       connectionId,
@@ -135,13 +167,13 @@ class WorldInstance {
     characterId: string,
     connectionId: string,
     message: Extract<ClientToServerMessage, { type: "player.input" }>,
-  ): void {
+  ): PortalTrigger | null {
     const player = this.players.get(characterId);
     if (!player) {
-      return;
+      return null;
     }
     if (player.connectionId !== connectionId) {
-      return;
+      return null;
     }
 
     const velocity = inputToVelocity(message.input);
@@ -161,6 +193,12 @@ class WorldInstance {
         velocity: player.velocity,
         lastProcessedInputSequence: message.sequence,
       }),
+    );
+
+    return (
+      this.map.portals.find((portal) =>
+        intersectsPlayerBounds(player.position, portal.shape),
+      ) ?? null
     );
   }
 
@@ -225,6 +263,7 @@ export class WorldManager {
         characterClass: null,
         characterColorHex: null,
         worldId: null,
+        lastPortalTravelAtEpochMs: null,
       },
     };
   }
@@ -236,6 +275,7 @@ export class WorldManager {
     nickname: string,
     characterClass: CharacterClass,
     colorHex: string,
+    options?: JoinWorldOptions,
   ): Vector2 | null {
     const instance = this.getOrCreate(worldId);
     if (!instance) {
@@ -254,6 +294,7 @@ export class WorldManager {
       characterClass,
       colorHex,
       socket,
+      options?.spawnOverride,
     );
     socket.data.session.worldId = worldId;
     socket.data.session.characterId = characterId;
@@ -312,7 +353,52 @@ export class WorldManager {
       return;
     }
 
-    instance.applyInput(characterId, connectionId, message);
+    const portal = instance.applyInput(characterId, connectionId, message);
+    if (!portal) {
+      return;
+    }
+
+    const { characterNickname, characterClass, characterColorHex } =
+      socket.data.session;
+    if (!characterNickname || !characterClass || !characterColorHex) {
+      return;
+    }
+
+    const now = Date.now();
+    const lastPortalTravelAtEpochMs =
+      socket.data.session.lastPortalTravelAtEpochMs;
+    if (
+      typeof lastPortalTravelAtEpochMs === "number" &&
+      now - lastPortalTravelAtEpochMs < PORTAL_TRAVEL_COOLDOWN_MS
+    ) {
+      return;
+    }
+
+    const targetMap = WORLD_MAPS_BY_ID.get(portal.targetWorldId);
+    if (!targetMap) {
+      return;
+    }
+
+    const targetSpawn = findSpawnPoint(targetMap, portal.targetSpawnId);
+    if (!targetSpawn) {
+      return;
+    }
+
+    socket.data.session.lastPortalTravelAtEpochMs = now;
+    this.joinWorld(
+      socket,
+      portal.targetWorldId,
+      characterId,
+      characterNickname,
+      characterClass,
+      characterColorHex,
+      {
+        spawnOverride: {
+          x: targetSpawn.x + portal.exitOffset.x,
+          y: targetSpawn.y + portal.exitOffset.y,
+        },
+      },
+    );
   }
 
   acknowledgeDrop(
@@ -351,11 +437,12 @@ export class WorldManager {
       return existing;
     }
 
-    if (worldId !== HUB_ALPHA_MAP.id) {
+    const map = WORLD_MAPS_BY_ID.get(worldId);
+    if (!map) {
       return null;
     }
 
-    const created = new WorldInstance(worldId, HUB_ALPHA_MAP);
+    const created = new WorldInstance(worldId, map);
     this.instances.set(worldId, created);
     return created;
   }

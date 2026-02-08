@@ -1,5 +1,6 @@
 import type {
   CollisionShape,
+  PortalTrigger,
   RegionTrigger,
   SpawnPoint,
   WorldMap,
@@ -51,6 +52,24 @@ function isRegionTrigger(value: unknown): value is RegionTrigger {
   );
 }
 
+function isPortalTrigger(value: unknown): value is PortalTrigger {
+  if (!isObject(value) || !isObject(value.exitOffset)) {
+    return false;
+  }
+
+  return (
+    typeof value.id === "string" &&
+    typeof value.name === "string" &&
+    isCollisionShape(value.shape) &&
+    typeof value.targetWorldId === "string" &&
+    value.targetWorldId.length > 0 &&
+    typeof value.targetSpawnId === "string" &&
+    value.targetSpawnId.length > 0 &&
+    isNumber(value.exitOffset.x) &&
+    isNumber(value.exitOffset.y)
+  );
+}
+
 export function isWorldMap(value: unknown): value is WorldMap {
   if (!isObject(value) || !isObject(value.background)) {
     return false;
@@ -69,7 +88,9 @@ export function isWorldMap(value: unknown): value is WorldMap {
     Array.isArray(value.collisions) &&
     value.collisions.every((shape) => isCollisionShape(shape)) &&
     Array.isArray(value.regions) &&
-    value.regions.every((region) => isRegionTrigger(region))
+    value.regions.every((region) => isRegionTrigger(region)) &&
+    Array.isArray(value.portals) &&
+    value.portals.every((portal) => isPortalTrigger(portal))
   );
 }
 
