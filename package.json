@@ -4,6 +4,7 @@
   "type": "module",
   "workspaces": ["packages/*"],
   "scripts": {
+    "dev": "bun run --parallel --filter @mmo/server --filter @mmo/client dev",
     "dev:client": "bun run --filter @mmo/client dev",
     "dev:server": "bun run --filter @mmo/server dev",
     "build": "bun run --filter '*' build",
