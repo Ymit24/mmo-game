@@ -1,10 +1,12 @@
 import {
   type ClientToServerMessage,
-  HUB_ALPHA_MAP,
+  DEFAULT_WORLD_ID,
   PLAYER_COLLIDER_SIZE,
   PLAYER_MOVE_SPEED,
   type PlayerInputState,
   type ServerToClientMessage,
+  WORLD_MAPS_BY_ID,
+  type WorldMap,
   clampInputDtMs,
   inputToVelocity,
   resolveMovementWithSliding,
@@ -53,17 +55,13 @@ function toWsUrl(apiBaseUrl: string): string {
 }
 
 function applyPredictedInput(
+  map: WorldMap,
   position: Phaser.Math.Vector2,
   input: PlayerInputState,
   dtMs: number,
 ): void {
   const velocity = inputToVelocity(input, PLAYER_MOVE_SPEED);
-  const resolved = resolveMovementWithSliding(
-    position,
-    velocity,
-    dtMs,
-    HUB_ALPHA_MAP,
-  );
+  const resolved = resolveMovementWithSliding(position, velocity, dtMs, map);
 
   position.set(resolved.x, resolved.y);
 }
@@ -74,6 +72,10 @@ function hexToNumber(colorHex: string): number {
     return 0xfbbf24;
   }
   return parsed;
+}
+
+function resolveMapById(worldId: string): WorldMap | null {
+  return WORLD_MAPS_BY_ID.get(worldId) ?? null;
 }
 
 class HubScene extends Phaser.Scene {
@@ -94,6 +96,9 @@ class HubScene extends Phaser.Scene {
   private pendingInputs: PendingInput[] = [];
   private inputLocked = true;
   private conflictRetryCount = 0;
+  private currentMap: WorldMap;
+  private mapBackgroundGraphics: Phaser.GameObjects.Graphics | null = null;
+  private mapOverlayGraphics: Phaser.GameObjects.Graphics | null = null;
 
   private cursors!: {
     up: Phaser.Input.Keyboard.Key;
@@ -111,18 +116,21 @@ class HubScene extends Phaser.Scene {
     this.token = token;
     this.characterId = characterId;
     this.bridge = bridge;
+    const initialMap = resolveMapById(DEFAULT_WORLD_ID);
+    const fallbackMap = [...WORLD_MAPS_BY_ID.values()][0];
+    if (initialMap) {
+      this.currentMap = initialMap;
+      return;
+    }
+    if (fallbackMap) {
+      this.currentMap = fallbackMap;
+      return;
+    }
+    throw new Error("No world maps are configured.");
   }
 
   create(): void {
-    this.drawBackground();
-    this.drawMapShapes();
-
-    this.cameras.main.setBounds(
-      0,
-      0,
-      HUB_ALPHA_MAP.width,
-      HUB_ALPHA_MAP.height,
-    );
+    this.applyWorldMap(this.currentMap);
     this.cameras.main.setZoom(1.15);
 
     this.cursors = this.input.keyboard?.addKeys({
@@ -145,6 +153,9 @@ class HubScene extends Phaser.Scene {
 
     this.unsubscribeDropRequest = this.bridge.onDropRequest(
       ({ itemId, quantity }) => {
+        if (!this.bridge.getState().isInWorld) {
+          return;
+        }
         this.sendMessage({
           type: "inventory.drop",
           payload: {
@@ -165,10 +176,8 @@ class HubScene extends Phaser.Scene {
     this.bridge.updateState({
       connectionStatus: "connecting",
       modal: null,
-      mapSize: {
-        width: HUB_ALPHA_MAP.width,
-        height: HUB_ALPHA_MAP.height,
-      },
+      isInWorld: false,
+      transitionMessage: null,
       pointerWorld: {
         x: this.pointerWorld.x,
         y: this.pointerWorld.y,
@@ -210,7 +219,7 @@ class HubScene extends Phaser.Scene {
     const dtMs = clampInputDtMs(Math.round(dt));
 
     this.pendingInputs.push({ sequence, input, dtMs });
-    applyPredictedInput(this.predictedPosition, input, dtMs);
+    applyPredictedInput(this.currentMap, this.predictedPosition, input, dtMs);
     this.localPlayer.sprite.setPosition(
       this.predictedPosition.x,
       this.predictedPosition.y,
@@ -240,45 +249,65 @@ class HubScene extends Phaser.Scene {
     });
   }
 
-  private drawBackground(): void {
-    const graphics = this.add.graphics();
-    graphics.fillStyle(0x070f17, 1);
-    graphics.fillRect(0, 0, HUB_ALPHA_MAP.width, HUB_ALPHA_MAP.height);
+  private applyWorldMap(map: WorldMap): void {
+    this.currentMap = map;
+    this.mapBackgroundGraphics?.destroy();
+    this.mapOverlayGraphics?.destroy();
 
-    graphics.lineStyle(1, 0x143047, 0.25);
-    for (
-      let x = 0;
-      x <= HUB_ALPHA_MAP.width;
-      x += HUB_ALPHA_MAP.background.gridSize
-    ) {
-      graphics.lineBetween(x, 0, x, HUB_ALPHA_MAP.height);
+    const background = this.add.graphics();
+    background.setDepth(-20);
+    background.fillStyle(hexToNumber(map.background.color), 1);
+    background.fillRect(0, 0, map.width, map.height);
+    background.lineStyle(1, 0x2a4236, 0.3);
+    for (let x = 0; x <= map.width; x += map.background.gridSize) {
+      background.lineBetween(x, 0, x, map.height);
     }
-    for (
-      let y = 0;
-      y <= HUB_ALPHA_MAP.height;
-      y += HUB_ALPHA_MAP.background.gridSize
-    ) {
-      graphics.lineBetween(0, y, HUB_ALPHA_MAP.width, y);
+    for (let y = 0; y <= map.height; y += map.background.gridSize) {
+      background.lineBetween(0, y, map.width, y);
     }
-  }
+    this.mapBackgroundGraphics = background;
 
-  private drawMapShapes(): void {
-    const graphics = this.add.graphics();
-
-    graphics.fillStyle(0x1c3243, 0.5);
-    for (const shape of HUB_ALPHA_MAP.collisions) {
-      graphics.fillRect(shape.x, shape.y, shape.width, shape.height);
+    const overlay = this.add.graphics();
+    overlay.setDepth(-10);
+    overlay.fillStyle(0x1f3340, 0.5);
+    for (const shape of map.collisions) {
+      overlay.fillRect(shape.x, shape.y, shape.width, shape.height);
     }
-
-    graphics.lineStyle(2, 0xfbbf24, 0.4);
-    for (const region of HUB_ALPHA_MAP.regions) {
-      graphics.strokeRect(
+    overlay.lineStyle(2, 0xfbbf24, 0.35);
+    for (const region of map.regions) {
+      overlay.strokeRect(
         region.shape.x,
         region.shape.y,
         region.shape.width,
         region.shape.height,
       );
     }
+
+    overlay.fillStyle(0x22d3ee, 0.28);
+    overlay.lineStyle(2, 0x67e8f9, 0.85);
+    for (const portal of map.portals) {
+      overlay.fillRect(
+        portal.shape.x,
+        portal.shape.y,
+        portal.shape.width,
+        portal.shape.height,
+      );
+      overlay.strokeRect(
+        portal.shape.x,
+        portal.shape.y,
+        portal.shape.width,
+        portal.shape.height,
+      );
+    }
+
+    this.mapOverlayGraphics = overlay;
+    this.cameras.main.setBounds(0, 0, map.width, map.height);
+    this.bridge.updateState({
+      mapSize: {
+        width: map.width,
+        height: map.height,
+      },
+    });
   }
 
   private connect(): void {
@@ -308,9 +337,12 @@ class HubScene extends Phaser.Scene {
 
     ws.addEventListener("close", () => {
       const current = this.bridge.getState();
-      this.inputLocked = true;
+      this.resetWorldPresence();
       this.bridge.updateState({
         connectionStatus: "error",
+        isInWorld: false,
+        transitionMessage: null,
+        worldId: null,
         lastMessage:
           current.modal?.message ??
           current.lastMessage ??
@@ -320,9 +352,12 @@ class HubScene extends Phaser.Scene {
 
     ws.addEventListener("error", () => {
       const current = this.bridge.getState();
-      this.inputLocked = true;
+      this.resetWorldPresence();
       this.bridge.updateState({
         connectionStatus: "error",
+        isInWorld: false,
+        transitionMessage: null,
+        worldId: null,
         lastMessage:
           current.modal?.message ??
           current.lastMessage ??
@@ -340,27 +375,44 @@ class HubScene extends Phaser.Scene {
         });
         this.sendMessage({
           type: "world.join",
-          worldId: HUB_ALPHA_MAP.id,
+          worldId: DEFAULT_WORLD_ID,
           characterId: this.characterId,
         });
         return;
 
       case "auth.error":
-        this.inputLocked = true;
+        this.resetWorldPresence();
         this.bridge.updateState({
           connectionStatus: "error",
           modal: {
             kind: "error",
             message: message.error,
           },
+          isInWorld: false,
+          transitionMessage: null,
+          worldId: null,
           lastMessage: message.error,
         });
         this.socket?.close();
         return;
 
+      case "world.transitioning":
+        this.startWorldTransition(
+          resolveMapById(message.toWorldId)?.name ?? message.toWorldId,
+        );
+        return;
+
       case "world.joined": {
+        const nextMap = resolveMapById(message.worldId);
+        if (nextMap) {
+          this.applyWorldMap(nextMap);
+        }
+
         this.localCharacterId = message.characterId;
+        this.pendingInputs = [];
         this.bridge.updateState({
+          isInWorld: true,
+          transitionMessage: null,
           worldId: message.worldId,
           lastMessage: `Joined ${message.worldId}`,
           connectionStatus: "connected",
@@ -415,6 +467,9 @@ class HubScene extends Phaser.Scene {
       }
 
       case "world.playerJoined": {
+        if (message.worldId !== this.bridge.getState().worldId) {
+          return;
+        }
         if (message.player.id === this.localCharacterId) {
           return;
         }
@@ -458,6 +513,9 @@ class HubScene extends Phaser.Scene {
       }
 
       case "world.playerLeft": {
+        if (message.worldId !== this.bridge.getState().worldId) {
+          return;
+        }
         const actor = this.remotePlayers.get(message.characterId);
         actor?.sprite.destroy();
         actor?.label.destroy();
@@ -467,10 +525,15 @@ class HubScene extends Phaser.Scene {
       }
 
       case "world.snapshot": {
+        if (message.payload.worldId !== this.bridge.getState().worldId) {
+          return;
+        }
+        const snapshotIds = new Set<string>();
         for (const player of message.payload.players) {
           if (player.id === this.localCharacterId) {
             continue;
           }
+          snapshotIds.add(player.id);
 
           const actor = this.remotePlayers.get(player.id);
           if (!actor) {
@@ -516,6 +579,15 @@ class HubScene extends Phaser.Scene {
           actor.colorHex = player.colorHex;
         }
 
+        for (const [id, actor] of this.remotePlayers.entries()) {
+          if (snapshotIds.has(id)) {
+            continue;
+          }
+          actor.sprite.destroy();
+          actor.label.destroy();
+          this.remotePlayers.delete(id);
+        }
+
         this.syncOverlayPlayers();
         return;
       }
@@ -529,6 +601,7 @@ class HubScene extends Phaser.Scene {
 
         for (const pending of this.pendingInputs) {
           applyPredictedInput(
+            this.currentMap,
             this.predictedPosition,
             pending.input,
             pending.dtMs,
@@ -570,14 +643,15 @@ class HubScene extends Phaser.Scene {
         return;
 
       case "session.kicked":
-        this.inputLocked = true;
-        this.clearWorldActors();
+        this.resetWorldPresence();
         this.bridge.updateState({
           connectionStatus: "error",
           modal: {
             kind: "kicked",
             message: message.reason,
           },
+          isInWorld: false,
+          transitionMessage: null,
           worldId: null,
           lastMessage: message.reason,
           players: [],
@@ -586,13 +660,14 @@ class HubScene extends Phaser.Scene {
         return;
 
       case "session.conflict":
-        this.inputLocked = true;
-        this.clearWorldActors();
+        this.resetWorldPresence();
         if (this.conflictRetryCount < 1) {
           this.conflictRetryCount += 1;
           this.bridge.updateState({
             connectionStatus: "connecting",
             modal: null,
+            isInWorld: false,
+            transitionMessage: null,
             worldId: null,
             lastMessage: "Reconnecting to existing session...",
             players: [],
@@ -608,6 +683,8 @@ class HubScene extends Phaser.Scene {
             kind: "conflict",
             message: message.reason,
           },
+          isInWorld: false,
+          transitionMessage: null,
           worldId: null,
           lastMessage: message.reason,
           players: [],
@@ -627,23 +704,45 @@ class HubScene extends Phaser.Scene {
     });
   }
 
+  private startWorldTransition(destinationName: string): void {
+    this.resetWorldPresence();
+    this.bridge.updateState({
+      isInWorld: false,
+      transitionMessage: `Traveling to ${destinationName}`,
+      lastMessage: `Traveling to ${destinationName}`,
+    });
+  }
+
   private clearWorldActors(): void {
     this.localPlayer?.sprite.destroy();
     this.localPlayer?.label.destroy();
     this.localPlayer = null;
+    this.clearRemotePlayers();
+    this.pendingInputs = [];
+    this.nextInputSequence = 1;
+    this.localCharacterId = null;
+    this.predictedPosition.set(0, 0);
+    this.bridge.updateState({
+      isInWorld: false,
+      worldId: null,
+      transitionMessage: null,
+      localPlayerId: null,
+      localPosition: null,
+      players: [],
+    });
+  }
+
+  private resetWorldPresence(): void {
+    this.inputLocked = true;
+    this.clearWorldActors();
+  }
+
+  private clearRemotePlayers(): void {
     for (const actor of this.remotePlayers.values()) {
       actor.sprite.destroy();
       actor.label.destroy();
     }
     this.remotePlayers.clear();
-    this.pendingInputs = [];
-    this.localCharacterId = null;
-    this.predictedPosition.set(0, 0);
-    this.bridge.updateState({
-      localPlayerId: null,
-      localPosition: null,
-      players: [],
-    });
   }
 
   private syncOverlayPlayers(): void {

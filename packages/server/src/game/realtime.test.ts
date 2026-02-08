@@ -97,7 +97,7 @@ describe("realtime gateway", () => {
       asServerSocket(socket),
       JSON.stringify({
         type: "world.join",
-        worldId: "hub-alpha",
+        worldId: "hub:alpha",
         characterId: "character-1",
       }),
     );

@@ -4,6 +4,7 @@ import {
   PLAYER_COLLIDER_SIZE,
   type PlayerInputState,
   type ServerToClientMessage,
+  WILDS_BETA_MAP,
   findSpawnPoint,
   positionCollidesWithMap,
 } from "@mmo/shared";
@@ -44,6 +45,15 @@ function asServerSocket(
 
 function parseMessages(socket: MockSocket): ServerToClientMessage[] {
   return socket.sent.map((raw) => JSON.parse(raw) as ServerToClientMessage);
+}
+
+function moveRightInput(): PlayerInputState {
+  return {
+    up: false,
+    down: false,
+    left: false,
+    right: true,
+  };
 }
 
 describe("world manager", () => {
@@ -198,6 +208,274 @@ describe("world manager", () => {
     cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
   });
 
+  test("portal travel emits world.transitioning before world.joined for destination world", () => {
+    const manager = new WorldManager();
+    const socket = createMockSocket(manager, "user-a", "character-a");
+
+    manager.joinWorld(
+      asServerSocket(socket),
+      HUB_ALPHA_MAP.id,
+      "character-a",
+      "Alpha",
+      "knight",
+      "#E8A832",
+    );
+
+    let travelJoined = false;
+    for (let sequence = 1; sequence <= 20; sequence += 1) {
+      manager.applyInput(asServerSocket(socket), {
+        type: "player.input",
+        sequence,
+        dtMs: 80,
+        input: {
+          up: false,
+          down: false,
+          left: false,
+          right: true,
+        },
+      });
+
+      const lastJoined = parseMessages(socket)
+        .filter((message) => message.type === "world.joined")
+        .at(-1);
+      if (
+        lastJoined?.type === "world.joined" &&
+        lastJoined.worldId !== HUB_ALPHA_MAP.id
+      ) {
+        travelJoined = true;
+        break;
+      }
+    }
+
+    expect(travelJoined).toBe(true);
+    const messages = parseMessages(socket);
+    const transitionIndex = messages.findIndex(
+      (message) => message.type === "world.transitioning",
+    );
+    const destinationJoinIndex = messages.findIndex(
+      (message) =>
+        message.type === "world.joined" &&
+        message.worldId === WILDS_BETA_MAP.id,
+    );
+    expect(transitionIndex).toBeGreaterThan(-1);
+    expect(destinationJoinIndex).toBeGreaterThan(transitionIndex);
+    expect(socket.data.session.worldId).toBe(WILDS_BETA_MAP.id);
+    cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
+  });
+
+  test("players remain isolated across separate world instances", () => {
+    const manager = new WorldManager();
+    const socketA = createMockSocket(manager, "user-a", "player-a");
+    const socketB = createMockSocket(manager, "user-b", "player-b");
+    const socketC = createMockSocket(manager, "user-c", "player-c");
+
+    manager.joinWorld(
+      asServerSocket(socketA),
+      HUB_ALPHA_MAP.id,
+      "player-a",
+      "Alpha",
+      "knight",
+      "#E8A832",
+    );
+    manager.joinWorld(
+      asServerSocket(socketB),
+      HUB_ALPHA_MAP.id,
+      "player-b",
+      "Beta",
+      "mage",
+      "#22D3EE",
+    );
+    socketA.sent = [];
+    socketB.sent = [];
+
+    manager.joinWorld(
+      asServerSocket(socketC),
+      WILDS_BETA_MAP.id,
+      "player-c",
+      "Gamma",
+      "knight",
+      "#E8A832",
+    );
+
+    expect(
+      parseMessages(socketA).every((message) => {
+        if (message.type !== "world.playerJoined") {
+          return true;
+        }
+        return message.player.id !== "player-c";
+      }),
+    ).toBe(true);
+    expect(
+      parseMessages(socketB).every((message) => {
+        if (message.type !== "world.playerJoined") {
+          return true;
+        }
+        return message.player.id !== "player-c";
+      }),
+    ).toBe(true);
+
+    const snapshotC = parseMessages(socketC).find(
+      (message) => message.type === "world.snapshot",
+    );
+    expect(snapshotC?.type).toBe("world.snapshot");
+    if (!snapshotC || snapshotC.type !== "world.snapshot") {
+      throw new Error("missing world snapshot");
+    }
+    expect(snapshotC.payload.worldId).toBe(WILDS_BETA_MAP.id);
+    expect(snapshotC.payload.players.map((player) => player.id)).toEqual([
+      "player-c",
+    ]);
+
+    cleanup.push(() => manager.leaveWorld(asServerSocket(socketA)));
+    cleanup.push(() => manager.leaveWorld(asServerSocket(socketB)));
+    cleanup.push(() => manager.leaveWorld(asServerSocket(socketC)));
+  });
+
+  test("portal exit offset avoids immediate bounce on the next input tick", () => {
+    const manager = new WorldManager();
+    const socket = createMockSocket(manager, "user-a", "character-a");
+
+    manager.joinWorld(
+      asServerSocket(socket),
+      HUB_ALPHA_MAP.id,
+      "character-a",
+      "Alpha",
+      "knight",
+      "#E8A832",
+    );
+
+    for (let sequence = 1; sequence <= 20; sequence += 1) {
+      manager.applyInput(asServerSocket(socket), {
+        type: "player.input",
+        sequence,
+        dtMs: 80,
+        input: {
+          up: false,
+          down: false,
+          left: false,
+          right: true,
+        },
+      });
+    }
+
+    const joinedMessages = parseMessages(socket).filter(
+      (message) => message.type === "world.joined",
+    );
+    expect(joinedMessages).toHaveLength(2);
+    const destination = joinedMessages[1];
+    if (!destination || destination.type !== "world.joined") {
+      throw new Error("missing second world join");
+    }
+    expect(destination.worldId).toBe(WILDS_BETA_MAP.id);
+
+    socket.sent = [];
+    manager.applyInput(asServerSocket(socket), {
+      type: "player.input",
+      sequence: 99,
+      dtMs: 16,
+      input: {
+        up: false,
+        down: false,
+        left: false,
+        right: true,
+      },
+    });
+
+    const immediateRejoin = parseMessages(socket).find(
+      (message) =>
+        message.type === "world.joined" && message.worldId === HUB_ALPHA_MAP.id,
+    );
+    expect(immediateRejoin).toBeUndefined();
+
+    cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
+  });
+
+  test("player can return through the opposite portal immediately after transition", () => {
+    const manager = new WorldManager();
+    const socket = createMockSocket(manager, "user-a", "character-a");
+
+    manager.joinWorld(
+      asServerSocket(socket),
+      WILDS_BETA_MAP.id,
+      "character-a",
+      "Alpha",
+      "knight",
+      "#E8A832",
+    );
+
+    let traveledToHub = false;
+    for (let sequence = 1; sequence <= 20; sequence += 1) {
+      manager.applyInput(asServerSocket(socket), {
+        type: "player.input",
+        sequence,
+        dtMs: 80,
+        input: {
+          up: false,
+          down: false,
+          left: true,
+          right: false,
+        },
+      });
+
+      const inHubNow = parseMessages(socket).some(
+        (message) =>
+          message.type === "world.joined" &&
+          message.worldId === HUB_ALPHA_MAP.id,
+      );
+      if (inHubNow) {
+        traveledToHub = true;
+        break;
+      }
+    }
+
+    expect(traveledToHub).toBe(true);
+
+    socket.sent = [];
+    manager.applyInput(asServerSocket(socket), {
+      type: "player.input",
+      sequence: 99,
+      dtMs: 80,
+      input: {
+        up: false,
+        down: false,
+        left: false,
+        right: true,
+      },
+    });
+    manager.applyInput(asServerSocket(socket), {
+      type: "player.input",
+      sequence: 100,
+      dtMs: 80,
+      input: {
+        up: false,
+        down: false,
+        left: false,
+        right: true,
+      },
+    });
+
+    manager.applyInput(asServerSocket(socket), {
+      type: "player.input",
+      sequence: 101,
+      dtMs: 80,
+      input: {
+        up: false,
+        down: false,
+        left: false,
+        right: true,
+      },
+    });
+
+    const returnedToWilds = parseMessages(socket).some(
+      (message) =>
+        message.type === "world.joined" &&
+        message.worldId === WILDS_BETA_MAP.id,
+    );
+    expect(returnedToWilds).toBe(true);
+
+    cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
+  });
+
   test("spawn point is outside collision geometry", () => {
     const spawn = findSpawnPoint(HUB_ALPHA_MAP, HUB_ALPHA_MAP.playerSpawnId);
     expect(spawn).toBeDefined();
@@ -228,12 +506,7 @@ describe("world manager", () => {
     expect(spawn).not.toBeNull();
     socket.sent = [];
 
-    const input: PlayerInputState = {
-      up: false,
-      down: false,
-      left: false,
-      right: true,
-    };
+    const input: PlayerInputState = moveRightInput();
 
     manager.applyInput(asServerSocket(socket), {
       type: "player.input",
@@ -352,6 +625,12 @@ describe("world manager", () => {
       "Alpha",
       "knight",
       "#E8A832",
+      {
+        spawnOverride: {
+          x: 900,
+          y: 500,
+        },
+      },
     );
     cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
 

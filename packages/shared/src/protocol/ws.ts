@@ -65,6 +65,13 @@ export type ServerToClientMessage =
       error: string;
     }
   | {
+      type: "world.transitioning";
+      fromWorldId: string;
+      toWorldId: string;
+      portalId: string;
+      reason: "portal";
+    }
+  | {
       type: "world.joined";
       worldId: string;
       characterId: string;

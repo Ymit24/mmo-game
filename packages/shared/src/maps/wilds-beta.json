@@ -1,0 +1,50 @@
+{
+  "id": "wilds:beta",
+  "name": "Wilds Beta",
+  "width": 2200,
+  "height": 1400,
+  "background": {
+    "color": "#0a1611",
+    "gridSize": 48
+  },
+  "playerSpawnId": "arrival_from_hub",
+  "spawnPoints": [
+    { "id": "arrival_from_hub", "x": 340, "y": 700 },
+    { "id": "return_anchor", "x": 260, "y": 700 },
+    { "id": "wilds_center", "x": 1220, "y": 700 }
+  ],
+  "collisions": [
+    { "type": "rect", "x": 900, "y": 580, "width": 140, "height": 240 },
+    { "type": "rect", "x": 1600, "y": 300, "width": 160, "height": 180 },
+    { "type": "rect", "x": 1600, "y": 920, "width": 160, "height": 180 }
+  ],
+  "regions": [
+    {
+      "id": "wilds_clearing",
+      "name": "Beta Clearing",
+      "shape": {
+        "type": "rect",
+        "x": 960,
+        "y": 520,
+        "width": 520,
+        "height": 360
+      }
+    }
+  ],
+  "portals": [
+    {
+      "id": "wilds_to_hub_gate",
+      "name": "Return Gate",
+      "shape": {
+        "type": "rect",
+        "x": 170,
+        "y": 620,
+        "width": 90,
+        "height": 160
+      },
+      "targetWorldId": "hub:alpha",
+      "targetSpawnId": "arrival_from_wilds",
+      "exitOffset": { "x": 44, "y": 0 }
+    }
+  ]
+}

@@ -11,7 +11,8 @@
   "spawnPoints": [
     { "id": "central_spawn", "x": 1100, "y": 520 },
     { "id": "north_gate", "x": 1100, "y": 180 },
-    { "id": "south_gate", "x": 1100, "y": 1220 }
+    { "id": "south_gate", "x": 1100, "y": 1220 },
+    { "id": "arrival_from_wilds", "x": 1100, "y": 540 }
   ],
   "collisions": [
     { "type": "rect", "x": 360, "y": 260, "width": 200, "height": 360 },
@@ -42,6 +43,22 @@
         "width": 440,
         "height": 440
       }
+    }
+  ],
+  "portals": [
+    {
+      "id": "hub_to_wilds_gate",
+      "name": "Wilds Gate",
+      "shape": {
+        "type": "rect",
+        "x": 1180,
+        "y": 480,
+        "width": 90,
+        "height": 160
+      },
+      "targetWorldId": "wilds:beta",
+      "targetSpawnId": "arrival_from_hub",
+      "exitOffset": { "x": 44, "y": 0 }
     }
   ]
 }

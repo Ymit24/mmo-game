@@ -1,13 +1,16 @@
 import type {
   CharacterClass,
   ClientToServerMessage,
+  CollisionShape,
   PlayerSnapshot,
+  PortalTrigger,
   ServerToClientMessage,
   Vector2,
   WorldMap,
 } from "@mmo/shared";
 import {
-  HUB_ALPHA_MAP,
+  PLAYER_COLLIDER_SIZE,
+  WORLD_MAPS_BY_ID,
   findSpawnPoint,
   inputToVelocity,
   resolveMovementWithSliding,
@@ -25,6 +28,10 @@ interface PlayerState {
   velocity: Vector2;
   lastProcessedInputSequence: number;
   socket: ServerWebSocket<RealtimeSocketData>;
+}
+
+interface JoinWorldOptions {
+  spawnOverride?: Vector2;
 }
 
 export interface RealtimeSession {
@@ -57,6 +64,26 @@ function toSnapshot(player: PlayerState): PlayerSnapshot {
   };
 }
 
+function intersectsPlayerBounds(
+  position: Vector2,
+  shape: CollisionShape,
+): boolean {
+  const halfWidth = PLAYER_COLLIDER_SIZE.width / 2;
+  const halfHeight = PLAYER_COLLIDER_SIZE.height / 2;
+
+  const playerLeft = position.x - halfWidth;
+  const playerRight = position.x + halfWidth;
+  const playerTop = position.y - halfHeight;
+  const playerBottom = position.y + halfHeight;
+
+  return (
+    playerLeft < shape.x + shape.width &&
+    playerRight > shape.x &&
+    playerTop < shape.y + shape.height &&
+    playerBottom > shape.y
+  );
+}
+
 class WorldInstance {
   readonly worldId: string;
   readonly map: WorldMap;
@@ -83,9 +110,11 @@ class WorldInstance {
     characterClass: CharacterClass,
     colorHex: string,
     socket: ServerWebSocket<RealtimeSocketData>,
+    spawnOverride?: Vector2,
   ): Vector2 {
-    const spawn = findSpawnPoint(this.map, this.map.playerSpawnId) ??
+    const fallbackSpawn = findSpawnPoint(this.map, this.map.playerSpawnId) ??
       this.map.spawnPoints[0] ?? { x: 120, y: 120 };
+    const spawn = spawnOverride ?? fallbackSpawn;
 
     const player: PlayerState = {
       connectionId,
@@ -135,13 +164,13 @@ class WorldInstance {
     characterId: string,
     connectionId: string,
     message: Extract<ClientToServerMessage, { type: "player.input" }>,
-  ): void {
+  ): PortalTrigger | null {
     const player = this.players.get(characterId);
     if (!player) {
-      return;
+      return null;
     }
     if (player.connectionId !== connectionId) {
-      return;
+      return null;
     }
 
     const velocity = inputToVelocity(message.input);
@@ -154,6 +183,10 @@ class WorldInstance {
     player.velocity = velocity;
     player.lastProcessedInputSequence = message.sequence;
 
+    const portal = this.map.portals.find((candidate) =>
+      intersectsPlayerBounds(player.position, candidate.shape),
+    );
+
     player.socket.send(
       stringifyServerMessage({
         type: "player.state",
@@ -162,6 +195,8 @@ class WorldInstance {
         lastProcessedInputSequence: message.sequence,
       }),
     );
+
+    return portal ?? null;
   }
 
   broadcast(
@@ -236,6 +271,7 @@ export class WorldManager {
     nickname: string,
     characterClass: CharacterClass,
     colorHex: string,
+    options?: JoinWorldOptions,
   ): Vector2 | null {
     const instance = this.getOrCreate(worldId);
     if (!instance) {
@@ -254,6 +290,7 @@ export class WorldManager {
       characterClass,
       colorHex,
       socket,
+      options?.spawnOverride,
     );
     socket.data.session.worldId = worldId;
     socket.data.session.characterId = characterId;
@@ -312,7 +349,12 @@ export class WorldManager {
       return;
     }
 
-    instance.applyInput(characterId, connectionId, message);
+    const portal = instance.applyInput(characterId, connectionId, message);
+    if (!portal) {
+      return;
+    }
+
+    this.tryTravelThroughPortal(socket, portal);
   }
 
   acknowledgeDrop(
@@ -351,12 +393,71 @@ export class WorldManager {
       return existing;
     }
 
-    if (worldId !== HUB_ALPHA_MAP.id) {
+    const map = WORLD_MAPS_BY_ID.get(worldId);
+    if (!map) {
       return null;
     }
 
-    const created = new WorldInstance(worldId, HUB_ALPHA_MAP);
+    const created = new WorldInstance(worldId, map);
     this.instances.set(worldId, created);
     return created;
+  }
+
+  private tryTravelThroughPortal(
+    socket: ServerWebSocket<RealtimeSocketData>,
+    portal: PortalTrigger,
+  ): void {
+    const {
+      characterId,
+      worldId,
+      characterNickname,
+      characterClass,
+      characterColorHex,
+    } = socket.data.session;
+    if (
+      !characterId ||
+      !worldId ||
+      !characterNickname ||
+      !characterClass ||
+      !characterColorHex
+    ) {
+      return;
+    }
+
+    const targetMap = WORLD_MAPS_BY_ID.get(portal.targetWorldId);
+    if (!targetMap) {
+      return;
+    }
+
+    const targetSpawn = findSpawnPoint(targetMap, portal.targetSpawnId);
+    if (!targetSpawn) {
+      return;
+    }
+
+    const fromWorldId = worldId;
+    this.leaveWorld(socket);
+    socket.send(
+      stringifyServerMessage({
+        type: "world.transitioning",
+        fromWorldId,
+        toWorldId: portal.targetWorldId,
+        portalId: portal.id,
+        reason: "portal",
+      }),
+    );
+    this.joinWorld(
+      socket,
+      portal.targetWorldId,
+      characterId,
+      characterNickname,
+      characterClass,
+      characterColorHex,
+      {
+        spawnOverride: {
+          x: targetSpawn.x + portal.exitOffset.x,
+          y: targetSpawn.y + portal.exitOffset.y,
+        },
+      },
+    );
   }
 }
