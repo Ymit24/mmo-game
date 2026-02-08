@@ -23,3 +23,7 @@ bun run ci
 ## CI
 
 GitHub Actions runs `bun run ci` on pull requests and merge queue events to enforce lint, typecheck, and server test pass status before merge.
+
+## Deployment
+
+Production deployment scripts and workflow are documented in `ops/deploy/README.md`.
