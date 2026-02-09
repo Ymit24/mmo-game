@@ -362,8 +362,8 @@ class WorldInstance {
         currentHealth: archetype.maxHealth,
         state: "idle",
         spawnAnchor: {
-          x: spawner.x,
-          y: spawner.y,
+          x: position.x,
+          y: position.y,
         },
         targetCharacterId: null,
         nextAttackAtMs: now,

@@ -851,6 +851,78 @@ describe("world manager", () => {
     }
   });
 
+  test("spawned enemies keep their own leash anchor instead of collapsing to spawner center", async () => {
+    const originalRandom = Math.random;
+    Math.random = () => 0;
+
+    try {
+      const archetypes = new Map<string, EnemyArchetype>([
+        [
+          "slime_scout",
+          createTestArchetype("slime_scout", {
+            speed: 220,
+            detectionRadius: 1,
+            leashRadius: 1,
+          }),
+        ],
+        [
+          "stone_golem",
+          createTestArchetype("stone_golem", {
+            detectionRadius: 1,
+            leashRadius: 1,
+          }),
+        ],
+      ]);
+      const manager = new WorldManager(
+        (archetypeId) => archetypes.get(archetypeId) ?? null,
+      );
+      const socket = createMockSocket(manager, "user-a", "player-a");
+      const slimeSpawner = WILDS_BETA_MAP.enemySpawners.find(
+        (spawner) => spawner.id === "wilds_center_slime",
+      );
+      expect(slimeSpawner).toBeDefined();
+
+      if (!slimeSpawner) {
+        throw new Error("expected wilds_center_slime spawner");
+      }
+
+      manager.joinWorld(
+        asServerSocket(socket),
+        WILDS_BETA_MAP.id,
+        "player-a",
+        "Alpha",
+        "knight",
+        "#E8A832",
+        {
+          spawnOverride: { x: 350, y: 700 },
+        },
+      );
+      cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
+
+      await wait(2_900);
+      const snapshot = latestWorldSnapshot(socket);
+      expect(snapshot?.type).toBe("world.snapshot");
+
+      const slimes = snapshot?.payload.enemies.filter(
+        (enemy) => enemy.archetypeId === "slime_scout",
+      );
+      expect(slimes?.length ?? 0).toBeGreaterThanOrEqual(2);
+
+      const farIdleSlime = slimes?.find((enemy) => {
+        const distanceFromSpawnerCenter = Math.hypot(
+          enemy.position.x - slimeSpawner.x,
+          enemy.position.y - slimeSpawner.y,
+        );
+
+        return distanceFromSpawnerCenter >= 40 && enemy.state === "idle";
+      });
+
+      expect(farIdleSlime).toBeDefined();
+    } finally {
+      Math.random = originalRandom;
+    }
+  });
+
   test("enemy AI enters chasing or attacking state when a player is nearby", async () => {
     const originalRandom = Math.random;
     Math.random = () => 0;
