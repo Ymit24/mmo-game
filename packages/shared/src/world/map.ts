@@ -1,3 +1,5 @@
+import type { EnemySpawner } from "../enemies";
+
 export type CollisionShape = {
   type: "rect";
   x: number;
@@ -44,4 +46,5 @@ export interface WorldMap {
   collisions: CollisionShape[];
   regions: RegionTrigger[];
   portals: PortalTrigger[];
+  enemySpawners: EnemySpawner[];
 }

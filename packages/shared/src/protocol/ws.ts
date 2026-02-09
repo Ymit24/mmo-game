@@ -1,4 +1,5 @@
-import type { CharacterClass } from "../characters";
+import { type CharacterClass, isCharacterClass } from "../characters";
+import type { EnemyBehaviorState, EnemySnapshot } from "../enemies";
 
 export interface Vector2 {
   x: number;
@@ -26,6 +27,7 @@ export interface WorldSnapshotPayload {
   worldId: string;
   serverTimeMs: number;
   players: PlayerSnapshot[];
+  enemies: EnemySnapshot[];
 }
 
 export interface InventoryDropPayload {
@@ -141,6 +143,79 @@ function isPlayerInputState(value: unknown): value is PlayerInputState {
     typeof value.down === "boolean" &&
     typeof value.left === "boolean" &&
     typeof value.right === "boolean"
+  );
+}
+
+function isPlayerSnapshot(value: unknown): value is PlayerSnapshot {
+  if (!isObject(value)) {
+    return false;
+  }
+
+  return (
+    typeof value.id === "string" &&
+    value.id.length > 0 &&
+    typeof value.nickname === "string" &&
+    value.nickname.length > 0 &&
+    typeof value.class === "string" &&
+    isCharacterClass(value.class) &&
+    typeof value.colorHex === "string" &&
+    value.colorHex.length > 0 &&
+    isVector2(value.position) &&
+    isVector2(value.velocity) &&
+    typeof value.lastProcessedInputSequence === "number" &&
+    Number.isSafeInteger(value.lastProcessedInputSequence) &&
+    value.lastProcessedInputSequence >= 0
+  );
+}
+
+function isEnemyBehaviorState(value: unknown): value is EnemyBehaviorState {
+  return (
+    value === "idle" ||
+    value === "chasing" ||
+    value === "returning" ||
+    value === "attacking"
+  );
+}
+
+function isEnemySnapshot(value: unknown): value is EnemySnapshot {
+  if (!isObject(value)) {
+    return false;
+  }
+
+  return (
+    typeof value.id === "string" &&
+    value.id.length > 0 &&
+    typeof value.archetypeId === "string" &&
+    value.archetypeId.length > 0 &&
+    typeof value.name === "string" &&
+    value.name.length > 0 &&
+    isVector2(value.position) &&
+    isVector2(value.velocity) &&
+    isEnemyBehaviorState(value.state) &&
+    Number.isFinite(value.currentHealth) &&
+    Number.isFinite(value.maxHealth) &&
+    typeof value.colorHex === "string" &&
+    value.colorHex.length > 0 &&
+    Number.isFinite(value.width) &&
+    Number.isFinite(value.height)
+  );
+}
+
+export function isWorldSnapshotPayload(
+  value: unknown,
+): value is WorldSnapshotPayload {
+  if (!isObject(value)) {
+    return false;
+  }
+
+  return (
+    typeof value.worldId === "string" &&
+    value.worldId.length > 0 &&
+    Number.isFinite(value.serverTimeMs) &&
+    Array.isArray(value.players) &&
+    value.players.every((player) => isPlayerSnapshot(player)) &&
+    Array.isArray(value.enemies) &&
+    value.enemies.every((enemy) => isEnemySnapshot(enemy))
   );
 }
 

@@ -213,9 +213,22 @@ export function GameShell({ characterId }: GameShellProps) {
                     />
                   );
                 })}
+                {uiState.enemies.map((enemy) => {
+                  const x = (enemy.x / uiState.mapSize.width) * 100;
+                  const y = (enemy.y / uiState.mapSize.height) * 100;
+
+                  return (
+                    <span
+                      key={enemy.id}
+                      className="absolute h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-sm border border-rose-100/40 bg-rose-400/90"
+                      style={{ left: `${x}%`, top: `${y}%` }}
+                    />
+                  );
+                })}
               </div>
               <p className="mt-2 text-xs text-muted">
-                Cursor world: {Math.round(uiState.pointerWorld.x)},{" "}
+                Enemies tracked: {uiState.enemies.length} | Cursor world:{" "}
+                {Math.round(uiState.pointerWorld.x)},{" "}
                 {Math.round(uiState.pointerWorld.y)}
               </p>
             </aside>
