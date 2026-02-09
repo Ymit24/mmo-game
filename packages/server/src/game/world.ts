@@ -15,6 +15,7 @@ import {
   PLAYER_COLLIDER_SIZE,
   WORLD_MAPS_BY_ID,
   centeredBoxToCollisionShape,
+  clampInputDtMs,
   clampToWorldBounds,
   findSpawnPoint,
   inputToVelocity,
@@ -376,6 +377,11 @@ class WorldInstance {
 
   private tickEnemies(now: number, dtMs: number): void {
     const playerColliders = this.getPlayerColliders();
+    const enemyCollidersById = new Map<string, CollisionShape>();
+    for (const enemy of this.enemies.values()) {
+      enemyCollidersById.set(enemy.id, this.toEnemyCollider(enemy));
+    }
+    const dtSeconds = clampInputDtMs(dtMs) / 1000;
 
     for (const enemy of this.enemies.values()) {
       const target = this.resolveOrAcquireTarget(enemy);
@@ -425,8 +431,17 @@ class WorldInstance {
         y: direction.y * enemy.archetype.speed,
       };
 
-      enemy.position = resolveMovementWithSliding(
-        enemy.position,
+      const dynamicEnemyColliders: CollisionShape[] = [];
+      for (const [candidateId, collider] of enemyCollidersById) {
+        if (candidateId === enemy.id) {
+          continue;
+        }
+        dynamicEnemyColliders.push(collider);
+      }
+
+      const previousPosition = enemy.position;
+      const nextPosition = resolveMovementWithSliding(
+        previousPosition,
         velocity,
         dtMs,
         this.map,
@@ -434,13 +449,15 @@ class WorldInstance {
           width: enemy.archetype.visualWidth,
           height: enemy.archetype.visualHeight,
         },
-        [
-          ...playerColliders,
-          ...this.getEnemyColliders((candidate) => candidate.id !== enemy.id),
-        ],
+        [...playerColliders, ...dynamicEnemyColliders],
       );
-      enemy.velocity = velocity;
+      enemy.position = nextPosition;
+      enemy.velocity = {
+        x: (nextPosition.x - previousPosition.x) / dtSeconds,
+        y: (nextPosition.y - previousPosition.y) / dtSeconds,
+      };
       enemy.state = desiredState;
+      enemyCollidersById.set(enemy.id, this.toEnemyCollider(enemy));
     }
   }
 
@@ -574,14 +591,16 @@ class WorldInstance {
       if (!predicate(enemy)) {
         continue;
       }
-      colliders.push(
-        centeredBoxToCollisionShape(enemy.position, {
-          width: enemy.archetype.visualWidth,
-          height: enemy.archetype.visualHeight,
-        }),
-      );
+      colliders.push(this.toEnemyCollider(enemy));
     }
     return colliders;
+  }
+
+  private toEnemyCollider(enemy: EnemyState): CollisionShape {
+    return centeredBoxToCollisionShape(enemy.position, {
+      width: enemy.archetype.visualWidth,
+      height: enemy.archetype.visualHeight,
+    });
   }
 
   private createSnapshotPayload(): {
