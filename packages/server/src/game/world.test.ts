@@ -62,6 +62,36 @@ function latestWorldSnapshot(
   return snapshot;
 }
 
+function enemiesOverlap(
+  first: {
+    position: { x: number; y: number };
+    width: number;
+    height: number;
+  },
+  second: {
+    position: { x: number; y: number };
+    width: number;
+    height: number;
+  },
+): boolean {
+  const firstLeft = first.position.x - first.width / 2;
+  const firstRight = first.position.x + first.width / 2;
+  const firstTop = first.position.y - first.height / 2;
+  const firstBottom = first.position.y + first.height / 2;
+
+  const secondLeft = second.position.x - second.width / 2;
+  const secondRight = second.position.x + second.width / 2;
+  const secondTop = second.position.y - second.height / 2;
+  const secondBottom = second.position.y + second.height / 2;
+
+  return (
+    firstLeft < secondRight &&
+    firstRight > secondLeft &&
+    firstTop < secondBottom &&
+    firstBottom > secondTop
+  );
+}
+
 function moveRightInput(): PlayerInputState {
   return {
     up: false,
@@ -930,6 +960,84 @@ describe("world manager", () => {
       const last = states.at(-1);
       expect(last?.type).toBe("player.state");
       expect(last?.position.x ?? 0).toBeGreaterThan(1_250);
+    } finally {
+      Math.random = originalRandom;
+    }
+  });
+
+  test("enemy movement avoids overlapping with other enemies while pathing", async () => {
+    const originalRandom = Math.random;
+    Math.random = () => 0;
+
+    try {
+      const archetypes = new Map<string, EnemyArchetype>([
+        [
+          "slime_scout",
+          createTestArchetype("slime_scout", {
+            speed: 220,
+            detectionRadius: 600,
+            leashRadius: 800,
+            canMelee: false,
+            canRanged: false,
+            visualWidth: 40,
+            visualHeight: 40,
+          }),
+        ],
+        [
+          "stone_golem",
+          createTestArchetype("stone_golem", {
+            detectionRadius: 1,
+            leashRadius: 1,
+          }),
+        ],
+      ]);
+      const manager = new WorldManager(
+        (archetypeId) => archetypes.get(archetypeId) ?? null,
+      );
+      const socket = createMockSocket(manager, "user-a", "player-a");
+
+      manager.joinWorld(
+        asServerSocket(socket),
+        WILDS_BETA_MAP.id,
+        "player-a",
+        "Alpha",
+        "knight",
+        "#E8A832",
+        {
+          spawnOverride: { x: 1_420, y: 700 },
+        },
+      );
+      cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
+
+      await wait(3_100);
+      const snapshot = latestWorldSnapshot(socket);
+      expect(snapshot?.type).toBe("world.snapshot");
+
+      const slimes = snapshot?.payload.enemies.filter(
+        (enemy) => enemy.archetypeId === "slime_scout",
+      );
+      expect(slimes?.length ?? 0).toBeGreaterThanOrEqual(2);
+
+      let hasOverlap = false;
+      for (let first = 0; first < (slimes?.length ?? 0); first += 1) {
+        for (
+          let second = first + 1;
+          second < (slimes?.length ?? 0);
+          second += 1
+        ) {
+          const a = slimes?.[first];
+          const b = slimes?.[second];
+          if (!a || !b) {
+            continue;
+          }
+
+          if (enemiesOverlap(a, b)) {
+            hasOverlap = true;
+          }
+        }
+      }
+
+      expect(hasOverlap).toBe(false);
     } finally {
       Math.random = originalRandom;
     }

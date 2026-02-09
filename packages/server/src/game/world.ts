@@ -434,7 +434,10 @@ class WorldInstance {
           width: enemy.archetype.visualWidth,
           height: enemy.archetype.visualHeight,
         },
-        playerColliders,
+        [
+          ...playerColliders,
+          ...this.getEnemyColliders((candidate) => candidate.id !== enemy.id),
+        ],
       );
       enemy.velocity = velocity;
       enemy.state = desiredState;
@@ -563,9 +566,14 @@ class WorldInstance {
     return colliders;
   }
 
-  private getEnemyColliders(): CollisionShape[] {
+  private getEnemyColliders(
+    predicate: (enemy: EnemyState) => boolean = () => true,
+  ): CollisionShape[] {
     const colliders: CollisionShape[] = [];
     for (const enemy of this.enemies.values()) {
+      if (!predicate(enemy)) {
+        continue;
+      }
       colliders.push(
         centeredBoxToCollisionShape(enemy.position, {
           width: enemy.archetype.visualWidth,
