@@ -515,8 +515,10 @@ class WorldInstance {
     ];
 
     for (let attempt = 0; attempt < ENEMY_SPAWN_ATTEMPTS; attempt += 1) {
-      const angle = Math.random() * Math.PI * 2;
-      const distance = Math.sqrt(Math.random()) * spawner.spawnRadius;
+      const attemptRatio = attempt / ENEMY_SPAWN_ATTEMPTS;
+      const angle = ((Math.random() + attemptRatio) % 1) * Math.PI * 2;
+      const distance =
+        Math.sqrt((Math.random() + attemptRatio) % 1) * spawner.spawnRadius;
       const candidate = clampToWorldBounds(
         {
           x: spawner.x + Math.cos(angle) * distance,
