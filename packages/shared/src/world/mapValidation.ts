@@ -1,3 +1,4 @@
+import type { EnemySpawner } from "../enemies";
 import type {
   CollisionShape,
   PortalTrigger,
@@ -70,6 +71,28 @@ function isPortalTrigger(value: unknown): value is PortalTrigger {
   );
 }
 
+function isEnemySpawner(value: unknown): value is EnemySpawner {
+  if (!isObject(value)) {
+    return false;
+  }
+
+  return (
+    typeof value.id === "string" &&
+    value.id.length > 0 &&
+    typeof value.archetypeId === "string" &&
+    value.archetypeId.length > 0 &&
+    isNumber(value.x) &&
+    isNumber(value.y) &&
+    isNumber(value.spawnRadius) &&
+    value.spawnRadius >= 0 &&
+    isNumber(value.maxAlive) &&
+    Number.isInteger(value.maxAlive) &&
+    value.maxAlive > 0 &&
+    isNumber(value.respawnSeconds) &&
+    value.respawnSeconds >= 0
+  );
+}
+
 export function isWorldMap(value: unknown): value is WorldMap {
   if (!isObject(value) || !isObject(value.background)) {
     return false;
@@ -90,7 +113,9 @@ export function isWorldMap(value: unknown): value is WorldMap {
     Array.isArray(value.regions) &&
     value.regions.every((region) => isRegionTrigger(region)) &&
     Array.isArray(value.portals) &&
-    value.portals.every((portal) => isPortalTrigger(portal))
+    value.portals.every((portal) => isPortalTrigger(portal)) &&
+    Array.isArray(value.enemySpawners) &&
+    value.enemySpawners.every((spawner) => isEnemySpawner(spawner))
   );
 }
 

@@ -60,5 +60,6 @@
       "targetSpawnId": "arrival_from_hub",
       "exitOffset": { "x": 44, "y": 0 }
     }
-  ]
+  ],
+  "enemySpawners": []
 }

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
+  type EnemyArchetype,
   HUB_ALPHA_MAP,
   PLAYER_COLLIDER_SIZE,
   type PlayerInputState,
@@ -10,6 +11,8 @@ import {
 } from "@mmo/shared";
 import type { ServerWebSocket } from "bun";
 
+import { createDatabase } from "../db";
+import { findEnemyArchetypeById } from "./enemyArchetypeRepository";
 import { type RealtimeSocketData, WorldManager } from "./world";
 
 interface MockSocket {
@@ -47,12 +50,52 @@ function parseMessages(socket: MockSocket): ServerToClientMessage[] {
   return socket.sent.map((raw) => JSON.parse(raw) as ServerToClientMessage);
 }
 
+function latestWorldSnapshot(
+  socket: MockSocket,
+): Extract<ServerToClientMessage, { type: "world.snapshot" }> | null {
+  const snapshot = parseMessages(socket)
+    .filter((message) => message.type === "world.snapshot")
+    .at(-1);
+  if (!snapshot || snapshot.type !== "world.snapshot") {
+    return null;
+  }
+  return snapshot;
+}
+
 function moveRightInput(): PlayerInputState {
   return {
     up: false,
     down: false,
     left: false,
     right: true,
+  };
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function createTestArchetype(
+  id: string,
+  overrides: Partial<EnemyArchetype> = {},
+): EnemyArchetype {
+  return {
+    id,
+    name: id,
+    maxHealth: 100,
+    damage: 10,
+    speed: 120,
+    detectionRadius: 280,
+    leashRadius: 420,
+    attackSpeedMs: 1000,
+    canMelee: true,
+    canRanged: false,
+    visualWidth: 34,
+    visualHeight: 24,
+    colorHex: "#22d3ee",
+    ...overrides,
   };
 }
 
@@ -700,5 +743,245 @@ describe("world manager", () => {
     expect(progressedWhileSliding).toBe(true);
     expect(last.position.x).toBeGreaterThan(first.position.x);
     expect(last.position.y).toBeGreaterThan(first.position.y);
+  });
+
+  test("world snapshots include spawned enemies for worlds with spawners", async () => {
+    const archetypes = new Map<string, EnemyArchetype>([
+      ["slime_scout", createTestArchetype("slime_scout")],
+      ["stone_golem", createTestArchetype("stone_golem")],
+    ]);
+    const manager = new WorldManager(
+      (archetypeId) => archetypes.get(archetypeId) ?? null,
+    );
+    const socket = createMockSocket(manager, "user-a", "player-a");
+
+    manager.joinWorld(
+      asServerSocket(socket),
+      WILDS_BETA_MAP.id,
+      "player-a",
+      "Alpha",
+      "knight",
+      "#E8A832",
+      {
+        spawnOverride: { x: 350, y: 700 },
+      },
+    );
+    cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
+
+    await wait(250);
+
+    const snapshot = latestWorldSnapshot(socket);
+    expect(snapshot?.type).toBe("world.snapshot");
+    expect(snapshot?.payload.enemies.length ?? 0).toBeGreaterThan(0);
+  });
+
+  test("spawners honor respawn cadence while growing population", async () => {
+    const originalRandom = Math.random;
+    Math.random = () => 0;
+
+    try {
+      const archetypes = new Map<string, EnemyArchetype>([
+        [
+          "slime_scout",
+          createTestArchetype("slime_scout", { detectionRadius: 1 }),
+        ],
+        [
+          "stone_golem",
+          createTestArchetype("stone_golem", { detectionRadius: 1 }),
+        ],
+      ]);
+      const manager = new WorldManager(
+        (archetypeId) => archetypes.get(archetypeId) ?? null,
+      );
+      const socket = createMockSocket(manager, "user-a", "player-a");
+
+      manager.joinWorld(
+        asServerSocket(socket),
+        WILDS_BETA_MAP.id,
+        "player-a",
+        "Alpha",
+        "knight",
+        "#E8A832",
+        {
+          spawnOverride: { x: 350, y: 700 },
+        },
+      );
+      cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
+
+      await wait(700);
+      const early = latestWorldSnapshot(socket);
+      expect(early?.payload.enemies.length).toBe(2);
+
+      await wait(2_100);
+      const later = latestWorldSnapshot(socket);
+      expect(later?.payload.enemies.length ?? 0).toBeGreaterThanOrEqual(3);
+      expect(later?.payload.enemies.length ?? 0).toBeLessThanOrEqual(4);
+    } finally {
+      Math.random = originalRandom;
+    }
+  });
+
+  test("enemy AI enters chasing or attacking state when a player is nearby", async () => {
+    const originalRandom = Math.random;
+    Math.random = () => 0;
+
+    try {
+      const archetypes = new Map<string, EnemyArchetype>([
+        ["slime_scout", createTestArchetype("slime_scout", { speed: 160 })],
+        ["stone_golem", createTestArchetype("stone_golem", { speed: 160 })],
+      ]);
+      const manager = new WorldManager(
+        (archetypeId) => archetypes.get(archetypeId) ?? null,
+      );
+      const socket = createMockSocket(manager, "user-a", "player-a");
+
+      manager.joinWorld(
+        asServerSocket(socket),
+        WILDS_BETA_MAP.id,
+        "player-a",
+        "Alpha",
+        "knight",
+        "#E8A832",
+        {
+          spawnOverride: { x: 1280, y: 700 },
+        },
+      );
+      cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
+
+      await wait(700);
+      const snapshot = latestWorldSnapshot(socket);
+      const hasAggroState = snapshot?.payload.enemies.some(
+        (enemy) => enemy.state === "chasing" || enemy.state === "attacking",
+      );
+      expect(hasAggroState).toBe(true);
+    } finally {
+      Math.random = originalRandom;
+    }
+  });
+
+  test("player movement is blocked by enemy collision in authoritative simulation", async () => {
+    const originalRandom = Math.random;
+    Math.random = () => 0;
+
+    try {
+      const archetypes = new Map<string, EnemyArchetype>([
+        [
+          "slime_scout",
+          createTestArchetype("slime_scout", {
+            detectionRadius: 1,
+            leashRadius: 1,
+            visualWidth: 40,
+            visualHeight: 40,
+          }),
+        ],
+        [
+          "stone_golem",
+          createTestArchetype("stone_golem", {
+            detectionRadius: 1,
+            leashRadius: 1,
+            visualWidth: 40,
+            visualHeight: 40,
+          }),
+        ],
+      ]);
+      const manager = new WorldManager(
+        (archetypeId) => archetypes.get(archetypeId) ?? null,
+      );
+      const socket = createMockSocket(manager, "user-a", "player-a");
+
+      manager.joinWorld(
+        asServerSocket(socket),
+        WILDS_BETA_MAP.id,
+        "player-a",
+        "Alpha",
+        "knight",
+        "#E8A832",
+        {
+          spawnOverride: { x: 1280, y: 700 },
+        },
+      );
+      cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
+
+      await wait(700);
+      socket.sent = [];
+
+      for (let sequence = 1; sequence <= 4; sequence += 1) {
+        manager.applyInput(asServerSocket(socket), {
+          type: "player.input",
+          sequence,
+          dtMs: 80,
+          input: {
+            up: false,
+            down: false,
+            left: true,
+            right: false,
+          },
+        });
+      }
+
+      const states = parseMessages(socket).filter(
+        (
+          message,
+        ): message is Extract<
+          ServerToClientMessage,
+          { type: "player.state" }
+        > => message.type === "player.state",
+      );
+      const last = states.at(-1);
+      expect(last?.type).toBe("player.state");
+      expect(last?.position.x ?? 0).toBeGreaterThan(1_250);
+    } finally {
+      Math.random = originalRandom;
+    }
+  });
+
+  test("newly spawned enemies pick up tuned archetype values without restart", async () => {
+    const db = createDatabase(":memory:");
+    const originalRandom = Math.random;
+    Math.random = () => 0;
+
+    try {
+      const manager = new WorldManager((archetypeId) =>
+        findEnemyArchetypeById(db, archetypeId),
+      );
+      const socket = createMockSocket(manager, "user-a", "player-a");
+
+      manager.joinWorld(
+        asServerSocket(socket),
+        WILDS_BETA_MAP.id,
+        "player-a",
+        "Alpha",
+        "knight",
+        "#E8A832",
+        {
+          spawnOverride: { x: 350, y: 700 },
+        },
+      );
+      cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
+
+      await wait(700);
+      const firstSnapshot = latestWorldSnapshot(socket);
+      const firstSlime = firstSnapshot?.payload.enemies.find(
+        (enemy) => enemy.archetypeId === "slime_scout",
+      );
+      expect(firstSlime).toBeDefined();
+
+      db.query(
+        `UPDATE enemy_archetypes
+         SET visual_width = ?1,
+             updated_at = ?2
+         WHERE id = ?3`,
+      ).run(72, new Date().toISOString(), "slime_scout");
+
+      await wait(2_200);
+      const secondSnapshot = latestWorldSnapshot(socket);
+      const hasUpdatedWidth = secondSnapshot?.payload.enemies.some(
+        (enemy) => enemy.archetypeId === "slime_scout" && enemy.width === 72,
+      );
+      expect(hasUpdatedWidth).toBe(true);
+    } finally {
+      Math.random = originalRandom;
+      db.close();
+    }
   });
 });

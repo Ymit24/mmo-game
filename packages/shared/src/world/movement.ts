@@ -1,5 +1,5 @@
 import type { PlayerInputState, Vector2 } from "../protocol/ws";
-import type { WorldMap } from "./map";
+import type { CollisionShape, WorldMap } from "./map";
 
 export const PLAYER_MOVE_SPEED = 240;
 export const MIN_INPUT_DT_MS = 5;
@@ -68,10 +68,7 @@ function toAabb(position: Vector2, colliderSize: ColliderSize): Aabb {
   };
 }
 
-function intersectsRect(
-  aabb: Aabb,
-  rect: WorldMap["collisions"][number],
-): boolean {
+function intersectsRect(aabb: Aabb, rect: CollisionShape): boolean {
   return (
     aabb.left < rect.x + rect.width &&
     aabb.right > rect.x &&
@@ -84,10 +81,17 @@ export function positionCollidesWithMap(
   position: Vector2,
   map: Pick<WorldMap, "collisions">,
   colliderSize: ColliderSize = PLAYER_COLLIDER_SIZE,
+  dynamicColliders: ReadonlyArray<CollisionShape> = [],
 ): boolean {
   const playerAabb = toAabb(position, colliderSize);
 
   for (const rect of map.collisions) {
+    if (intersectsRect(playerAabb, rect)) {
+      return true;
+    }
+  }
+
+  for (const rect of dynamicColliders) {
     if (intersectsRect(playerAabb, rect)) {
       return true;
     }
@@ -121,6 +125,7 @@ export function resolveMovementWithSliding(
   dtMs: number,
   map: Pick<WorldMap, "width" | "height" | "collisions">,
   colliderSize: ColliderSize = PLAYER_COLLIDER_SIZE,
+  dynamicColliders: ReadonlyArray<CollisionShape> = [],
 ): Vector2 {
   const dtSeconds = clampInputDtMs(dtMs) / 1000;
   const deltaX = velocity.x * dtSeconds;
@@ -141,7 +146,7 @@ export function resolveMovementWithSliding(
     colliderSize,
   );
 
-  if (!positionCollidesWithMap(movedX, map, colliderSize)) {
+  if (!positionCollidesWithMap(movedX, map, colliderSize, dynamicColliders)) {
     next.x = movedX.x;
   }
 
@@ -154,9 +159,22 @@ export function resolveMovementWithSliding(
     colliderSize,
   );
 
-  if (!positionCollidesWithMap(movedY, map, colliderSize)) {
+  if (!positionCollidesWithMap(movedY, map, colliderSize, dynamicColliders)) {
     next.y = movedY.y;
   }
 
   return next;
+}
+
+export function centeredBoxToCollisionShape(
+  position: Vector2,
+  colliderSize: ColliderSize,
+): CollisionShape {
+  return {
+    type: "rect",
+    x: position.x - colliderSize.width / 2,
+    y: position.y - colliderSize.height / 2,
+    width: colliderSize.width,
+    height: colliderSize.height,
+  };
 }

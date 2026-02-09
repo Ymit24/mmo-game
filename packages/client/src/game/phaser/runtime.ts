@@ -1,12 +1,16 @@
 import {
   type ClientToServerMessage,
+  type CollisionShape,
   DEFAULT_WORLD_ID,
+  type EnemySnapshot,
   PLAYER_COLLIDER_SIZE,
   PLAYER_MOVE_SPEED,
   type PlayerInputState,
+  type PlayerSnapshot,
   type ServerToClientMessage,
   WORLD_MAPS_BY_ID,
   type WorldMap,
+  centeredBoxToCollisionShape,
   clampInputDtMs,
   inputToVelocity,
   resolveMovementWithSliding,
@@ -37,6 +41,14 @@ interface PlayerActor {
   colorHex: string;
 }
 
+interface EnemyActor {
+  body: Phaser.GameObjects.Rectangle;
+  label: Phaser.GameObjects.Text;
+  healthBarBackground: Phaser.GameObjects.Rectangle;
+  healthBarFill: Phaser.GameObjects.Rectangle;
+  healthText: Phaser.GameObjects.Text;
+}
+
 function toWsUrl(apiBaseUrl: string): string {
   const wsPath = `${apiBaseUrl}/ws`;
 
@@ -59,9 +71,17 @@ function applyPredictedInput(
   position: Phaser.Math.Vector2,
   input: PlayerInputState,
   dtMs: number,
+  dynamicColliders: ReadonlyArray<CollisionShape>,
 ): void {
   const velocity = inputToVelocity(input, PLAYER_MOVE_SPEED);
-  const resolved = resolveMovementWithSliding(position, velocity, dtMs, map);
+  const resolved = resolveMovementWithSliding(
+    position,
+    velocity,
+    dtMs,
+    map,
+    PLAYER_COLLIDER_SIZE,
+    dynamicColliders,
+  );
 
   position.set(resolved.x, resolved.y);
 }
@@ -88,6 +108,8 @@ class HubScene extends Phaser.Scene {
 
   private localPlayer: PlayerActor | null = null;
   private remotePlayers = new Map<string, PlayerActor>();
+  private enemyActors = new Map<string, EnemyActor>();
+  private enemyPredictionColliders: CollisionShape[] = [];
 
   private pointerWorld = new Phaser.Math.Vector2();
   private predictedPosition = new Phaser.Math.Vector2();
@@ -219,7 +241,13 @@ class HubScene extends Phaser.Scene {
     const dtMs = clampInputDtMs(Math.round(dt));
 
     this.pendingInputs.push({ sequence, input, dtMs });
-    applyPredictedInput(this.currentMap, this.predictedPosition, input, dtMs);
+    applyPredictedInput(
+      this.currentMap,
+      this.predictedPosition,
+      input,
+      dtMs,
+      this.enemyPredictionColliders,
+    );
     this.localPlayer.sprite.setPosition(
       this.predictedPosition.x,
       this.predictedPosition.y,
@@ -410,6 +438,8 @@ class HubScene extends Phaser.Scene {
 
         this.localCharacterId = message.characterId;
         this.pendingInputs = [];
+        this.enemyPredictionColliders = [];
+        this.clearEnemyActors();
         this.bridge.updateState({
           isInWorld: true,
           transitionMessage: null,
@@ -528,65 +558,17 @@ class HubScene extends Phaser.Scene {
         if (message.payload.worldId !== this.bridge.getState().worldId) {
           return;
         }
-        const snapshotIds = new Set<string>();
-        for (const player of message.payload.players) {
-          if (player.id === this.localCharacterId) {
-            continue;
-          }
-          snapshotIds.add(player.id);
-
-          const actor = this.remotePlayers.get(player.id);
-          if (!actor) {
-            const sprite = this.add.rectangle(
-              player.position.x,
-              player.position.y,
-              28,
-              28,
-              hexToNumber(player.colorHex),
-              0.95,
-            );
-            const label = this.add
-              .text(
-                player.position.x,
-                player.position.y - 30,
-                player.nickname,
-                {
-                  fontFamily: "JetBrains Mono",
-                  fontSize: "11px",
-                  color: player.colorHex,
-                  stroke: "#05070b",
-                  strokeThickness: 2,
-                },
-              )
-              .setOrigin(0.5, 0.5);
-            this.remotePlayers.set(player.id, {
-              sprite,
-              label,
-              nickname: player.nickname,
-              className: player.class,
-              colorHex: player.colorHex,
-            });
-            continue;
-          }
-
-          actor.sprite.setPosition(player.position.x, player.position.y);
-          actor.label
-            .setText(player.nickname)
-            .setColor(player.colorHex)
-            .setPosition(player.position.x, player.position.y - 30);
-          actor.nickname = player.nickname;
-          actor.className = player.class;
-          actor.colorHex = player.colorHex;
-        }
-
-        for (const [id, actor] of this.remotePlayers.entries()) {
-          if (snapshotIds.has(id)) {
-            continue;
-          }
-          actor.sprite.destroy();
-          actor.label.destroy();
-          this.remotePlayers.delete(id);
-        }
+        this.reconcileSnapshotPlayers(message.payload.players);
+        this.reconcileSnapshotEnemies(message.payload.enemies);
+        this.enemyPredictionColliders = message.payload.enemies.map((enemy) =>
+          centeredBoxToCollisionShape(
+            { x: enemy.position.x, y: enemy.position.y },
+            {
+              width: enemy.width,
+              height: enemy.height,
+            },
+          ),
+        );
 
         this.syncOverlayPlayers();
         return;
@@ -605,6 +587,7 @@ class HubScene extends Phaser.Scene {
             this.predictedPosition,
             pending.input,
             pending.dtMs,
+            this.enemyPredictionColliders,
           );
         }
 
@@ -696,6 +679,193 @@ class HubScene extends Phaser.Scene {
     }
   }
 
+  private reconcileSnapshotPlayers(players: PlayerSnapshot[]): void {
+    const snapshotIds = new Set<string>();
+    for (const player of players) {
+      if (player.id === this.localCharacterId) {
+        continue;
+      }
+      snapshotIds.add(player.id);
+
+      const actor = this.remotePlayers.get(player.id);
+      if (!actor) {
+        const sprite = this.add.rectangle(
+          player.position.x,
+          player.position.y,
+          28,
+          28,
+          hexToNumber(player.colorHex),
+          0.95,
+        );
+        const label = this.add
+          .text(player.position.x, player.position.y - 30, player.nickname, {
+            fontFamily: "JetBrains Mono",
+            fontSize: "11px",
+            color: player.colorHex,
+            stroke: "#05070b",
+            strokeThickness: 2,
+          })
+          .setOrigin(0.5, 0.5);
+        this.remotePlayers.set(player.id, {
+          sprite,
+          label,
+          nickname: player.nickname,
+          className: player.class,
+          colorHex: player.colorHex,
+        });
+        continue;
+      }
+
+      actor.sprite.setPosition(player.position.x, player.position.y);
+      actor.label
+        .setText(player.nickname)
+        .setColor(player.colorHex)
+        .setPosition(player.position.x, player.position.y - 30);
+      actor.nickname = player.nickname;
+      actor.className = player.class;
+      actor.colorHex = player.colorHex;
+    }
+
+    for (const [id, actor] of this.remotePlayers.entries()) {
+      if (snapshotIds.has(id)) {
+        continue;
+      }
+      actor.sprite.destroy();
+      actor.label.destroy();
+      this.remotePlayers.delete(id);
+    }
+  }
+
+  private reconcileSnapshotEnemies(enemies: EnemySnapshot[]): void {
+    const snapshotIds = new Set<string>();
+
+    for (const enemy of enemies) {
+      snapshotIds.add(enemy.id);
+
+      const existing = this.enemyActors.get(enemy.id);
+      if (!existing) {
+        this.enemyActors.set(enemy.id, this.createEnemyActor(enemy));
+        continue;
+      }
+
+      this.updateEnemyActor(existing, enemy);
+    }
+
+    for (const [id, actor] of this.enemyActors.entries()) {
+      if (snapshotIds.has(id)) {
+        continue;
+      }
+
+      this.destroyEnemyActor(actor);
+      this.enemyActors.delete(id);
+    }
+  }
+
+  private createEnemyActor(enemy: EnemySnapshot): EnemyActor {
+    const body = this.add.rectangle(
+      enemy.position.x,
+      enemy.position.y,
+      enemy.width,
+      enemy.height,
+      hexToNumber(enemy.colorHex),
+      0.95,
+    );
+    const label = this.add
+      .text(
+        enemy.position.x,
+        enemy.position.y - enemy.height / 2 - 24,
+        enemy.name,
+        {
+          fontFamily: "JetBrains Mono",
+          fontSize: "10px",
+          color: "#f8fafc",
+          stroke: "#05070b",
+          strokeThickness: 2,
+        },
+      )
+      .setOrigin(0.5, 0.5);
+    const healthBarBackground = this.add.rectangle(
+      enemy.position.x,
+      enemy.position.y - enemy.height / 2 - 12,
+      Math.max(48, enemy.width),
+      6,
+      0x111827,
+      0.95,
+    );
+    const healthBarFill = this.add
+      .rectangle(
+        enemy.position.x,
+        enemy.position.y - enemy.height / 2 - 12,
+        Math.max(48, enemy.width),
+        4,
+        0x22c55e,
+        0.95,
+      )
+      .setOrigin(0, 0.5);
+    const healthText = this.add
+      .text(
+        enemy.position.x,
+        enemy.position.y - enemy.height / 2 - 22,
+        `${Math.round(enemy.currentHealth)}/${Math.round(enemy.maxHealth)}`,
+        {
+          fontFamily: "JetBrains Mono",
+          fontSize: "9px",
+          color: "#d1d5db",
+          stroke: "#05070b",
+          strokeThickness: 2,
+        },
+      )
+      .setOrigin(0.5, 0.5);
+
+    const actor: EnemyActor = {
+      body,
+      label,
+      healthBarBackground,
+      healthBarFill,
+      healthText,
+    };
+    this.updateEnemyActor(actor, enemy);
+    return actor;
+  }
+
+  private updateEnemyActor(actor: EnemyActor, enemy: EnemySnapshot): void {
+    actor.body
+      .setPosition(enemy.position.x, enemy.position.y)
+      .setSize(enemy.width, enemy.height)
+      .setFillStyle(hexToNumber(enemy.colorHex), 0.95);
+
+    const barWidth = Math.max(48, enemy.width);
+    const labelY = enemy.position.y - enemy.height / 2 - 24;
+    const barY = enemy.position.y - enemy.height / 2 - 12;
+    const barLeft = enemy.position.x - barWidth / 2;
+    const healthRatio =
+      enemy.maxHealth <= 0
+        ? 0
+        : Math.max(0, Math.min(1, enemy.currentHealth / enemy.maxHealth));
+
+    actor.label.setText(enemy.name).setPosition(enemy.position.x, labelY);
+    actor.healthBarBackground
+      .setPosition(enemy.position.x, barY)
+      .setSize(barWidth, 6);
+    actor.healthBarFill
+      .setPosition(barLeft, barY)
+      .setSize(Math.max(2, barWidth * healthRatio), 4)
+      .setFillStyle(healthRatio > 0.35 ? 0x22c55e : 0xef4444, 0.95);
+    actor.healthText
+      .setText(
+        `${Math.round(enemy.currentHealth)}/${Math.round(enemy.maxHealth)}`,
+      )
+      .setPosition(enemy.position.x, barY - 10);
+  }
+
+  private destroyEnemyActor(actor: EnemyActor): void {
+    actor.body.destroy();
+    actor.label.destroy();
+    actor.healthBarBackground.destroy();
+    actor.healthBarFill.destroy();
+    actor.healthText.destroy();
+  }
+
   private authenticate(forceTakeover: boolean): void {
     this.sendMessage({
       type: "auth.hello",
@@ -718,6 +888,8 @@ class HubScene extends Phaser.Scene {
     this.localPlayer?.label.destroy();
     this.localPlayer = null;
     this.clearRemotePlayers();
+    this.clearEnemyActors();
+    this.enemyPredictionColliders = [];
     this.pendingInputs = [];
     this.nextInputSequence = 1;
     this.localCharacterId = null;
@@ -743,6 +915,13 @@ class HubScene extends Phaser.Scene {
       actor.label.destroy();
     }
     this.remotePlayers.clear();
+  }
+
+  private clearEnemyActors(): void {
+    for (const actor of this.enemyActors.values()) {
+      this.destroyEnemyActor(actor);
+    }
+    this.enemyActors.clear();
   }
 
   private syncOverlayPlayers(): void {

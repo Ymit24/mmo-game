@@ -12,6 +12,7 @@ import {
   setLastUsedCharacterIdForUser,
 } from "../characters/repository";
 import type { ServerConfig } from "../config";
+import { findEnemyArchetypeById } from "./enemyArchetypeRepository";
 import { WorldManager } from "./world";
 import type { RealtimeSocketData } from "./world";
 
@@ -39,7 +40,9 @@ export function createRealtimeGateway(
   config: ServerConfig,
   db: Database,
 ): RealtimeGateway {
-  const worlds = new WorldManager();
+  const worlds = new WorldManager((archetypeId) =>
+    findEnemyArchetypeById(db, archetypeId),
+  );
   const activeSocketsByAccountKey = new Map<
     string,
     ServerWebSocket<RealtimeSocketData>

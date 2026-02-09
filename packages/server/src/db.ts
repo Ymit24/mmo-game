@@ -55,6 +55,27 @@ export function bootstrapDatabase(db: Database): void {
     CREATE INDEX IF NOT EXISTS idx_characters_user_updated_at
     ON characters (user_id, updated_at DESC);
   `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS enemy_archetypes (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      max_health REAL NOT NULL CHECK (max_health > 0),
+      damage REAL NOT NULL CHECK (damage >= 0),
+      speed REAL NOT NULL CHECK (speed > 0),
+      detection_radius REAL NOT NULL CHECK (detection_radius > 0),
+      leash_radius REAL NOT NULL CHECK (leash_radius > 0),
+      attack_speed_ms INTEGER NOT NULL CHECK (attack_speed_ms > 0),
+      can_melee INTEGER NOT NULL CHECK (can_melee IN (0, 1)),
+      can_ranged INTEGER NOT NULL CHECK (can_ranged IN (0, 1)),
+      visual_width REAL NOT NULL CHECK (visual_width > 0),
+      visual_height REAL NOT NULL CHECK (visual_height > 0),
+      color_hex TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      CHECK (can_melee = 1 OR can_ranged = 1)
+    );
+  `);
+  ensureEnemyArchetypeSeeds(db);
 }
 
 function ensureUsersLastUsedCharacterColumn(db: Database): void {
@@ -67,4 +88,63 @@ function ensureUsersLastUsedCharacterColumn(db: Database): void {
   if (!hasColumn) {
     db.exec("ALTER TABLE users ADD COLUMN last_used_character_id TEXT;");
   }
+}
+
+function ensureEnemyArchetypeSeeds(db: Database): void {
+  const timestamp = new Date().toISOString();
+  const seedStatement = db.query(
+    `INSERT OR IGNORE INTO enemy_archetypes (
+      id,
+      name,
+      max_health,
+      damage,
+      speed,
+      detection_radius,
+      leash_radius,
+      attack_speed_ms,
+      can_melee,
+      can_ranged,
+      visual_width,
+      visual_height,
+      color_hex,
+      created_at,
+      updated_at
+    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)`,
+  );
+
+  seedStatement.run(
+    "slime_scout",
+    "Slime Scout",
+    60,
+    8,
+    130,
+    280,
+    420,
+    900,
+    1,
+    0,
+    34,
+    24,
+    "#22d3ee",
+    timestamp,
+    timestamp,
+  );
+
+  seedStatement.run(
+    "stone_golem",
+    "Stone Golem",
+    220,
+    18,
+    95,
+    240,
+    380,
+    1400,
+    1,
+    0,
+    46,
+    46,
+    "#a3a3a3",
+    timestamp,
+    timestamp,
+  );
 }
