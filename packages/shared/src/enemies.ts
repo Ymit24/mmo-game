@@ -18,6 +18,8 @@ export interface EnemyArchetype {
   detectionRadius: number;
   leashRadius: number;
   attackSpeedMs: number;
+  meleeRange: number;
+  rangedRange: number;
   canMelee: boolean;
   canRanged: boolean;
   visualWidth: number;

@@ -10,6 +10,8 @@ interface EnemyArchetypeRow {
   detection_radius: number;
   leash_radius: number;
   attack_speed_ms: number;
+  melee_range: number;
+  ranged_range: number;
   can_melee: number;
   can_ranged: number;
   visual_width: number;
@@ -27,6 +29,8 @@ function mapEnemyArchetype(row: EnemyArchetypeRow): EnemyArchetype {
     detectionRadius: row.detection_radius,
     leashRadius: row.leash_radius,
     attackSpeedMs: row.attack_speed_ms,
+    meleeRange: row.melee_range,
+    rangedRange: row.ranged_range,
     canMelee: row.can_melee === 1,
     canRanged: row.can_ranged === 1,
     visualWidth: row.visual_width,
@@ -50,6 +54,8 @@ export function findEnemyArchetypeById(
          detection_radius,
          leash_radius,
          attack_speed_ms,
+         melee_range,
+         ranged_range,
          can_melee,
          can_ranged,
          visual_width,

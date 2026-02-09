@@ -65,6 +65,8 @@ export function bootstrapDatabase(db: Database): void {
       detection_radius REAL NOT NULL CHECK (detection_radius > 0),
       leash_radius REAL NOT NULL CHECK (leash_radius > 0),
       attack_speed_ms INTEGER NOT NULL CHECK (attack_speed_ms > 0),
+      melee_range REAL NOT NULL CHECK (melee_range > 0),
+      ranged_range REAL NOT NULL CHECK (ranged_range > 0),
       can_melee INTEGER NOT NULL CHECK (can_melee IN (0, 1)),
       can_ranged INTEGER NOT NULL CHECK (can_ranged IN (0, 1)),
       visual_width REAL NOT NULL CHECK (visual_width > 0),
@@ -75,6 +77,7 @@ export function bootstrapDatabase(db: Database): void {
       CHECK (can_melee = 1 OR can_ranged = 1)
     );
   `);
+  ensureEnemyArchetypeRangeColumns(db);
   ensureEnemyArchetypeSeeds(db);
 }
 
@@ -102,6 +105,8 @@ function ensureEnemyArchetypeSeeds(db: Database): void {
       detection_radius,
       leash_radius,
       attack_speed_ms,
+      melee_range,
+      ranged_range,
       can_melee,
       can_ranged,
       visual_width,
@@ -109,7 +114,7 @@ function ensureEnemyArchetypeSeeds(db: Database): void {
       color_hex,
       created_at,
       updated_at
-    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)`,
+    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)`,
   );
 
   seedStatement.run(
@@ -121,6 +126,8 @@ function ensureEnemyArchetypeSeeds(db: Database): void {
     280,
     420,
     900,
+    42,
+    220,
     1,
     0,
     34,
@@ -139,6 +146,8 @@ function ensureEnemyArchetypeSeeds(db: Database): void {
     240,
     380,
     1400,
+    42,
+    220,
     1,
     0,
     46,
@@ -147,4 +156,26 @@ function ensureEnemyArchetypeSeeds(db: Database): void {
     timestamp,
     timestamp,
   );
+}
+
+function ensureEnemyArchetypeRangeColumns(db: Database): void {
+  const columns = db
+    .query<{ name: string }, []>("PRAGMA table_info(enemy_archetypes);")
+    .all();
+  const hasMeleeRange = columns.some((column) => column.name === "melee_range");
+  const hasRangedRange = columns.some(
+    (column) => column.name === "ranged_range",
+  );
+
+  if (!hasMeleeRange) {
+    db.exec(
+      "ALTER TABLE enemy_archetypes ADD COLUMN melee_range REAL NOT NULL DEFAULT 42;",
+    );
+  }
+
+  if (!hasRangedRange) {
+    db.exec(
+      "ALTER TABLE enemy_archetypes ADD COLUMN ranged_range REAL NOT NULL DEFAULT 220;",
+    );
+  }
 }

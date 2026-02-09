@@ -29,8 +29,6 @@ const SNAPSHOT_INTERVAL_MS = 100;
 const SIMULATION_INTERVAL_MS = 50;
 const ENEMY_SPAWN_ATTEMPTS = 12;
 const ENEMY_IDLE_EPSILON = 4;
-const ENEMY_MELEE_RANGE = 42;
-const ENEMY_RANGED_RANGE = 220;
 
 interface PlayerState {
   connectionId: string;
@@ -511,8 +509,10 @@ class WorldInstance {
     targetPosition: Vector2,
   ): boolean {
     const distanceSq = distanceSquared(enemy.position, targetPosition);
-    const meleeRangeSq = ENEMY_MELEE_RANGE * ENEMY_MELEE_RANGE;
-    const rangedRangeSq = ENEMY_RANGED_RANGE * ENEMY_RANGED_RANGE;
+    const meleeRangeSq =
+      enemy.archetype.meleeRange * enemy.archetype.meleeRange;
+    const rangedRangeSq =
+      enemy.archetype.rangedRange * enemy.archetype.rangedRange;
 
     return (
       (enemy.archetype.canMelee && distanceSq <= meleeRangeSq) ||

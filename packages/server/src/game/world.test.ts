@@ -120,6 +120,8 @@ function createTestArchetype(
     detectionRadius: 280,
     leashRadius: 420,
     attackSpeedMs: 1000,
+    meleeRange: 42,
+    rangedRange: 220,
     canMelee: true,
     canRanged: false,
     visualWidth: 34,
