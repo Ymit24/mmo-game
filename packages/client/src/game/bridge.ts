@@ -10,6 +10,13 @@ export interface OverlayPlayer {
   isLocal: boolean;
 }
 
+export interface OverlayEnemy {
+  id: string;
+  colorHex: string;
+  x: number;
+  y: number;
+}
+
 export interface DropRequest {
   itemId: string;
   quantity: number;
@@ -36,6 +43,7 @@ export interface GameBridgeState {
     height: number;
   };
   players: OverlayPlayer[];
+  enemies: OverlayEnemy[];
   lastMessage: string | null;
 }
 
@@ -57,6 +65,7 @@ const DEFAULT_STATE: GameBridgeState = {
     height: 1,
   },
   players: [],
+  enemies: [],
   lastMessage: null,
 };
 

@@ -18,7 +18,7 @@ import {
 import Phaser from "phaser";
 
 import { API_BASE_URL } from "../../config/env";
-import type { GameBridge, OverlayPlayer } from "../bridge";
+import type { GameBridge, OverlayEnemy, OverlayPlayer } from "../bridge";
 
 interface RuntimeOptions {
   container: HTMLDivElement;
@@ -47,7 +47,13 @@ interface EnemyActor {
   healthBarBackground: Phaser.GameObjects.Rectangle;
   healthBarFill: Phaser.GameObjects.Rectangle;
   healthText: Phaser.GameObjects.Text;
+  colorHex: string;
 }
+
+const PLAYER_LABEL_OFFSET_Y = 30;
+const ENEMY_LABEL_OFFSET_Y = 34;
+const ENEMY_HEALTH_TEXT_OFFSET_Y = 22;
+const ENEMY_HEALTH_BAR_OFFSET_Y = 12;
 
 function toWsUrl(apiBaseUrl: string): string {
   const wsPath = `${apiBaseUrl}/ws`;
@@ -153,7 +159,8 @@ class HubScene extends Phaser.Scene {
 
   create(): void {
     this.applyWorldMap(this.currentMap);
-    this.cameras.main.setZoom(1.15);
+    this.cameras.main.setZoom(1);
+    this.cameras.main.setRoundPixels(true);
 
     this.cursors = this.input.keyboard?.addKeys({
       up: Phaser.Input.Keyboard.KeyCodes.W,
@@ -220,6 +227,31 @@ class HubScene extends Phaser.Scene {
     this.connect();
   }
 
+  private createPlayerLabel(
+    x: number,
+    y: number,
+    nickname: string,
+    colorHex: string,
+  ): Phaser.GameObjects.Text {
+    return this.add
+      .text(Math.round(x), Math.round(y - PLAYER_LABEL_OFFSET_Y), nickname, {
+        fontFamily: "JetBrains Mono",
+        fontSize: "12px",
+        color: colorHex,
+        stroke: "#05070b",
+        strokeThickness: 1,
+      })
+      .setOrigin(0.5, 0.5);
+  }
+
+  private positionPlayerLabel(
+    label: Phaser.GameObjects.Text,
+    x: number,
+    y: number,
+  ): void {
+    label.setPosition(Math.round(x), Math.round(y - PLAYER_LABEL_OFFSET_Y));
+  }
+
   override update(_: number, dt: number): void {
     if (!this.localPlayer || this.inputLocked) {
       return;
@@ -252,9 +284,10 @@ class HubScene extends Phaser.Scene {
       this.predictedPosition.x,
       this.predictedPosition.y,
     );
-    this.localPlayer.label.setPosition(
+    this.positionPlayerLabel(
+      this.localPlayer.label,
       this.predictedPosition.x,
-      this.predictedPosition.y - 30,
+      this.predictedPosition.y,
     );
 
     this.cameras.main.centerOn(
@@ -460,15 +493,12 @@ class HubScene extends Phaser.Scene {
             hexToNumber(message.colorHex),
             1,
           );
-          const label = this.add
-            .text(message.spawn.x, message.spawn.y - 30, message.nickname, {
-              fontFamily: "JetBrains Mono",
-              fontSize: "11px",
-              color: message.colorHex,
-              stroke: "#05070b",
-              strokeThickness: 2,
-            })
-            .setOrigin(0.5, 0.5);
+          const label = this.createPlayerLabel(
+            message.spawn.x,
+            message.spawn.y,
+            message.nickname,
+            message.colorHex,
+          );
           this.localPlayer = {
             sprite,
             label,
@@ -482,8 +512,12 @@ class HubScene extends Phaser.Scene {
         this.localPlayer.sprite.setPosition(message.spawn.x, message.spawn.y);
         this.localPlayer.label
           .setText(message.nickname)
-          .setColor(message.colorHex)
-          .setPosition(message.spawn.x, message.spawn.y - 30);
+          .setColor(message.colorHex);
+        this.positionPlayerLabel(
+          this.localPlayer.label,
+          message.spawn.x,
+          message.spawn.y,
+        );
         this.cameras.main.centerOn(message.spawn.x, message.spawn.y);
 
         this.bridge.updateState({
@@ -492,7 +526,7 @@ class HubScene extends Phaser.Scene {
             y: message.spawn.y,
           },
         });
-        this.syncOverlayPlayers();
+        this.syncOverlayState();
         return;
       }
 
@@ -516,20 +550,12 @@ class HubScene extends Phaser.Scene {
           hexToNumber(message.player.colorHex),
           0.95,
         );
-        const label = this.add
-          .text(
-            message.player.position.x,
-            message.player.position.y - 30,
-            message.player.nickname,
-            {
-              fontFamily: "JetBrains Mono",
-              fontSize: "11px",
-              color: message.player.colorHex,
-              stroke: "#05070b",
-              strokeThickness: 2,
-            },
-          )
-          .setOrigin(0.5, 0.5);
+        const label = this.createPlayerLabel(
+          message.player.position.x,
+          message.player.position.y,
+          message.player.nickname,
+          message.player.colorHex,
+        );
 
         this.remotePlayers.set(message.player.id, {
           sprite,
@@ -538,7 +564,7 @@ class HubScene extends Phaser.Scene {
           className: message.player.class,
           colorHex: message.player.colorHex,
         });
-        this.syncOverlayPlayers();
+        this.syncOverlayState();
         return;
       }
 
@@ -550,7 +576,7 @@ class HubScene extends Phaser.Scene {
         actor?.sprite.destroy();
         actor?.label.destroy();
         this.remotePlayers.delete(message.characterId);
-        this.syncOverlayPlayers();
+        this.syncOverlayState();
         return;
       }
 
@@ -570,7 +596,7 @@ class HubScene extends Phaser.Scene {
           ),
         );
 
-        this.syncOverlayPlayers();
+        this.syncOverlayState();
         return;
       }
 
@@ -596,9 +622,10 @@ class HubScene extends Phaser.Scene {
             this.predictedPosition.x,
             this.predictedPosition.y,
           );
-          this.localPlayer.label.setPosition(
+          this.positionPlayerLabel(
+            this.localPlayer.label,
             this.predictedPosition.x,
-            this.predictedPosition.y - 30,
+            this.predictedPosition.y,
           );
         }
 
@@ -609,7 +636,7 @@ class HubScene extends Phaser.Scene {
           },
         });
 
-        this.syncOverlayPlayers();
+        this.syncOverlayState();
         return;
       }
 
@@ -638,6 +665,7 @@ class HubScene extends Phaser.Scene {
           worldId: null,
           lastMessage: message.reason,
           players: [],
+          enemies: [],
         });
         this.socket?.close();
         return;
@@ -654,6 +682,7 @@ class HubScene extends Phaser.Scene {
             worldId: null,
             lastMessage: "Reconnecting to existing session...",
             players: [],
+            enemies: [],
           });
           setTimeout(() => {
             this.authenticate(false);
@@ -671,6 +700,7 @@ class HubScene extends Phaser.Scene {
           worldId: null,
           lastMessage: message.reason,
           players: [],
+          enemies: [],
         });
         return;
 
@@ -697,15 +727,12 @@ class HubScene extends Phaser.Scene {
           hexToNumber(player.colorHex),
           0.95,
         );
-        const label = this.add
-          .text(player.position.x, player.position.y - 30, player.nickname, {
-            fontFamily: "JetBrains Mono",
-            fontSize: "11px",
-            color: player.colorHex,
-            stroke: "#05070b",
-            strokeThickness: 2,
-          })
-          .setOrigin(0.5, 0.5);
+        const label = this.createPlayerLabel(
+          player.position.x,
+          player.position.y,
+          player.nickname,
+          player.colorHex,
+        );
         this.remotePlayers.set(player.id, {
           sprite,
           label,
@@ -717,10 +744,12 @@ class HubScene extends Phaser.Scene {
       }
 
       actor.sprite.setPosition(player.position.x, player.position.y);
-      actor.label
-        .setText(player.nickname)
-        .setColor(player.colorHex)
-        .setPosition(player.position.x, player.position.y - 30);
+      actor.label.setText(player.nickname).setColor(player.colorHex);
+      this.positionPlayerLabel(
+        actor.label,
+        player.position.x,
+        player.position.y,
+      );
       actor.nickname = player.nickname;
       actor.className = player.class;
       actor.colorHex = player.colorHex;
@@ -772,21 +801,21 @@ class HubScene extends Phaser.Scene {
     );
     const label = this.add
       .text(
-        enemy.position.x,
-        enemy.position.y - enemy.height / 2 - 24,
+        Math.round(enemy.position.x),
+        Math.round(enemy.position.y - enemy.height / 2 - ENEMY_LABEL_OFFSET_Y),
         enemy.name,
         {
           fontFamily: "JetBrains Mono",
           fontSize: "10px",
           color: "#f8fafc",
           stroke: "#05070b",
-          strokeThickness: 2,
+          strokeThickness: 1,
         },
       )
       .setOrigin(0.5, 0.5);
     const healthBarBackground = this.add.rectangle(
       enemy.position.x,
-      enemy.position.y - enemy.height / 2 - 12,
+      enemy.position.y - enemy.height / 2 - ENEMY_HEALTH_BAR_OFFSET_Y,
       Math.max(48, enemy.width),
       6,
       0x111827,
@@ -795,7 +824,7 @@ class HubScene extends Phaser.Scene {
     const healthBarFill = this.add
       .rectangle(
         enemy.position.x,
-        enemy.position.y - enemy.height / 2 - 12,
+        enemy.position.y - enemy.height / 2 - ENEMY_HEALTH_BAR_OFFSET_Y,
         Math.max(48, enemy.width),
         4,
         0x22c55e,
@@ -804,15 +833,17 @@ class HubScene extends Phaser.Scene {
       .setOrigin(0, 0.5);
     const healthText = this.add
       .text(
-        enemy.position.x,
-        enemy.position.y - enemy.height / 2 - 22,
+        Math.round(enemy.position.x),
+        Math.round(
+          enemy.position.y - enemy.height / 2 - ENEMY_HEALTH_TEXT_OFFSET_Y,
+        ),
         `${Math.round(enemy.currentHealth)}/${Math.round(enemy.maxHealth)}`,
         {
           fontFamily: "JetBrains Mono",
-          fontSize: "9px",
+          fontSize: "10px",
           color: "#d1d5db",
           stroke: "#05070b",
-          strokeThickness: 2,
+          strokeThickness: 1,
         },
       )
       .setOrigin(0.5, 0.5);
@@ -823,6 +854,7 @@ class HubScene extends Phaser.Scene {
       healthBarBackground,
       healthBarFill,
       healthText,
+      colorHex: enemy.colorHex,
     };
     this.updateEnemyActor(actor, enemy);
     return actor;
@@ -835,15 +867,21 @@ class HubScene extends Phaser.Scene {
       .setFillStyle(hexToNumber(enemy.colorHex), 0.95);
 
     const barWidth = Math.max(48, enemy.width);
-    const labelY = enemy.position.y - enemy.height / 2 - 24;
-    const barY = enemy.position.y - enemy.height / 2 - 12;
+    const labelY = enemy.position.y - enemy.height / 2 - ENEMY_LABEL_OFFSET_Y;
+    const barY =
+      enemy.position.y - enemy.height / 2 - ENEMY_HEALTH_BAR_OFFSET_Y;
+    const healthTextY =
+      enemy.position.y - enemy.height / 2 - ENEMY_HEALTH_TEXT_OFFSET_Y;
     const barLeft = enemy.position.x - barWidth / 2;
     const healthRatio =
       enemy.maxHealth <= 0
         ? 0
         : Math.max(0, Math.min(1, enemy.currentHealth / enemy.maxHealth));
+    actor.colorHex = enemy.colorHex;
 
-    actor.label.setText(enemy.name).setPosition(enemy.position.x, labelY);
+    actor.label
+      .setText(enemy.name)
+      .setPosition(Math.round(enemy.position.x), Math.round(labelY));
     actor.healthBarBackground
       .setPosition(enemy.position.x, barY)
       .setSize(barWidth, 6);
@@ -855,7 +893,7 @@ class HubScene extends Phaser.Scene {
       .setText(
         `${Math.round(enemy.currentHealth)}/${Math.round(enemy.maxHealth)}`,
       )
-      .setPosition(enemy.position.x, barY - 10);
+      .setPosition(Math.round(enemy.position.x), Math.round(healthTextY));
   }
 
   private destroyEnemyActor(actor: EnemyActor): void {
@@ -901,6 +939,7 @@ class HubScene extends Phaser.Scene {
       localPlayerId: null,
       localPosition: null,
       players: [],
+      enemies: [],
     });
   }
 
@@ -924,8 +963,9 @@ class HubScene extends Phaser.Scene {
     this.enemyActors.clear();
   }
 
-  private syncOverlayPlayers(): void {
+  private syncOverlayState(): void {
     const players: OverlayPlayer[] = [];
+    const enemies: OverlayEnemy[] = [];
 
     if (
       this.localCharacterId &&
@@ -955,7 +995,16 @@ class HubScene extends Phaser.Scene {
       });
     }
 
-    this.bridge.updateState({ players });
+    for (const [id, actor] of this.enemyActors.entries()) {
+      enemies.push({
+        id,
+        colorHex: actor.colorHex,
+        x: actor.body.x,
+        y: actor.body.y,
+      });
+    }
+
+    this.bridge.updateState({ players, enemies });
   }
 
   private sendMessage(message: ClientToServerMessage): void {
@@ -977,6 +1026,8 @@ export function mountGameRuntime({
     type: Phaser.AUTO,
     parent: container,
     backgroundColor: "#05070b",
+    antialias: false,
+    pixelArt: true,
     scale: {
       mode: Phaser.Scale.RESIZE,
       width: container.clientWidth,
