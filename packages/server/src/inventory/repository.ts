@@ -82,16 +82,16 @@ const STARTER_LOADOUT_BY_CLASS: Record<
   CharacterClass,
   {
     equippedWeaponId: string;
-    bagWeaponIds: [string, string];
+    bagWeaponIds: [string, string, string];
   }
 > = {
   knight: {
     equippedWeaponId: "training_sword",
-    bagWeaponIds: ["iron_broadsword", "runed_greatsword"],
+    bagWeaponIds: ["iron_broadsword", "runed_greatsword", "dragonbone_blade"],
   },
   mage: {
     equippedWeaponId: "training_wand",
-    bagWeaponIds: ["adept_focus_wand", "stormweave_rod"],
+    bagWeaponIds: ["adept_focus_wand", "stormweave_rod", "arcane_scepter"],
   },
 };
 
@@ -541,6 +541,25 @@ export function grantStarterInventoryForCharacter(
     characterId,
     starterLoadout.bagWeaponIds[1],
     1,
+    timestamp,
+    timestamp,
+  );
+
+  db.query(
+    `INSERT INTO character_inventory (
+       id,
+       character_id,
+       item_definition_id,
+       slot_kind,
+       slot_index,
+       created_at,
+       updated_at
+     ) VALUES (?1, ?2, ?3, 'bag', ?4, ?5, ?6)`,
+  ).run(
+    crypto.randomUUID(),
+    characterId,
+    starterLoadout.bagWeaponIds[2],
+    2,
     timestamp,
     timestamp,
   );

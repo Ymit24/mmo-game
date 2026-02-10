@@ -348,7 +348,7 @@ function buildDefaultLevelProgressionTable(): LevelProgressionRow[] {
         ? null
         : Math.max(25, Math.round(75 + level * level * 5.5 + level * 36)),
       hpMultiplier: Math.round((1 + (level - 1) * 0.05) * 1000) / 1000,
-      damageMultiplier: Math.round((1 + (level - 1) * 0.038) * 1000) / 1000,
+      damageMultiplier: Math.round((1 + (level - 1) * 0.1) * 1000) / 1000,
     });
   }
   return rows;
