@@ -42,11 +42,16 @@ export function bootstrapDatabase(db: Database): void {
       nickname TEXT NOT NULL,
       nickname_normalized TEXT NOT NULL,
       class TEXT NOT NULL CHECK (class IN ('knight', 'mage')),
+      max_hp REAL NOT NULL CHECK (max_hp > 0),
+      base_damage REAL NOT NULL CHECK (base_damage >= 0),
+      base_attack_speed_ms INTEGER NOT NULL CHECK (base_attack_speed_ms > 0),
+      base_attack_range REAL NOT NULL CHECK (base_attack_range > 0),
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       UNIQUE (user_id, nickname_normalized)
     );
   `);
+  ensureCharacterCombatColumns(db);
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_characters_user_id
     ON characters (user_id);
@@ -90,6 +95,44 @@ function ensureUsersLastUsedCharacterColumn(db: Database): void {
   );
   if (!hasColumn) {
     db.exec("ALTER TABLE users ADD COLUMN last_used_character_id TEXT;");
+  }
+}
+
+function ensureCharacterCombatColumns(db: Database): void {
+  const columns = db
+    .query<{ name: string }, []>("PRAGMA table_info(characters);")
+    .all();
+  const hasMaxHp = columns.some((column) => column.name === "max_hp");
+  const hasBaseDamage = columns.some((column) => column.name === "base_damage");
+  const hasBaseAttackSpeedMs = columns.some(
+    (column) => column.name === "base_attack_speed_ms",
+  );
+  const hasBaseAttackRange = columns.some(
+    (column) => column.name === "base_attack_range",
+  );
+
+  if (!hasMaxHp) {
+    db.exec(
+      "ALTER TABLE characters ADD COLUMN max_hp REAL NOT NULL DEFAULT 100;",
+    );
+  }
+
+  if (!hasBaseDamage) {
+    db.exec(
+      "ALTER TABLE characters ADD COLUMN base_damage REAL NOT NULL DEFAULT 10;",
+    );
+  }
+
+  if (!hasBaseAttackSpeedMs) {
+    db.exec(
+      "ALTER TABLE characters ADD COLUMN base_attack_speed_ms INTEGER NOT NULL DEFAULT 900;",
+    );
+  }
+
+  if (!hasBaseAttackRange) {
+    db.exec(
+      "ALTER TABLE characters ADD COLUMN base_attack_range REAL NOT NULL DEFAULT 60;",
+    );
   }
 }
 

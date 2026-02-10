@@ -190,12 +190,32 @@ export function createRealtimeGateway(
               return;
             }
 
+            const previousCharacterId = socket.data.session.characterId;
             socket.data.session.characterId = character.id;
             socket.data.session.characterNickname = character.nickname;
             socket.data.session.characterClass = character.class;
             socket.data.session.characterColorHex = getCharacterClassColorHex(
               character.class,
             );
+            socket.data.session.characterMaxHealth = character.maxHp;
+            socket.data.session.characterBaseDamage = character.baseDamage;
+            socket.data.session.characterBaseAttackSpeedMs =
+              character.baseAttackSpeedMs;
+            socket.data.session.characterBaseAttackRange =
+              character.baseAttackRange;
+            const shouldKeepRuntimeHealth =
+              socket.data.session.characterCurrentHealth !== null &&
+              previousCharacterId === character.id;
+            socket.data.session.characterCurrentHealth = shouldKeepRuntimeHealth
+              ? Math.max(
+                  0,
+                  Math.min(
+                    character.maxHp,
+                    socket.data.session.characterCurrentHealth ??
+                      character.maxHp,
+                  ),
+                )
+              : character.maxHp;
 
             const spawn = worlds.joinWorld(
               socket,
@@ -204,6 +224,15 @@ export function createRealtimeGateway(
               character.nickname,
               character.class,
               getCharacterClassColorHex(character.class),
+              {
+                combatStats: {
+                  currentHealth: socket.data.session.characterCurrentHealth,
+                  maxHealth: character.maxHp,
+                  baseDamage: character.baseDamage,
+                  baseAttackSpeedMs: character.baseAttackSpeedMs,
+                  baseAttackRange: character.baseAttackRange,
+                },
+              },
             );
             if (!spawn) {
               sendError(socket, `Unknown world '${incoming.worldId}'.`);
@@ -215,6 +244,10 @@ export function createRealtimeGateway(
 
           case "player.input":
             worlds.applyInput(socket, incoming);
+            return;
+
+          case "player.attack":
+            worlds.applyAttack(socket, incoming);
             return;
 
           case "inventory.drop":

@@ -59,6 +59,13 @@ export function GameShell({ characterId }: GameShellProps) {
   const showConnectionModal =
     !!uiState.modal ||
     (uiState.connectionStatus !== "connected" && !isTransitioning);
+  const localHealthMax = Math.max(1, uiState.localHealthMax ?? 1);
+  const localHealthCurrent = Math.max(
+    0,
+    Math.min(localHealthMax, uiState.localHealthCurrent ?? localHealthMax),
+  );
+  const healthRatio = localHealthCurrent / localHealthMax;
+  const isLowHealth = healthRatio <= 0.3;
 
   function reconnect(): void {
     window.location.reload();
@@ -225,6 +232,18 @@ export function GameShell({ characterId }: GameShellProps) {
                     />
                   );
                 })}
+                {uiState.projectiles.map((projectile) => {
+                  const x = (projectile.x / uiState.mapSize.width) * 100;
+                  const y = (projectile.y / uiState.mapSize.height) * 100;
+
+                  return (
+                    <span
+                      key={projectile.id}
+                      className="absolute h-1 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-cyan-glow/90 shadow-[0_0_8px_rgba(103,232,249,0.7)]"
+                      style={{ left: `${x}%`, top: `${y}%` }}
+                    />
+                  );
+                })}
               </div>
               <p className="mt-2 text-xs text-muted">
                 Enemies tracked: {uiState.enemies.length} | Cursor world:{" "}
@@ -272,6 +291,56 @@ export function GameShell({ characterId }: GameShellProps) {
               </p>
             </aside>
           </div>
+
+          <footer className="pointer-events-auto flex items-end justify-between gap-4">
+            <section
+              className={`hud-health-shell w-full max-w-[460px] rounded-xl border border-border/80 px-4 py-3 ${
+                isLowHealth ? "hud-health-shell-danger" : ""
+              }`}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-cyan">
+                    Aegis Core
+                  </p>
+                  <p className="text-xs text-muted">
+                    {Math.round(localHealthCurrent)} /{" "}
+                    {Math.round(localHealthMax)} vitality
+                  </p>
+                </div>
+                <div className="rounded border border-border/70 bg-void/60 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.15em] text-amber">
+                  {Math.round(healthRatio * 100)}%
+                </div>
+              </div>
+
+              <div className="mt-3">
+                <div className="hud-health-track relative h-4 overflow-hidden rounded-sm border border-border/70 bg-void/80">
+                  <div
+                    className={`hud-health-fill h-full rounded-sm ${
+                      isLowHealth ? "hud-health-fill-danger" : ""
+                    }`}
+                    style={{
+                      width: `${Math.max(4, healthRatio * 100)}%`,
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-[10px] font-mono uppercase tracking-[0.12em] text-muted">
+                <span className="rounded border border-border/70 bg-void/50 px-2 py-1">
+                  attack: click / space
+                </span>
+                <span className="rounded border border-border/70 bg-void/50 px-2 py-1">
+                  projectiles: {uiState.projectiles.length}
+                </span>
+                {uiState.lastCombatDeniedReason === "safe_zone" ? (
+                  <span className="rounded border border-cyan/50 bg-cyan/10 px-2 py-1 text-cyan">
+                    safe zone active
+                  </span>
+                ) : null}
+              </div>
+            </section>
+          </footer>
         </div>
       ) : null}
     </div>

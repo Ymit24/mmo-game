@@ -238,4 +238,60 @@ describe("character routes", () => {
     };
     expect(listBody.characters).toHaveLength(MAX_CHARACTERS_PER_ACCOUNT);
   });
+
+  test("assigns class-specific base combat stats on character creation", async () => {
+    const token = await signupAndGetToken(app, "player6@example.com");
+
+    const knightResponse = await app.fetch(
+      createJsonRequest("/characters", "POST", token, {
+        nickname: "ShieldOne",
+        class: "knight",
+      }),
+    );
+    expect(knightResponse.status).toBe(201);
+
+    const mageResponse = await app.fetch(
+      createJsonRequest("/characters", "POST", token, {
+        nickname: "SparkTwo",
+        class: "mage",
+      }),
+    );
+    expect(mageResponse.status).toBe(201);
+
+    const rows = app.db
+      .query<
+        {
+          class: string;
+          max_hp: number;
+          base_damage: number;
+          base_attack_speed_ms: number;
+          base_attack_range: number;
+        },
+        []
+      >(
+        `SELECT class, max_hp, base_damage, base_attack_speed_ms, base_attack_range
+         FROM characters
+         WHERE nickname IN ('ShieldOne', 'SparkTwo')
+         ORDER BY class ASC`,
+      )
+      .all();
+
+    expect(rows).toHaveLength(2);
+    const knight = rows.find((row) => row.class === "knight");
+    const mage = rows.find((row) => row.class === "mage");
+    expect(knight).toEqual({
+      class: "knight",
+      max_hp: 180,
+      base_damage: 24,
+      base_attack_speed_ms: 650,
+      base_attack_range: 60,
+    });
+    expect(mage).toEqual({
+      class: "mage",
+      max_hp: 110,
+      base_damage: 18,
+      base_attack_speed_ms: 900,
+      base_attack_range: 360,
+    });
+  });
 });

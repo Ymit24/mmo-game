@@ -7,6 +7,7 @@ import {
   PLAYER_MOVE_SPEED,
   type PlayerInputState,
   type PlayerSnapshot,
+  type ProjectileSnapshot,
   type ServerToClientMessage,
   WORLD_MAPS_BY_ID,
   type WorldMap,
@@ -18,7 +19,12 @@ import {
 import Phaser from "phaser";
 
 import { API_BASE_URL } from "../../config/env";
-import type { GameBridge, OverlayEnemy, OverlayPlayer } from "../bridge";
+import type {
+  GameBridge,
+  OverlayEnemy,
+  OverlayPlayer,
+  OverlayProjectile,
+} from "../bridge";
 
 interface RuntimeOptions {
   container: HTMLDivElement;
@@ -36,6 +42,8 @@ interface PendingInput {
 interface PlayerActor {
   sprite: Phaser.GameObjects.Rectangle;
   label: Phaser.GameObjects.Text;
+  healthBarBackground: Phaser.GameObjects.Rectangle;
+  healthBarFill: Phaser.GameObjects.Rectangle;
   nickname: string;
   className: string;
   colorHex: string;
@@ -50,7 +58,14 @@ interface EnemyActor {
   colorHex: string;
 }
 
+interface ProjectileActor {
+  body: Phaser.GameObjects.Arc;
+  trail: Phaser.GameObjects.Arc;
+  colorHex: string;
+}
+
 const PLAYER_LABEL_OFFSET_Y = 30;
+const PLAYER_HEALTH_BAR_OFFSET_Y = 14;
 const ENEMY_LABEL_OFFSET_Y = 34;
 const ENEMY_HEALTH_TEXT_OFFSET_Y = 22;
 const ENEMY_HEALTH_BAR_OFFSET_Y = 12;
@@ -115,6 +130,7 @@ class HubScene extends Phaser.Scene {
   private localPlayer: PlayerActor | null = null;
   private remotePlayers = new Map<string, PlayerActor>();
   private enemyActors = new Map<string, EnemyActor>();
+  private projectileActors = new Map<string, ProjectileActor>();
   private enemyPredictionColliders: CollisionShape[] = [];
 
   private pointerWorld = new Phaser.Math.Vector2();
@@ -135,6 +151,7 @@ class HubScene extends Phaser.Scene {
     right: Phaser.Input.Keyboard.Key;
   };
   private arrowKeys: Phaser.Types.Input.Keyboard.CursorKeys | null = null;
+  private attackKey: Phaser.Input.Keyboard.Key | null = null;
 
   private unsubscribeDropRequest: (() => void) | null = null;
   private unsubscribeTakeoverRequest: (() => void) | null = null;
@@ -169,6 +186,8 @@ class HubScene extends Phaser.Scene {
       right: Phaser.Input.Keyboard.KeyCodes.D,
     }) as HubScene["cursors"];
     this.arrowKeys = this.input.keyboard?.createCursorKeys() ?? null;
+    this.attackKey =
+      this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE) ?? null;
 
     this.input.on("pointermove", (pointer: Phaser.Input.Pointer) => {
       this.pointerWorld.set(pointer.worldX, pointer.worldY);
@@ -178,6 +197,16 @@ class HubScene extends Phaser.Scene {
           y: this.pointerWorld.y,
         },
       });
+    });
+    this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
+      if (!pointer.leftButtonDown()) {
+        return;
+      }
+      this.pointerWorld.set(pointer.worldX, pointer.worldY);
+      this.tryAttack();
+    });
+    this.attackKey?.on("down", () => {
+      this.tryAttack();
     });
 
     this.unsubscribeDropRequest = this.bridge.onDropRequest(
@@ -211,6 +240,10 @@ class HubScene extends Phaser.Scene {
         x: this.pointerWorld.x,
         y: this.pointerWorld.y,
       },
+      projectiles: [],
+      localHealthCurrent: null,
+      localHealthMax: null,
+      lastCombatDeniedReason: null,
     });
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
@@ -218,6 +251,8 @@ class HubScene extends Phaser.Scene {
       this.unsubscribeDropRequest = null;
       this.unsubscribeTakeoverRequest?.();
       this.unsubscribeTakeoverRequest = null;
+      this.attackKey?.off("down");
+      this.attackKey = null;
       if (this.socket) {
         this.socket.close();
         this.socket = null;
@@ -250,6 +285,61 @@ class HubScene extends Phaser.Scene {
     y: number,
   ): void {
     label.setPosition(Math.round(x), Math.round(y - PLAYER_LABEL_OFFSET_Y));
+  }
+
+  private createPlayerHealthBarBackground(
+    x: number,
+    y: number,
+  ): Phaser.GameObjects.Rectangle {
+    return this.add.rectangle(
+      x,
+      y - PLAYER_HEALTH_BAR_OFFSET_Y,
+      36,
+      5,
+      0x020617,
+      0.95,
+    );
+  }
+
+  private createPlayerHealthBarFill(
+    x: number,
+    y: number,
+    colorHex: string,
+  ): Phaser.GameObjects.Rectangle {
+    return this.add
+      .rectangle(
+        x - 18,
+        y - PLAYER_HEALTH_BAR_OFFSET_Y,
+        36,
+        3,
+        hexToNumber(colorHex),
+        0.95,
+      )
+      .setOrigin(0, 0.5);
+  }
+
+  private updatePlayerHealthBar(
+    actor: PlayerActor,
+    x: number,
+    y: number,
+    currentHealth: number,
+    maxHealth: number,
+  ): void {
+    const width = 36;
+    const ratio =
+      maxHealth <= 0
+        ? 0
+        : Math.max(0, Math.min(1, currentHealth / Math.max(1, maxHealth)));
+    const left = x - width / 2;
+    const fillColor = ratio > 0.35 ? 0x22c55e : 0xef4444;
+
+    actor.healthBarBackground
+      .setPosition(Math.round(x), Math.round(y - PLAYER_HEALTH_BAR_OFFSET_Y))
+      .setSize(width, 5);
+    actor.healthBarFill
+      .setPosition(Math.round(left), Math.round(y - PLAYER_HEALTH_BAR_OFFSET_Y))
+      .setSize(Math.max(2, width * ratio), 3)
+      .setFillStyle(fillColor, 0.95);
   }
 
   override update(_: number, dt: number): void {
@@ -289,6 +379,14 @@ class HubScene extends Phaser.Scene {
       this.predictedPosition.x,
       this.predictedPosition.y,
     );
+    const bridgeState = this.bridge.getState();
+    this.updatePlayerHealthBar(
+      this.localPlayer,
+      this.predictedPosition.x,
+      this.predictedPosition.y,
+      bridgeState.localHealthCurrent ?? bridgeState.localHealthMax ?? 1,
+      bridgeState.localHealthMax ?? 1,
+    );
 
     this.cameras.main.centerOn(
       this.predictedPosition.x,
@@ -307,6 +405,23 @@ class HubScene extends Phaser.Scene {
       sequence,
       dtMs,
       input,
+    });
+  }
+
+  private tryAttack(): void {
+    if (this.inputLocked || !this.localPlayer || !this.localCharacterId) {
+      return;
+    }
+    if (!this.bridge.getState().isInWorld) {
+      return;
+    }
+
+    this.sendMessage({
+      type: "player.attack",
+      aim: {
+        x: this.pointerWorld.x || this.predictedPosition.x + 1,
+        y: this.pointerWorld.y || this.predictedPosition.y,
+      },
     });
   }
 
@@ -473,6 +588,7 @@ class HubScene extends Phaser.Scene {
         this.pendingInputs = [];
         this.enemyPredictionColliders = [];
         this.clearEnemyActors();
+        this.clearProjectileActors();
         this.bridge.updateState({
           isInWorld: true,
           transitionMessage: null,
@@ -481,6 +597,9 @@ class HubScene extends Phaser.Scene {
           connectionStatus: "connected",
           modal: null,
           localPlayerId: message.characterId,
+          localHealthCurrent: message.currentHealth,
+          localHealthMax: message.maxHealth,
+          lastCombatDeniedReason: null,
         });
         this.inputLocked = false;
 
@@ -499,9 +618,20 @@ class HubScene extends Phaser.Scene {
             message.nickname,
             message.colorHex,
           );
+          const healthBarBackground = this.createPlayerHealthBarBackground(
+            message.spawn.x,
+            message.spawn.y,
+          );
+          const healthBarFill = this.createPlayerHealthBarFill(
+            message.spawn.x,
+            message.spawn.y,
+            message.colorHex,
+          );
           this.localPlayer = {
             sprite,
             label,
+            healthBarBackground,
+            healthBarFill,
             nickname: message.nickname,
             className: message.class,
             colorHex: message.colorHex,
@@ -517,6 +647,13 @@ class HubScene extends Phaser.Scene {
           this.localPlayer.label,
           message.spawn.x,
           message.spawn.y,
+        );
+        this.updatePlayerHealthBar(
+          this.localPlayer,
+          message.spawn.x,
+          message.spawn.y,
+          message.currentHealth,
+          message.maxHealth,
         );
         this.cameras.main.centerOn(message.spawn.x, message.spawn.y);
 
@@ -556,14 +693,35 @@ class HubScene extends Phaser.Scene {
           message.player.nickname,
           message.player.colorHex,
         );
+        const healthBarBackground = this.createPlayerHealthBarBackground(
+          message.player.position.x,
+          message.player.position.y,
+        );
+        const healthBarFill = this.createPlayerHealthBarFill(
+          message.player.position.x,
+          message.player.position.y,
+          message.player.colorHex,
+        );
 
         this.remotePlayers.set(message.player.id, {
           sprite,
           label,
+          healthBarBackground,
+          healthBarFill,
           nickname: message.player.nickname,
           className: message.player.class,
           colorHex: message.player.colorHex,
         });
+        const actor = this.remotePlayers.get(message.player.id);
+        if (actor) {
+          this.updatePlayerHealthBar(
+            actor,
+            message.player.position.x,
+            message.player.position.y,
+            message.player.currentHealth,
+            message.player.maxHealth,
+          );
+        }
         this.syncOverlayState();
         return;
       }
@@ -575,6 +733,8 @@ class HubScene extends Phaser.Scene {
         const actor = this.remotePlayers.get(message.characterId);
         actor?.sprite.destroy();
         actor?.label.destroy();
+        actor?.healthBarBackground.destroy();
+        actor?.healthBarFill.destroy();
         this.remotePlayers.delete(message.characterId);
         this.syncOverlayState();
         return;
@@ -586,6 +746,7 @@ class HubScene extends Phaser.Scene {
         }
         this.reconcileSnapshotPlayers(message.payload.players);
         this.reconcileSnapshotEnemies(message.payload.enemies);
+        this.reconcileSnapshotProjectiles(message.payload.projectiles);
         this.enemyPredictionColliders = message.payload.enemies.map((enemy) =>
           centeredBoxToCollisionShape(
             { x: enemy.position.x, y: enemy.position.y },
@@ -627,6 +788,13 @@ class HubScene extends Phaser.Scene {
             this.predictedPosition.x,
             this.predictedPosition.y,
           );
+          this.updatePlayerHealthBar(
+            this.localPlayer,
+            this.predictedPosition.x,
+            this.predictedPosition.y,
+            message.currentHealth,
+            message.maxHealth,
+          );
         }
 
         this.bridge.updateState({
@@ -634,11 +802,38 @@ class HubScene extends Phaser.Scene {
             x: this.predictedPosition.x,
             y: this.predictedPosition.y,
           },
+          localHealthCurrent: message.currentHealth,
+          localHealthMax: message.maxHealth,
         });
 
         this.syncOverlayState();
         return;
       }
+
+      case "combat.attackDenied":
+        this.bridge.updateState({
+          lastMessage: message.message,
+          lastCombatDeniedReason: message.reason,
+        });
+        if (message.reason === "safe_zone") {
+          this.spawnSafeZoneText();
+        }
+        return;
+
+      case "combat.attackPerformed":
+        this.playAttackEffect(
+          message.attackStyle,
+          message.origin,
+          message.direction,
+          message.range,
+        );
+        return;
+
+      case "combat.playerDied":
+        this.bridge.updateState({
+          lastMessage: "You were defeated. Respawning...",
+        });
+        return;
 
       case "inventory.drop.ack":
         this.bridge.updateState({
@@ -713,6 +908,19 @@ class HubScene extends Phaser.Scene {
     const snapshotIds = new Set<string>();
     for (const player of players) {
       if (player.id === this.localCharacterId) {
+        if (this.localPlayer) {
+          this.updatePlayerHealthBar(
+            this.localPlayer,
+            this.predictedPosition.x,
+            this.predictedPosition.y,
+            player.currentHealth,
+            player.maxHealth,
+          );
+        }
+        this.bridge.updateState({
+          localHealthCurrent: player.currentHealth,
+          localHealthMax: player.maxHealth,
+        });
         continue;
       }
       snapshotIds.add(player.id);
@@ -733,13 +941,34 @@ class HubScene extends Phaser.Scene {
           player.nickname,
           player.colorHex,
         );
+        const healthBarBackground = this.createPlayerHealthBarBackground(
+          player.position.x,
+          player.position.y,
+        );
+        const healthBarFill = this.createPlayerHealthBarFill(
+          player.position.x,
+          player.position.y,
+          player.colorHex,
+        );
         this.remotePlayers.set(player.id, {
           sprite,
           label,
+          healthBarBackground,
+          healthBarFill,
           nickname: player.nickname,
           className: player.class,
           colorHex: player.colorHex,
         });
+        const created = this.remotePlayers.get(player.id);
+        if (created) {
+          this.updatePlayerHealthBar(
+            created,
+            player.position.x,
+            player.position.y,
+            player.currentHealth,
+            player.maxHealth,
+          );
+        }
         continue;
       }
 
@@ -753,6 +982,13 @@ class HubScene extends Phaser.Scene {
       actor.nickname = player.nickname;
       actor.className = player.class;
       actor.colorHex = player.colorHex;
+      this.updatePlayerHealthBar(
+        actor,
+        player.position.x,
+        player.position.y,
+        player.currentHealth,
+        player.maxHealth,
+      );
     }
 
     for (const [id, actor] of this.remotePlayers.entries()) {
@@ -761,6 +997,8 @@ class HubScene extends Phaser.Scene {
       }
       actor.sprite.destroy();
       actor.label.destroy();
+      actor.healthBarBackground.destroy();
+      actor.healthBarFill.destroy();
       this.remotePlayers.delete(id);
     }
   }
@@ -787,6 +1025,58 @@ class HubScene extends Phaser.Scene {
 
       this.destroyEnemyActor(actor);
       this.enemyActors.delete(id);
+    }
+  }
+
+  private reconcileSnapshotProjectiles(
+    projectiles: ProjectileSnapshot[],
+  ): void {
+    const snapshotIds = new Set<string>();
+
+    for (const projectile of projectiles) {
+      snapshotIds.add(projectile.id);
+      const existing = this.projectileActors.get(projectile.id);
+      if (!existing) {
+        const trail = this.add.circle(
+          projectile.position.x,
+          projectile.position.y,
+          Math.max(2, projectile.radius + 2),
+          hexToNumber(projectile.colorHex),
+          0.18,
+        );
+        const body = this.add.circle(
+          projectile.position.x,
+          projectile.position.y,
+          Math.max(2, projectile.radius),
+          hexToNumber(projectile.colorHex),
+          0.95,
+        );
+        this.projectileActors.set(projectile.id, {
+          body,
+          trail,
+          colorHex: projectile.colorHex,
+        });
+        continue;
+      }
+
+      existing.colorHex = projectile.colorHex;
+      existing.body
+        .setPosition(projectile.position.x, projectile.position.y)
+        .setRadius(Math.max(2, projectile.radius))
+        .setFillStyle(hexToNumber(projectile.colorHex), 0.95);
+      existing.trail
+        .setPosition(projectile.position.x, projectile.position.y)
+        .setRadius(Math.max(2, projectile.radius + 2))
+        .setFillStyle(hexToNumber(projectile.colorHex), 0.18);
+    }
+
+    for (const [id, actor] of this.projectileActors.entries()) {
+      if (snapshotIds.has(id)) {
+        continue;
+      }
+      actor.body.destroy();
+      actor.trail.destroy();
+      this.projectileActors.delete(id);
     }
   }
 
@@ -904,6 +1194,78 @@ class HubScene extends Phaser.Scene {
     actor.healthText.destroy();
   }
 
+  private playAttackEffect(
+    attackStyle: "melee" | "ranged",
+    origin: { x: number; y: number },
+    direction: { x: number; y: number },
+    range: number,
+  ): void {
+    if (attackStyle === "melee") {
+      const sweep = this.add.circle(
+        origin.x + direction.x * (range * 0.5),
+        origin.y + direction.y * (range * 0.5),
+        Math.max(18, range * 0.6),
+        0xfbbf24,
+        0.24,
+      );
+      this.tweens.add({
+        targets: sweep,
+        alpha: 0,
+        scaleX: 1.25,
+        scaleY: 1.25,
+        duration: 150,
+        onComplete: () => {
+          sweep.destroy();
+        },
+      });
+      return;
+    }
+
+    const burst = this.add.circle(
+      origin.x + direction.x * 12,
+      origin.y + direction.y * 12,
+      8,
+      0x67e8f9,
+      0.45,
+    );
+    this.tweens.add({
+      targets: burst,
+      alpha: 0,
+      scaleX: 1.9,
+      scaleY: 1.9,
+      duration: 170,
+      onComplete: () => {
+        burst.destroy();
+      },
+    });
+  }
+
+  private spawnSafeZoneText(): void {
+    const anchor = this.localPlayer?.sprite ?? null;
+    const x = anchor?.x ?? this.predictedPosition.x;
+    const y = anchor?.y ?? this.predictedPosition.y;
+    const text = this.add
+      .text(Math.round(x), Math.round(y - 44), "SAFE ZONE", {
+        fontFamily: "Chakra Petch",
+        fontSize: "12px",
+        color: "#67e8f9",
+        stroke: "#02101a",
+        strokeThickness: 2,
+      })
+      .setOrigin(0.5, 0.5);
+
+    this.tweens.add({
+      targets: text,
+      y: y - 74,
+      alpha: 0,
+      duration: 620,
+      ease: "Cubic.Out",
+      onComplete: () => {
+        text.destroy();
+      },
+    });
+  }
+
   private authenticate(forceTakeover: boolean): void {
     this.sendMessage({
       type: "auth.hello",
@@ -924,9 +1286,12 @@ class HubScene extends Phaser.Scene {
   private clearWorldActors(): void {
     this.localPlayer?.sprite.destroy();
     this.localPlayer?.label.destroy();
+    this.localPlayer?.healthBarBackground.destroy();
+    this.localPlayer?.healthBarFill.destroy();
     this.localPlayer = null;
     this.clearRemotePlayers();
     this.clearEnemyActors();
+    this.clearProjectileActors();
     this.enemyPredictionColliders = [];
     this.pendingInputs = [];
     this.nextInputSequence = 1;
@@ -940,6 +1305,10 @@ class HubScene extends Phaser.Scene {
       localPosition: null,
       players: [],
       enemies: [],
+      projectiles: [],
+      localHealthCurrent: null,
+      localHealthMax: null,
+      lastCombatDeniedReason: null,
     });
   }
 
@@ -952,6 +1321,8 @@ class HubScene extends Phaser.Scene {
     for (const actor of this.remotePlayers.values()) {
       actor.sprite.destroy();
       actor.label.destroy();
+      actor.healthBarBackground.destroy();
+      actor.healthBarFill.destroy();
     }
     this.remotePlayers.clear();
   }
@@ -963,9 +1334,18 @@ class HubScene extends Phaser.Scene {
     this.enemyActors.clear();
   }
 
+  private clearProjectileActors(): void {
+    for (const actor of this.projectileActors.values()) {
+      actor.body.destroy();
+      actor.trail.destroy();
+    }
+    this.projectileActors.clear();
+  }
+
   private syncOverlayState(): void {
     const players: OverlayPlayer[] = [];
     const enemies: OverlayEnemy[] = [];
+    const projectiles: OverlayProjectile[] = [];
 
     if (
       this.localCharacterId &&
@@ -1004,7 +1384,16 @@ class HubScene extends Phaser.Scene {
       });
     }
 
-    this.bridge.updateState({ players, enemies });
+    for (const [id, actor] of this.projectileActors.entries()) {
+      projectiles.push({
+        id,
+        colorHex: actor.colorHex,
+        x: actor.body.x,
+        y: actor.body.y,
+      });
+    }
+
+    this.bridge.updateState({ players, enemies, projectiles });
   }
 
   private sendMessage(message: ClientToServerMessage): void {

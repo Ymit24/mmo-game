@@ -21,6 +21,17 @@ export interface PlayerSnapshot {
   position: Vector2;
   velocity: Vector2;
   lastProcessedInputSequence: number;
+  currentHealth: number;
+  maxHealth: number;
+}
+
+export interface ProjectileSnapshot {
+  id: string;
+  ownerId: string;
+  position: Vector2;
+  velocity: Vector2;
+  radius: number;
+  colorHex: string;
 }
 
 export interface WorldSnapshotPayload {
@@ -28,6 +39,7 @@ export interface WorldSnapshotPayload {
   serverTimeMs: number;
   players: PlayerSnapshot[];
   enemies: EnemySnapshot[];
+  projectiles: ProjectileSnapshot[];
 }
 
 export interface InventoryDropPayload {
@@ -54,6 +66,10 @@ export type ClientToServerMessage =
       input: PlayerInputState;
     }
   | {
+      type: "player.attack";
+      aim: Vector2;
+    }
+  | {
       type: "inventory.drop";
       payload: InventoryDropPayload;
     };
@@ -71,7 +87,7 @@ export type ServerToClientMessage =
       fromWorldId: string;
       toWorldId: string;
       portalId: string;
-      reason: "portal";
+      reason: "portal" | "respawn";
     }
   | {
       type: "world.joined";
@@ -81,6 +97,8 @@ export type ServerToClientMessage =
       class: CharacterClass;
       colorHex: string;
       spawn: Vector2;
+      currentHealth: number;
+      maxHealth: number;
     }
   | {
       type: "world.playerJoined";
@@ -101,6 +119,26 @@ export type ServerToClientMessage =
       position: Vector2;
       velocity: Vector2;
       lastProcessedInputSequence: number;
+      currentHealth: number;
+      maxHealth: number;
+    }
+  | {
+      type: "combat.attackDenied";
+      reason: "safe_zone" | "cooldown" | "dead";
+      message: string;
+    }
+  | {
+      type: "combat.attackPerformed";
+      attackerId: string;
+      attackStyle: "melee" | "ranged";
+      origin: Vector2;
+      direction: Vector2;
+      range: number;
+    }
+  | {
+      type: "combat.playerDied";
+      characterId: string;
+      respawnWorldId: string;
     }
   | {
       type: "inventory.drop.ack";
@@ -150,6 +188,8 @@ function isPlayerSnapshot(value: unknown): value is PlayerSnapshot {
   if (!isObject(value)) {
     return false;
   }
+  const currentHealth = value.currentHealth;
+  const maxHealth = value.maxHealth;
 
   return (
     typeof value.id === "string" &&
@@ -164,7 +204,34 @@ function isPlayerSnapshot(value: unknown): value is PlayerSnapshot {
     isVector2(value.velocity) &&
     typeof value.lastProcessedInputSequence === "number" &&
     Number.isSafeInteger(value.lastProcessedInputSequence) &&
-    value.lastProcessedInputSequence >= 0
+    value.lastProcessedInputSequence >= 0 &&
+    typeof currentHealth === "number" &&
+    Number.isFinite(currentHealth) &&
+    typeof maxHealth === "number" &&
+    Number.isFinite(maxHealth) &&
+    maxHealth > 0 &&
+    currentHealth >= 0
+  );
+}
+
+function isProjectileSnapshot(value: unknown): value is ProjectileSnapshot {
+  if (!isObject(value)) {
+    return false;
+  }
+  const radius = value.radius;
+
+  return (
+    typeof value.id === "string" &&
+    value.id.length > 0 &&
+    typeof value.ownerId === "string" &&
+    value.ownerId.length > 0 &&
+    isVector2(value.position) &&
+    isVector2(value.velocity) &&
+    typeof radius === "number" &&
+    Number.isFinite(radius) &&
+    radius > 0 &&
+    typeof value.colorHex === "string" &&
+    value.colorHex.length > 0
   );
 }
 
@@ -215,7 +282,9 @@ export function isWorldSnapshotPayload(
     Array.isArray(value.players) &&
     value.players.every((player) => isPlayerSnapshot(player)) &&
     Array.isArray(value.enemies) &&
-    value.enemies.every((enemy) => isEnemySnapshot(enemy))
+    value.enemies.every((enemy) => isEnemySnapshot(enemy)) &&
+    Array.isArray(value.projectiles) &&
+    value.projectiles.every((projectile) => isProjectileSnapshot(projectile))
   );
 }
 
@@ -286,6 +355,16 @@ export function parseClientMessage(raw: string): ClientToServerMessage | null {
         input: parsed.input,
       };
     }
+
+    case "player.attack":
+      if (!isVector2(parsed.aim)) {
+        return null;
+      }
+
+      return {
+        type: "player.attack",
+        aim: parsed.aim,
+      };
 
     case "inventory.drop": {
       const payload = parsed.payload;

@@ -3,6 +3,7 @@ import {
   type CharacterClass,
   type CharacterSummary,
   MAX_CHARACTERS_PER_ACCOUNT,
+  getCharacterClassBaseCombatStats,
   normalizeNickname,
 } from "@mmo/shared";
 
@@ -30,12 +31,20 @@ export interface CharacterRecord {
   userId: string;
   nickname: string;
   class: CharacterClass;
+  maxHp: number;
+  baseDamage: number;
+  baseAttackSpeedMs: number;
+  baseAttackRange: number;
   createdAt: string;
   updatedAt: string;
 }
 
 interface CharacterRecordRow extends CharacterRow {
   user_id: string;
+  max_hp: number;
+  base_damage: number;
+  base_attack_speed_ms: number;
+  base_attack_range: number;
 }
 
 function mapCharacterRecord(row: CharacterRecordRow): CharacterRecord {
@@ -44,6 +53,10 @@ function mapCharacterRecord(row: CharacterRecordRow): CharacterRecord {
     userId: row.user_id,
     nickname: row.nickname,
     class: row.class,
+    maxHp: row.max_hp,
+    baseDamage: row.base_damage,
+    baseAttackSpeedMs: row.base_attack_speed_ms,
+    baseAttackRange: row.base_attack_range,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -70,7 +83,17 @@ export function findCharacterByIdForUser(
 ): CharacterRecord | null {
   const row = db
     .query<CharacterRecordRow, [string, string]>(
-      `SELECT id, user_id, nickname, class, created_at, updated_at
+      `SELECT
+         id,
+         user_id,
+         nickname,
+         class,
+         max_hp,
+         base_damage,
+         base_attack_speed_ms,
+         base_attack_range,
+         created_at,
+         updated_at
        FROM characters
        WHERE user_id = ?1 AND id = ?2
        LIMIT 1`,
@@ -114,6 +137,7 @@ function insertCharacter(
 ): CharacterSummary {
   const normalizedNickname = normalizeNickname(input.nickname);
   const nickname = input.nickname.trim();
+  const baseStats = getCharacterClassBaseCombatStats(input.class);
 
   db.query(
     `INSERT INTO characters (
@@ -122,15 +146,23 @@ function insertCharacter(
       nickname,
       nickname_normalized,
       class,
+      max_hp,
+      base_damage,
+      base_attack_speed_ms,
+      base_attack_range,
       created_at,
       updated_at
-    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
   ).run(
     input.id,
     input.userId,
     nickname,
     normalizedNickname,
     input.class,
+    baseStats.maxHp,
+    baseStats.baseDamage,
+    baseStats.baseAttackSpeedMs,
+    baseStats.baseAttackRange,
     timestamp,
     timestamp,
   );
