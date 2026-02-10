@@ -127,10 +127,10 @@ export function getCharacterClassBaseCombatStats(
       };
     default:
       return {
-        maxHp: 120,
-        baseDamage: 12,
-        baseAttackSpeedMs: 820,
-        baseAttackRange: 120,
+        maxHp: 180,
+        baseDamage: 24,
+        baseAttackSpeedMs: 600,
+        baseAttackRange: 60,
       };
   }
 }

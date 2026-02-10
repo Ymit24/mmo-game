@@ -330,9 +330,6 @@ export function GameShell({ characterId }: GameShellProps) {
                 <span className="rounded border border-border/70 bg-void/50 px-2 py-1">
                   attack: click / space
                 </span>
-                <span className="rounded border border-border/70 bg-void/50 px-2 py-1">
-                  projectiles: {uiState.projectiles.length}
-                </span>
                 {uiState.lastCombatDeniedReason === "safe_zone" ? (
                   <span className="rounded border border-cyan/50 bg-cyan/10 px-2 py-1 text-cyan">
                     safe zone active

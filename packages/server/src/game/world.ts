@@ -20,6 +20,7 @@ import {
   clampInputDtMs,
   clampToWorldBounds,
   findSpawnPoint,
+  getCharacterClassBaseCombatStats,
   inputToVelocity,
   positionCollidesWithMap,
   resolveMovementWithSliding,
@@ -31,10 +32,6 @@ const SNAPSHOT_INTERVAL_MS = 100;
 const SIMULATION_INTERVAL_MS = 50;
 const ENEMY_SPAWN_ATTEMPTS = 12;
 const ENEMY_IDLE_EPSILON = 4;
-const DEFAULT_PLAYER_MAX_HP = 100;
-const DEFAULT_PLAYER_DAMAGE = 10;
-const DEFAULT_PLAYER_ATTACK_SPEED_MS = 820;
-const DEFAULT_PLAYER_ATTACK_RANGE = 60;
 const MELEE_ARC_COS_THRESHOLD = 0.4;
 const PLAYER_PROJECTILE_SPEED = 640;
 const PLAYER_PROJECTILE_TTL_MS = 900;
@@ -217,13 +214,15 @@ function clampHealth(current: number, max: number): number {
 }
 
 function resolveCombatStats(
+  characterClass: CharacterClass,
   partial?: Partial<PlayerCombatStats>,
 ): PlayerCombatStats {
+  const classDefaults = getCharacterClassBaseCombatStats(characterClass);
   const maxHealth = Math.max(
     1,
     Number.isFinite(partial?.maxHealth ?? Number.NaN)
-      ? (partial?.maxHealth ?? DEFAULT_PLAYER_MAX_HP)
-      : DEFAULT_PLAYER_MAX_HP,
+      ? (partial?.maxHealth ?? classDefaults.maxHp)
+      : classDefaults.maxHp,
   );
   const currentHealthRaw = Number.isFinite(partial?.currentHealth ?? Number.NaN)
     ? (partial?.currentHealth ?? maxHealth)
@@ -231,14 +230,14 @@ function resolveCombatStats(
   return {
     maxHealth,
     currentHealth: clampHealth(currentHealthRaw, maxHealth),
-    baseDamage: Math.max(0, partial?.baseDamage ?? DEFAULT_PLAYER_DAMAGE),
+    baseDamage: Math.max(0, partial?.baseDamage ?? classDefaults.baseDamage),
     baseAttackSpeedMs: Math.max(
       1,
-      Math.floor(partial?.baseAttackSpeedMs ?? DEFAULT_PLAYER_ATTACK_SPEED_MS),
+      Math.floor(partial?.baseAttackSpeedMs ?? classDefaults.baseAttackSpeedMs),
     ),
     baseAttackRange: Math.max(
       1,
-      partial?.baseAttackRange ?? DEFAULT_PLAYER_ATTACK_RANGE,
+      partial?.baseAttackRange ?? classDefaults.baseAttackRange,
     ),
   };
 }
@@ -311,7 +310,7 @@ class WorldInstance {
     const fallbackSpawn = findSpawnPoint(this.map, this.map.playerSpawnId) ??
       this.map.spawnPoints[0] ?? { x: 120, y: 120 };
     const spawn = spawnOverride ?? fallbackSpawn;
-    const resolvedCombat = resolveCombatStats(combatStats);
+    const resolvedCombat = resolveCombatStats(characterClass, combatStats);
 
     const player: PlayerState = {
       connectionId,
@@ -1371,7 +1370,8 @@ export class WorldManager {
     }
 
     const respawnWorldId = DEFAULT_WORLD_ID;
-    const maxHealth = Math.max(1, characterMaxHealth ?? DEFAULT_PLAYER_MAX_HP);
+    const classDefaults = getCharacterClassBaseCombatStats(characterClass);
+    const maxHealth = Math.max(1, characterMaxHealth ?? classDefaults.maxHp);
     socket.data.session.characterCurrentHealth = maxHealth;
 
     socket.send(
@@ -1405,11 +1405,10 @@ export class WorldManager {
         combatStats: {
           currentHealth: maxHealth,
           maxHealth,
-          baseDamage: characterBaseDamage ?? DEFAULT_PLAYER_DAMAGE,
+          baseDamage: characterBaseDamage ?? classDefaults.baseDamage,
           baseAttackSpeedMs:
-            characterBaseAttackSpeedMs ?? DEFAULT_PLAYER_ATTACK_SPEED_MS,
-          baseAttackRange:
-            characterBaseAttackRange ?? DEFAULT_PLAYER_ATTACK_RANGE,
+            characterBaseAttackSpeedMs ?? classDefaults.baseAttackSpeedMs,
+          baseAttackRange: characterBaseAttackRange ?? classDefaults.baseAttackRange,
         },
       },
     );
