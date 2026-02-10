@@ -7,6 +7,10 @@
     "color": "#0a1611",
     "gridSize": 48
   },
+  "combat": {
+    "allowCombat": true,
+    "pvpEnabled": false
+  },
   "playerSpawnId": "arrival_from_hub",
   "spawnPoints": [
     { "id": "arrival_from_hub", "x": 340, "y": 700 },

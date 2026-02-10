@@ -42,6 +42,10 @@ export function bootstrapDatabase(db: Database): void {
       nickname TEXT NOT NULL,
       nickname_normalized TEXT NOT NULL,
       class TEXT NOT NULL CHECK (class IN ('knight', 'mage')),
+      max_hp REAL NOT NULL CHECK (max_hp > 0),
+      base_damage REAL NOT NULL CHECK (base_damage >= 0),
+      base_attack_speed_ms INTEGER NOT NULL CHECK (base_attack_speed_ms > 0),
+      base_attack_range REAL NOT NULL CHECK (base_attack_range > 0),
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       UNIQUE (user_id, nickname_normalized)

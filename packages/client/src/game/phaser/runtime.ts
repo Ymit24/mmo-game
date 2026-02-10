@@ -7,6 +7,7 @@ import {
   PLAYER_MOVE_SPEED,
   type PlayerInputState,
   type PlayerSnapshot,
+  type ProjectileSnapshot,
   type ServerToClientMessage,
   WORLD_MAPS_BY_ID,
   type WorldMap,
@@ -18,7 +19,12 @@ import {
 import Phaser from "phaser";
 
 import { API_BASE_URL } from "../../config/env";
-import type { GameBridge, OverlayEnemy, OverlayPlayer } from "../bridge";
+import type {
+  GameBridge,
+  OverlayEnemy,
+  OverlayPlayer,
+  OverlayProjectile,
+} from "../bridge";
 
 interface RuntimeOptions {
   container: HTMLDivElement;
@@ -47,6 +53,12 @@ interface EnemyActor {
   healthBarBackground: Phaser.GameObjects.Rectangle;
   healthBarFill: Phaser.GameObjects.Rectangle;
   healthText: Phaser.GameObjects.Text;
+  colorHex: string;
+}
+
+interface ProjectileActor {
+  body: Phaser.GameObjects.Arc;
+  trail: Phaser.GameObjects.Arc;
   colorHex: string;
 }
 
@@ -115,6 +127,7 @@ class HubScene extends Phaser.Scene {
   private localPlayer: PlayerActor | null = null;
   private remotePlayers = new Map<string, PlayerActor>();
   private enemyActors = new Map<string, EnemyActor>();
+  private projectileActors = new Map<string, ProjectileActor>();
   private enemyPredictionColliders: CollisionShape[] = [];
 
   private pointerWorld = new Phaser.Math.Vector2();
@@ -135,6 +148,7 @@ class HubScene extends Phaser.Scene {
     right: Phaser.Input.Keyboard.Key;
   };
   private arrowKeys: Phaser.Types.Input.Keyboard.CursorKeys | null = null;
+  private attackKey: Phaser.Input.Keyboard.Key | null = null;
 
   private unsubscribeDropRequest: (() => void) | null = null;
   private unsubscribeTakeoverRequest: (() => void) | null = null;
@@ -169,6 +183,8 @@ class HubScene extends Phaser.Scene {
       right: Phaser.Input.Keyboard.KeyCodes.D,
     }) as HubScene["cursors"];
     this.arrowKeys = this.input.keyboard?.createCursorKeys() ?? null;
+    this.attackKey =
+      this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE) ?? null;
 
     this.input.on("pointermove", (pointer: Phaser.Input.Pointer) => {
       this.pointerWorld.set(pointer.worldX, pointer.worldY);
@@ -178,6 +194,16 @@ class HubScene extends Phaser.Scene {
           y: this.pointerWorld.y,
         },
       });
+    });
+    this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
+      if (!pointer.leftButtonDown()) {
+        return;
+      }
+      this.pointerWorld.set(pointer.worldX, pointer.worldY);
+      this.tryAttack();
+    });
+    this.attackKey?.on("down", () => {
+      this.tryAttack();
     });
 
     this.unsubscribeDropRequest = this.bridge.onDropRequest(
@@ -211,6 +237,10 @@ class HubScene extends Phaser.Scene {
         x: this.pointerWorld.x,
         y: this.pointerWorld.y,
       },
+      projectiles: [],
+      localHealthCurrent: null,
+      localHealthMax: null,
+      lastCombatDeniedReason: null,
     });
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
@@ -218,6 +248,8 @@ class HubScene extends Phaser.Scene {
       this.unsubscribeDropRequest = null;
       this.unsubscribeTakeoverRequest?.();
       this.unsubscribeTakeoverRequest = null;
+      this.attackKey?.off("down");
+      this.attackKey = null;
       if (this.socket) {
         this.socket.close();
         this.socket = null;
@@ -307,6 +339,23 @@ class HubScene extends Phaser.Scene {
       sequence,
       dtMs,
       input,
+    });
+  }
+
+  private tryAttack(): void {
+    if (this.inputLocked || !this.localPlayer || !this.localCharacterId) {
+      return;
+    }
+    if (!this.bridge.getState().isInWorld) {
+      return;
+    }
+
+    this.sendMessage({
+      type: "player.attack",
+      aim: {
+        x: this.pointerWorld.x || this.predictedPosition.x + 1,
+        y: this.pointerWorld.y || this.predictedPosition.y,
+      },
     });
   }
 
@@ -473,6 +522,7 @@ class HubScene extends Phaser.Scene {
         this.pendingInputs = [];
         this.enemyPredictionColliders = [];
         this.clearEnemyActors();
+        this.clearProjectileActors();
         this.bridge.updateState({
           isInWorld: true,
           transitionMessage: null,
@@ -481,6 +531,9 @@ class HubScene extends Phaser.Scene {
           connectionStatus: "connected",
           modal: null,
           localPlayerId: message.characterId,
+          localHealthCurrent: message.currentHealth,
+          localHealthMax: message.maxHealth,
+          lastCombatDeniedReason: null,
         });
         this.inputLocked = false;
 
@@ -586,6 +639,7 @@ class HubScene extends Phaser.Scene {
         }
         this.reconcileSnapshotPlayers(message.payload.players);
         this.reconcileSnapshotEnemies(message.payload.enemies);
+        this.reconcileSnapshotProjectiles(message.payload.projectiles);
         this.enemyPredictionColliders = message.payload.enemies.map((enemy) =>
           centeredBoxToCollisionShape(
             { x: enemy.position.x, y: enemy.position.y },
@@ -634,11 +688,38 @@ class HubScene extends Phaser.Scene {
             x: this.predictedPosition.x,
             y: this.predictedPosition.y,
           },
+          localHealthCurrent: message.currentHealth,
+          localHealthMax: message.maxHealth,
         });
 
         this.syncOverlayState();
         return;
       }
+
+      case "combat.attackDenied":
+        this.bridge.updateState({
+          lastMessage: message.message,
+          lastCombatDeniedReason: message.reason,
+        });
+        if (message.reason === "safe_zone") {
+          this.spawnSafeZoneText();
+        }
+        return;
+
+      case "combat.attackPerformed":
+        this.playAttackEffect(
+          message.attackStyle,
+          message.origin,
+          message.direction,
+          message.range,
+        );
+        return;
+
+      case "combat.playerDied":
+        this.bridge.updateState({
+          lastMessage: "You were defeated. Respawning...",
+        });
+        return;
 
       case "inventory.drop.ack":
         this.bridge.updateState({
@@ -713,6 +794,10 @@ class HubScene extends Phaser.Scene {
     const snapshotIds = new Set<string>();
     for (const player of players) {
       if (player.id === this.localCharacterId) {
+        this.bridge.updateState({
+          localHealthCurrent: player.currentHealth,
+          localHealthMax: player.maxHealth,
+        });
         continue;
       }
       snapshotIds.add(player.id);
@@ -787,6 +872,58 @@ class HubScene extends Phaser.Scene {
 
       this.destroyEnemyActor(actor);
       this.enemyActors.delete(id);
+    }
+  }
+
+  private reconcileSnapshotProjectiles(
+    projectiles: ProjectileSnapshot[],
+  ): void {
+    const snapshotIds = new Set<string>();
+
+    for (const projectile of projectiles) {
+      snapshotIds.add(projectile.id);
+      const existing = this.projectileActors.get(projectile.id);
+      if (!existing) {
+        const trail = this.add.circle(
+          projectile.position.x,
+          projectile.position.y,
+          Math.max(2, projectile.radius + 2),
+          hexToNumber(projectile.colorHex),
+          0.18,
+        );
+        const body = this.add.circle(
+          projectile.position.x,
+          projectile.position.y,
+          Math.max(2, projectile.radius),
+          hexToNumber(projectile.colorHex),
+          0.95,
+        );
+        this.projectileActors.set(projectile.id, {
+          body,
+          trail,
+          colorHex: projectile.colorHex,
+        });
+        continue;
+      }
+
+      existing.colorHex = projectile.colorHex;
+      existing.body
+        .setPosition(projectile.position.x, projectile.position.y)
+        .setRadius(Math.max(2, projectile.radius))
+        .setFillStyle(hexToNumber(projectile.colorHex), 0.95);
+      existing.trail
+        .setPosition(projectile.position.x, projectile.position.y)
+        .setRadius(Math.max(2, projectile.radius + 2))
+        .setFillStyle(hexToNumber(projectile.colorHex), 0.18);
+    }
+
+    for (const [id, actor] of this.projectileActors.entries()) {
+      if (snapshotIds.has(id)) {
+        continue;
+      }
+      actor.body.destroy();
+      actor.trail.destroy();
+      this.projectileActors.delete(id);
     }
   }
 
@@ -904,6 +1041,99 @@ class HubScene extends Phaser.Scene {
     actor.healthText.destroy();
   }
 
+  private playAttackEffect(
+    attackStyle: "melee" | "ranged",
+    origin: { x: number; y: number },
+    direction: { x: number; y: number },
+    range: number,
+  ): void {
+    if (attackStyle === "melee") {
+      const swingLength = Phaser.Math.Clamp(range * 0.88, 38, 96);
+      const swingWidth = 10;
+      const baseRotation = Math.atan2(direction.y, direction.x);
+      const swingSign = Date.now() % 2 === 0 ? 1 : -1;
+      const startRotation = baseRotation - swingSign * Phaser.Math.DegToRad(50);
+      const endRotation = baseRotation + swingSign * Phaser.Math.DegToRad(26);
+      const handleOffset = 14;
+      const handleX = origin.x + direction.x * handleOffset;
+      const handleY = origin.y + direction.y * handleOffset;
+      const sweep = this.add
+        .rectangle(handleX, handleY, swingLength, swingWidth, 0xfbbf24, 0.38)
+        .setOrigin(0.12, 0.5)
+        .setRotation(startRotation)
+        .setStrokeStyle(2, 0xfef3c7, 0.82);
+      const bladeCore = this.add
+        .rectangle(
+          handleX,
+          handleY,
+          swingLength * 0.86,
+          Math.max(4, swingWidth * 0.48),
+          0xfffbeb,
+          0.5,
+        )
+        .setOrigin(0.12, 0.5)
+        .setRotation(startRotation);
+      this.tweens.add({
+        targets: [sweep, bladeCore],
+        rotation: endRotation,
+        alpha: 0,
+        scaleX: 1.04,
+        scaleY: 1.2,
+        duration: 170,
+        ease: "Cubic.Out",
+        onComplete: () => {
+          sweep.destroy();
+          bladeCore.destroy();
+        },
+      });
+      return;
+    }
+
+    const burst = this.add.circle(
+      origin.x + direction.x * 12,
+      origin.y + direction.y * 12,
+      8,
+      0x67e8f9,
+      0.45,
+    );
+    this.tweens.add({
+      targets: burst,
+      alpha: 0,
+      scaleX: 1.9,
+      scaleY: 1.9,
+      duration: 170,
+      onComplete: () => {
+        burst.destroy();
+      },
+    });
+  }
+
+  private spawnSafeZoneText(): void {
+    const anchor = this.localPlayer?.sprite ?? null;
+    const x = anchor?.x ?? this.predictedPosition.x;
+    const y = anchor?.y ?? this.predictedPosition.y;
+    const text = this.add
+      .text(Math.round(x), Math.round(y - 44), "SAFE ZONE", {
+        fontFamily: "Chakra Petch",
+        fontSize: "12px",
+        color: "#67e8f9",
+        stroke: "#02101a",
+        strokeThickness: 2,
+      })
+      .setOrigin(0.5, 0.5);
+
+    this.tweens.add({
+      targets: text,
+      y: y - 74,
+      alpha: 0,
+      duration: 620,
+      ease: "Cubic.Out",
+      onComplete: () => {
+        text.destroy();
+      },
+    });
+  }
+
   private authenticate(forceTakeover: boolean): void {
     this.sendMessage({
       type: "auth.hello",
@@ -927,6 +1157,7 @@ class HubScene extends Phaser.Scene {
     this.localPlayer = null;
     this.clearRemotePlayers();
     this.clearEnemyActors();
+    this.clearProjectileActors();
     this.enemyPredictionColliders = [];
     this.pendingInputs = [];
     this.nextInputSequence = 1;
@@ -940,6 +1171,10 @@ class HubScene extends Phaser.Scene {
       localPosition: null,
       players: [],
       enemies: [],
+      projectiles: [],
+      localHealthCurrent: null,
+      localHealthMax: null,
+      lastCombatDeniedReason: null,
     });
   }
 
@@ -963,9 +1198,18 @@ class HubScene extends Phaser.Scene {
     this.enemyActors.clear();
   }
 
+  private clearProjectileActors(): void {
+    for (const actor of this.projectileActors.values()) {
+      actor.body.destroy();
+      actor.trail.destroy();
+    }
+    this.projectileActors.clear();
+  }
+
   private syncOverlayState(): void {
     const players: OverlayPlayer[] = [];
     const enemies: OverlayEnemy[] = [];
+    const projectiles: OverlayProjectile[] = [];
 
     if (
       this.localCharacterId &&
@@ -1004,7 +1248,16 @@ class HubScene extends Phaser.Scene {
       });
     }
 
-    this.bridge.updateState({ players, enemies });
+    for (const [id, actor] of this.projectileActors.entries()) {
+      projectiles.push({
+        id,
+        colorHex: actor.colorHex,
+        x: actor.body.x,
+        y: actor.body.y,
+      });
+    }
+
+    this.bridge.updateState({ players, enemies, projectiles });
   }
 
   private sendMessage(message: ClientToServerMessage): void {

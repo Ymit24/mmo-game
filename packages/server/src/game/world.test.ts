@@ -1166,4 +1166,233 @@ describe("world manager", () => {
       db.close();
     }
   });
+
+  test("safe-zone worlds deny player attacks", () => {
+    const manager = new WorldManager();
+    const socket = createMockSocket(manager, "user-a", "player-a");
+
+    manager.joinWorld(
+      asServerSocket(socket),
+      HUB_ALPHA_MAP.id,
+      "player-a",
+      "Alpha",
+      "knight",
+      "#E8A832",
+    );
+    cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
+
+    socket.sent = [];
+    manager.applyAttack(asServerSocket(socket), {
+      type: "player.attack",
+      aim: { x: 1_180, y: 520 },
+    });
+
+    const denial = parseMessages(socket).find(
+      (message) => message.type === "combat.attackDenied",
+    );
+    expect(denial?.type).toBe("combat.attackDenied");
+    if (!denial || denial.type !== "combat.attackDenied") {
+      throw new Error("missing combat.attackDenied message");
+    }
+    expect(denial.reason).toBe("safe_zone");
+  });
+
+  test("player current health persists across portal travel", () => {
+    const manager = new WorldManager();
+    const socket = createMockSocket(manager, "user-a", "player-a");
+
+    manager.joinWorld(
+      asServerSocket(socket),
+      HUB_ALPHA_MAP.id,
+      "player-a",
+      "Alpha",
+      "knight",
+      "#E8A832",
+      {
+        combatStats: {
+          maxHealth: 120,
+          currentHealth: 45,
+          baseDamage: 20,
+          baseAttackSpeedMs: 700,
+          baseAttackRange: 80,
+        },
+      },
+    );
+    cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
+
+    for (let sequence = 1; sequence <= 20; sequence += 1) {
+      manager.applyInput(asServerSocket(socket), {
+        type: "player.input",
+        sequence,
+        dtMs: 80,
+        input: {
+          up: false,
+          down: false,
+          left: false,
+          right: true,
+        },
+      });
+    }
+
+    const destinationJoin = parseMessages(socket).find(
+      (message) =>
+        message.type === "world.joined" &&
+        message.worldId === WILDS_BETA_MAP.id,
+    );
+    expect(destinationJoin?.type).toBe("world.joined");
+    if (!destinationJoin || destinationJoin.type !== "world.joined") {
+      throw new Error("missing destination world.joined message");
+    }
+    expect(destinationJoin.currentHealth).toBe(45);
+    expect(destinationJoin.maxHealth).toBe(120);
+  });
+
+  test("melee attack can kill enemies in combat worlds", async () => {
+    const originalRandom = Math.random;
+    Math.random = () => 0;
+
+    try {
+      const archetypes = new Map<string, EnemyArchetype>([
+        [
+          "slime_scout",
+          createTestArchetype("slime_scout", {
+            maxHealth: 20,
+            detectionRadius: 1,
+            leashRadius: 1,
+          }),
+        ],
+        [
+          "stone_golem",
+          createTestArchetype("stone_golem", {
+            detectionRadius: 1,
+            leashRadius: 1,
+          }),
+        ],
+      ]);
+      const manager = new WorldManager(
+        (archetypeId) => archetypes.get(archetypeId) ?? null,
+      );
+      const socket = createMockSocket(manager, "user-a", "player-a");
+
+      manager.joinWorld(
+        asServerSocket(socket),
+        WILDS_BETA_MAP.id,
+        "player-a",
+        "Alpha",
+        "knight",
+        "#E8A832",
+        {
+          spawnOverride: { x: 1_220, y: 700 },
+          combatStats: {
+            maxHealth: 100,
+            currentHealth: 100,
+            baseDamage: 50,
+            baseAttackSpeedMs: 600,
+            baseAttackRange: 120,
+          },
+        },
+      );
+      cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
+
+      await wait(300);
+      const before = latestWorldSnapshot(socket);
+      const target = before?.payload.enemies[0];
+      expect(target).toBeDefined();
+      if (!target) {
+        throw new Error("expected at least one enemy");
+      }
+
+      socket.sent = [];
+      manager.applyAttack(asServerSocket(socket), {
+        type: "player.attack",
+        aim: { x: target.position.x, y: target.position.y },
+      });
+
+      await wait(150);
+      const after = latestWorldSnapshot(socket);
+      const killed = after?.payload.enemies.every(
+        (enemy) => enemy.id !== target.id,
+      );
+      expect(killed).toBe(true);
+    } finally {
+      Math.random = originalRandom;
+    }
+  });
+
+  test("player death emits respawn flow and returns to hub", async () => {
+    const originalRandom = Math.random;
+    Math.random = () => 0;
+
+    try {
+      const archetypes = new Map<string, EnemyArchetype>([
+        [
+          "slime_scout",
+          createTestArchetype("slime_scout", {
+            damage: 250,
+            attackSpeedMs: 120,
+            meleeRange: 150,
+            detectionRadius: 400,
+            leashRadius: 500,
+          }),
+        ],
+        [
+          "stone_golem",
+          createTestArchetype("stone_golem", {
+            detectionRadius: 1,
+            leashRadius: 1,
+          }),
+        ],
+      ]);
+      const manager = new WorldManager(
+        (archetypeId) => archetypes.get(archetypeId) ?? null,
+      );
+      const socket = createMockSocket(manager, "user-a", "player-a");
+
+      manager.joinWorld(
+        asServerSocket(socket),
+        WILDS_BETA_MAP.id,
+        "player-a",
+        "Alpha",
+        "knight",
+        "#E8A832",
+        {
+          spawnOverride: { x: 1_220, y: 700 },
+          combatStats: {
+            maxHealth: 60,
+            currentHealth: 60,
+            baseDamage: 24,
+            baseAttackSpeedMs: 650,
+            baseAttackRange: 60,
+          },
+        },
+      );
+      cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
+
+      await wait(700);
+      const messages = parseMessages(socket);
+      const death = messages.find(
+        (message) => message.type === "combat.playerDied",
+      );
+      const transition = messages.find(
+        (message) =>
+          message.type === "world.transitioning" &&
+          message.reason === "respawn",
+      );
+      const respawnJoin = messages.find(
+        (message) =>
+          message.type === "world.joined" &&
+          message.worldId === HUB_ALPHA_MAP.id,
+      );
+
+      expect(death?.type).toBe("combat.playerDied");
+      expect(transition?.type).toBe("world.transitioning");
+      expect(respawnJoin?.type).toBe("world.joined");
+      if (!respawnJoin || respawnJoin.type !== "world.joined") {
+        throw new Error("missing respawn join payload");
+      }
+      expect(respawnJoin.currentHealth).toBe(respawnJoin.maxHealth);
+    } finally {
+      Math.random = originalRandom;
+    }
+  });
 });

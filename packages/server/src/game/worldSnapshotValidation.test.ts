@@ -15,6 +15,8 @@ describe("world snapshot payload guard", () => {
           position: { x: 120, y: 220 },
           velocity: { x: 0, y: 0 },
           lastProcessedInputSequence: 3,
+          currentHealth: 100,
+          maxHealth: 100,
         },
         {
           id: "player-b",
@@ -24,9 +26,12 @@ describe("world snapshot payload guard", () => {
           position: { x: 200, y: 220 },
           velocity: { x: Number.NaN, y: 0 },
           lastProcessedInputSequence: 1,
+          currentHealth: 100,
+          maxHealth: 100,
         },
       ],
       enemies: [],
+      projectiles: [],
     };
 
     expect(isWorldSnapshotPayload(payload)).toBe(false);

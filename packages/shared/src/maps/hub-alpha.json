@@ -7,6 +7,10 @@
     "color": "#071018",
     "gridSize": 48
   },
+  "combat": {
+    "allowCombat": false,
+    "pvpEnabled": false
+  },
   "playerSpawnId": "central_spawn",
   "spawnPoints": [
     { "id": "central_spawn", "x": 1100, "y": 520 },

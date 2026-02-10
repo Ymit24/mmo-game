@@ -17,6 +17,13 @@ export interface OverlayEnemy {
   y: number;
 }
 
+export interface OverlayProjectile {
+  id: string;
+  colorHex: string;
+  x: number;
+  y: number;
+}
+
 export interface DropRequest {
   itemId: string;
   quantity: number;
@@ -44,6 +51,10 @@ export interface GameBridgeState {
   };
   players: OverlayPlayer[];
   enemies: OverlayEnemy[];
+  projectiles: OverlayProjectile[];
+  localHealthCurrent: number | null;
+  localHealthMax: number | null;
+  lastCombatDeniedReason: "safe_zone" | "cooldown" | "dead" | null;
   lastMessage: string | null;
 }
 
@@ -66,6 +77,10 @@ const DEFAULT_STATE: GameBridgeState = {
   },
   players: [],
   enemies: [],
+  projectiles: [],
+  localHealthCurrent: null,
+  localHealthMax: null,
+  lastCombatDeniedReason: null,
   lastMessage: null,
 };
 

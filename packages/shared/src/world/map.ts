@@ -32,6 +32,11 @@ export interface PortalTrigger {
   };
 }
 
+export interface WorldCombatRules {
+  allowCombat: boolean;
+  pvpEnabled: boolean;
+}
+
 export interface WorldMap {
   id: string;
   name: string;
@@ -41,6 +46,7 @@ export interface WorldMap {
     color: string;
     gridSize: number;
   };
+  combat: WorldCombatRules;
   playerSpawnId: string;
   spawnPoints: SpawnPoint[];
   collisions: CollisionShape[];

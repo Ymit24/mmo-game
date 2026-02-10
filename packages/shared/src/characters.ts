@@ -16,6 +16,13 @@ export interface CharacterSummary {
   isLastUsed: boolean;
 }
 
+export interface CharacterBaseCombatStats {
+  maxHp: number;
+  baseDamage: number;
+  baseAttackSpeedMs: number;
+  baseAttackRange: number;
+}
+
 export interface ListCharactersResponse {
   characters: CharacterSummary[];
   maxCharacters: number;
@@ -97,5 +104,33 @@ export function getCharacterClassColorHex(
       return "#22D3EE";
     default:
       return "#E8A832";
+  }
+}
+
+export function getCharacterClassBaseCombatStats(
+  characterClass: CharacterClass,
+): CharacterBaseCombatStats {
+  switch (characterClass) {
+    case "knight":
+      return {
+        maxHp: 180,
+        baseDamage: 24,
+        baseAttackSpeedMs: 600,
+        baseAttackRange: 60,
+      };
+    case "mage":
+      return {
+        maxHp: 110,
+        baseDamage: 18,
+        baseAttackSpeedMs: 820,
+        baseAttackRange: 360,
+      };
+    default:
+      return {
+        maxHp: 180,
+        baseDamage: 24,
+        baseAttackSpeedMs: 600,
+        baseAttackRange: 60,
+      };
   }
 }

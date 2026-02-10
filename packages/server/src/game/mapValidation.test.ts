@@ -12,6 +12,10 @@ describe("world map validation", () => {
         color: "#000000",
         gridSize: 32,
       },
+      combat: {
+        allowCombat: true,
+        pvpEnabled: false,
+      },
       playerSpawnId: "spawn",
       spawnPoints: [{ id: "spawn", x: 100, y: 100 }],
       collisions: [],

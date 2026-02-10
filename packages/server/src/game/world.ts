@@ -7,17 +7,20 @@ import type {
   EnemySnapshot,
   PlayerSnapshot,
   PortalTrigger,
+  ProjectileSnapshot,
   ServerToClientMessage,
   Vector2,
   WorldMap,
 } from "@mmo/shared";
 import {
+  DEFAULT_WORLD_ID,
   PLAYER_COLLIDER_SIZE,
   WORLD_MAPS_BY_ID,
   centeredBoxToCollisionShape,
   clampInputDtMs,
   clampToWorldBounds,
   findSpawnPoint,
+  getCharacterClassBaseCombatStats,
   inputToVelocity,
   positionCollidesWithMap,
   resolveMovementWithSliding,
@@ -29,6 +32,18 @@ const SNAPSHOT_INTERVAL_MS = 100;
 const SIMULATION_INTERVAL_MS = 50;
 const ENEMY_SPAWN_ATTEMPTS = 12;
 const ENEMY_IDLE_EPSILON = 4;
+const MELEE_ARC_COS_THRESHOLD = 0.4;
+const PLAYER_PROJECTILE_SPEED = 640;
+const PLAYER_PROJECTILE_TTL_MS = 900;
+const PLAYER_PROJECTILE_RADIUS = 8;
+
+interface PlayerCombatStats {
+  currentHealth: number;
+  maxHealth: number;
+  baseDamage: number;
+  baseAttackSpeedMs: number;
+  baseAttackRange: number;
+}
 
 interface PlayerState {
   connectionId: string;
@@ -39,6 +54,13 @@ interface PlayerState {
   position: Vector2;
   velocity: Vector2;
   lastProcessedInputSequence: number;
+  currentHealth: number;
+  maxHealth: number;
+  baseDamage: number;
+  baseAttackSpeedMs: number;
+  baseAttackRange: number;
+  nextAttackAtMs: number;
+  pendingRespawn: boolean;
   socket: ServerWebSocket<RealtimeSocketData>;
 }
 
@@ -66,8 +88,20 @@ interface SpawnerRuntimeState {
   nextSpawnAtMs: number;
 }
 
+interface ProjectileState {
+  id: string;
+  ownerCharacterId: string;
+  position: Vector2;
+  velocity: Vector2;
+  radius: number;
+  damage: number;
+  ttlMsRemaining: number;
+  colorHex: string;
+}
+
 interface JoinWorldOptions {
   spawnOverride?: Vector2;
+  combatStats?: Partial<PlayerCombatStats>;
 }
 
 export interface RealtimeSession {
@@ -82,6 +116,11 @@ export interface RealtimeSession {
   characterClass: CharacterClass | null;
   characterColorHex: string | null;
   worldId: string | null;
+  characterCurrentHealth: number | null;
+  characterMaxHealth: number | null;
+  characterBaseDamage: number | null;
+  characterBaseAttackSpeedMs: number | null;
+  characterBaseAttackRange: number | null;
 }
 
 export interface RealtimeSocketData {
@@ -97,6 +136,8 @@ function toSnapshot(player: PlayerState): PlayerSnapshot {
     position: player.position,
     velocity: player.velocity,
     lastProcessedInputSequence: player.lastProcessedInputSequence,
+    currentHealth: player.currentHealth,
+    maxHealth: player.maxHealth,
   };
 }
 
@@ -113,6 +154,17 @@ function toEnemySnapshot(enemy: EnemyState): EnemySnapshot {
     colorHex: enemy.archetype.colorHex,
     width: enemy.archetype.visualWidth,
     height: enemy.archetype.visualHeight,
+  };
+}
+
+function toProjectileSnapshot(projectile: ProjectileState): ProjectileSnapshot {
+  return {
+    id: projectile.id,
+    ownerId: projectile.ownerCharacterId,
+    position: projectile.position,
+    velocity: projectile.velocity,
+    radius: projectile.radius,
+    colorHex: projectile.colorHex,
   };
 }
 
@@ -153,27 +205,78 @@ function normalizeDirection(from: Vector2, to: Vector2): Vector2 {
   };
 }
 
+function dotProduct(first: Vector2, second: Vector2): number {
+  return first.x * second.x + first.y * second.y;
+}
+
+function clampHealth(current: number, max: number): number {
+  return Math.max(0, Math.min(max, current));
+}
+
+function resolveCombatStats(
+  characterClass: CharacterClass,
+  partial?: Partial<PlayerCombatStats>,
+): PlayerCombatStats {
+  const classDefaults = getCharacterClassBaseCombatStats(characterClass);
+  const maxHealth = Math.max(
+    1,
+    Number.isFinite(partial?.maxHealth ?? Number.NaN)
+      ? (partial?.maxHealth ?? classDefaults.maxHp)
+      : classDefaults.maxHp,
+  );
+  const currentHealthRaw = Number.isFinite(partial?.currentHealth ?? Number.NaN)
+    ? (partial?.currentHealth ?? maxHealth)
+    : maxHealth;
+  return {
+    maxHealth,
+    currentHealth: clampHealth(currentHealthRaw, maxHealth),
+    baseDamage: Math.max(0, partial?.baseDamage ?? classDefaults.baseDamage),
+    baseAttackSpeedMs: Math.max(
+      1,
+      Math.floor(partial?.baseAttackSpeedMs ?? classDefaults.baseAttackSpeedMs),
+    ),
+    baseAttackRange: Math.max(
+      1,
+      partial?.baseAttackRange ?? classDefaults.baseAttackRange,
+    ),
+  };
+}
+
 class WorldInstance {
   readonly worldId: string;
   readonly map: WorldMap;
 
   private players = new Map<string, PlayerState>();
   private enemies = new Map<string, EnemyState>();
+  private projectiles = new Map<string, ProjectileState>();
   private spawners = new Map<string, SpawnerRuntimeState>();
+  private deadPlayerQueue = new Map<
+    string,
+    ServerWebSocket<RealtimeSocketData>
+  >();
   private snapshotTimer: Timer;
   private simulationTimer: Timer;
   private readonly resolveEnemyArchetype: (
     archetypeId: string,
   ) => EnemyArchetype | null;
+  private readonly onPlayerDeath: (
+    socket: ServerWebSocket<RealtimeSocketData>,
+    characterId: string,
+  ) => void;
 
   constructor(
     worldId: string,
     map: WorldMap,
     resolveEnemyArchetype: (archetypeId: string) => EnemyArchetype | null,
+    onPlayerDeath: (
+      socket: ServerWebSocket<RealtimeSocketData>,
+      characterId: string,
+    ) => void,
   ) {
     this.worldId = worldId;
     this.map = map;
     this.resolveEnemyArchetype = resolveEnemyArchetype;
+    this.onPlayerDeath = onPlayerDeath;
 
     for (const spawner of map.enemySpawners) {
       this.spawners.set(spawner.id, {
@@ -201,11 +304,13 @@ class WorldInstance {
     characterClass: CharacterClass,
     colorHex: string,
     socket: ServerWebSocket<RealtimeSocketData>,
+    combatStats: Partial<PlayerCombatStats>,
     spawnOverride?: Vector2,
-  ): Vector2 {
+  ): PlayerState {
     const fallbackSpawn = findSpawnPoint(this.map, this.map.playerSpawnId) ??
       this.map.spawnPoints[0] ?? { x: 120, y: 120 };
     const spawn = spawnOverride ?? fallbackSpawn;
+    const resolvedCombat = resolveCombatStats(characterClass, combatStats);
 
     const player: PlayerState = {
       connectionId,
@@ -217,6 +322,13 @@ class WorldInstance {
       position: { x: spawn.x, y: spawn.y },
       velocity: { x: 0, y: 0 },
       lastProcessedInputSequence: 0,
+      currentHealth: resolvedCombat.currentHealth,
+      maxHealth: resolvedCombat.maxHealth,
+      baseDamage: resolvedCombat.baseDamage,
+      baseAttackSpeedMs: resolvedCombat.baseAttackSpeedMs,
+      baseAttackRange: resolvedCombat.baseAttackRange,
+      nextAttackAtMs: 0,
+      pendingRespawn: false,
     };
 
     this.players.set(characterId, player);
@@ -230,16 +342,16 @@ class WorldInstance {
       connectionId,
     );
 
-    return player.position;
+    return player;
   }
 
-  removePlayer(characterId: string, connectionId: string): void {
+  removePlayer(characterId: string, connectionId: string): PlayerState | null {
     const removed = this.players.get(characterId);
     if (!removed) {
-      return;
+      return null;
     }
     if (removed.connectionId !== connectionId) {
-      return;
+      return null;
     }
 
     this.players.delete(characterId);
@@ -249,6 +361,7 @@ class WorldInstance {
       worldId: this.worldId,
       characterId,
     });
+    return removed;
   }
 
   applyInput(
@@ -261,6 +374,9 @@ class WorldInstance {
       return null;
     }
     if (player.connectionId !== connectionId) {
+      return null;
+    }
+    if (player.pendingRespawn || player.currentHealth <= 0) {
       return null;
     }
 
@@ -286,10 +402,75 @@ class WorldInstance {
         position: player.position,
         velocity: player.velocity,
         lastProcessedInputSequence: message.sequence,
+        currentHealth: player.currentHealth,
+        maxHealth: player.maxHealth,
       }),
     );
 
     return portal ?? null;
+  }
+
+  applyAttack(
+    characterId: string,
+    connectionId: string,
+    message: Extract<ClientToServerMessage, { type: "player.attack" }>,
+  ): void {
+    const player = this.players.get(characterId);
+    if (!player || player.connectionId !== connectionId) {
+      return;
+    }
+    if (player.pendingRespawn || player.currentHealth <= 0) {
+      player.socket.send(
+        stringifyServerMessage({
+          type: "combat.attackDenied",
+          reason: "dead",
+          message: "You are down.",
+        }),
+      );
+      return;
+    }
+    if (!this.map.combat.allowCombat) {
+      player.socket.send(
+        stringifyServerMessage({
+          type: "combat.attackDenied",
+          reason: "safe_zone",
+          message: "Safe zone: combat disabled.",
+        }),
+      );
+      return;
+    }
+
+    const now = Date.now();
+    if (now < player.nextAttackAtMs) {
+      player.socket.send(
+        stringifyServerMessage({
+          type: "combat.attackDenied",
+          reason: "cooldown",
+          message: "Attack on cooldown.",
+        }),
+      );
+      return;
+    }
+
+    const direction = normalizeDirection(player.position, message.aim);
+    const attackStyle = player.class === "mage" ? "ranged" : "melee";
+    player.nextAttackAtMs = now + player.baseAttackSpeedMs;
+
+    this.broadcast({
+      type: "combat.attackPerformed",
+      attackerId: player.id,
+      attackStyle,
+      origin: { x: player.position.x, y: player.position.y },
+      direction,
+      range: player.baseAttackRange,
+    });
+
+    if (attackStyle === "melee") {
+      this.applyMeleeAttack(player, direction);
+      return;
+    }
+
+    this.spawnPlayerProjectile(player, direction);
   }
 
   broadcast(
@@ -327,7 +508,9 @@ class WorldInstance {
   private simulate(dtMs: number): void {
     const now = Date.now();
     this.tickSpawners(now);
+    this.tickProjectiles(dtMs);
     this.tickEnemies(now, dtMs);
+    this.flushDeadPlayers();
   }
 
   private tickSpawners(now: number): void {
@@ -400,6 +583,7 @@ class WorldInstance {
           if (now >= enemy.nextAttackAtMs) {
             enemy.nextAttackAtMs = now + enemy.archetype.attackSpeedMs;
             desiredState = "attacking";
+            this.applyEnemyAttack(enemy, target);
           }
         }
       } else {
@@ -459,10 +643,72 @@ class WorldInstance {
     }
   }
 
+  private tickProjectiles(dtMs: number): void {
+    if (this.projectiles.size === 0) {
+      return;
+    }
+
+    const dtSeconds = clampInputDtMs(dtMs) / 1000;
+    const collisionRects = this.map.collisions;
+    const worldWidth = this.map.width;
+    const worldHeight = this.map.height;
+
+    for (const projectile of this.projectiles.values()) {
+      projectile.ttlMsRemaining -= dtMs;
+      if (projectile.ttlMsRemaining <= 0) {
+        this.projectiles.delete(projectile.id);
+        continue;
+      }
+
+      const nextPosition = {
+        x: projectile.position.x + projectile.velocity.x * dtSeconds,
+        y: projectile.position.y + projectile.velocity.y * dtSeconds,
+      };
+
+      const outsideBounds =
+        nextPosition.x < 0 ||
+        nextPosition.y < 0 ||
+        nextPosition.x > worldWidth ||
+        nextPosition.y > worldHeight;
+      if (outsideBounds) {
+        this.projectiles.delete(projectile.id);
+        continue;
+      }
+
+      const collidesMap = collisionRects.some(
+        (shape) =>
+          nextPosition.x + projectile.radius > shape.x &&
+          nextPosition.x - projectile.radius < shape.x + shape.width &&
+          nextPosition.y + projectile.radius > shape.y &&
+          nextPosition.y - projectile.radius < shape.y + shape.height,
+      );
+      if (collidesMap) {
+        this.projectiles.delete(projectile.id);
+        continue;
+      }
+
+      projectile.position = nextPosition;
+
+      if (this.tryHitEnemyWithProjectile(projectile)) {
+        this.projectiles.delete(projectile.id);
+        continue;
+      }
+
+      if (this.tryHitPlayerWithProjectile(projectile)) {
+        this.projectiles.delete(projectile.id);
+      }
+    }
+  }
+
   private resolveOrAcquireTarget(enemy: EnemyState): PlayerState | null {
+    if (!this.map.combat.allowCombat) {
+      enemy.targetCharacterId = null;
+      return null;
+    }
+
     if (enemy.targetCharacterId) {
       const existing = this.players.get(enemy.targetCharacterId);
-      if (existing) {
+      if (existing && existing.currentHealth > 0 && !existing.pendingRespawn) {
         const distanceToExistingSq = distanceSquared(
           enemy.position,
           existing.position,
@@ -493,6 +739,9 @@ class WorldInstance {
     let nearestDistanceSq = radius * radius;
 
     for (const player of this.players.values()) {
+      if (player.currentHealth <= 0 || player.pendingRespawn) {
+        continue;
+      }
       const candidateDistanceSq = distanceSquared(position, player.position);
       if (candidateDistanceSq > nearestDistanceSq) {
         continue;
@@ -518,6 +767,181 @@ class WorldInstance {
       (enemy.archetype.canMelee && distanceSq <= meleeRangeSq) ||
       (enemy.archetype.canRanged && distanceSq <= rangedRangeSq)
     );
+  }
+
+  private applyEnemyAttack(enemy: EnemyState, target: PlayerState): void {
+    if (!this.canEnemyDamagePlayer()) {
+      return;
+    }
+    this.applyDamageToPlayer(target, enemy.archetype.damage);
+  }
+
+  private applyMeleeAttack(player: PlayerState, direction: Vector2): void {
+    if (!this.canPlayerDamageEnemy()) {
+      return;
+    }
+
+    for (const enemy of this.enemies.values()) {
+      const distanceToEnemySq = distanceSquared(
+        player.position,
+        enemy.position,
+      );
+      const extraRange =
+        Math.max(enemy.archetype.visualWidth, enemy.archetype.visualHeight) / 2;
+      if (distanceToEnemySq > (player.baseAttackRange + extraRange) ** 2) {
+        continue;
+      }
+
+      const facing = normalizeDirection(player.position, enemy.position);
+      if (dotProduct(facing, direction) < MELEE_ARC_COS_THRESHOLD) {
+        continue;
+      }
+
+      this.applyDamageToEnemy(enemy.id, player.baseDamage);
+    }
+  }
+
+  private spawnPlayerProjectile(player: PlayerState, direction: Vector2): void {
+    const projectile: ProjectileState = {
+      id: `projectile-${crypto.randomUUID()}`,
+      ownerCharacterId: player.id,
+      position: {
+        x: player.position.x + direction.x * (PLAYER_COLLIDER_SIZE.width / 2),
+        y: player.position.y + direction.y * (PLAYER_COLLIDER_SIZE.height / 2),
+      },
+      velocity: {
+        x: direction.x * PLAYER_PROJECTILE_SPEED,
+        y: direction.y * PLAYER_PROJECTILE_SPEED,
+      },
+      radius: PLAYER_PROJECTILE_RADIUS,
+      damage: player.baseDamage,
+      ttlMsRemaining: PLAYER_PROJECTILE_TTL_MS,
+      colorHex: player.class === "mage" ? "#67e8f9" : "#fbbf24",
+    };
+    this.projectiles.set(projectile.id, projectile);
+  }
+
+  private tryHitEnemyWithProjectile(projectile: ProjectileState): boolean {
+    if (!this.canPlayerDamageEnemy()) {
+      return false;
+    }
+
+    for (const enemy of this.enemies.values()) {
+      const halfWidth = enemy.archetype.visualWidth / 2;
+      const halfHeight = enemy.archetype.visualHeight / 2;
+      const hit =
+        projectile.position.x + projectile.radius >=
+          enemy.position.x - halfWidth &&
+        projectile.position.x - projectile.radius <=
+          enemy.position.x + halfWidth &&
+        projectile.position.y + projectile.radius >=
+          enemy.position.y - halfHeight &&
+        projectile.position.y - projectile.radius <=
+          enemy.position.y + halfHeight;
+      if (!hit) {
+        continue;
+      }
+
+      this.applyDamageToEnemy(enemy.id, projectile.damage);
+      return true;
+    }
+
+    return false;
+  }
+
+  private tryHitPlayerWithProjectile(projectile: ProjectileState): boolean {
+    if (!this.canPlayerDamagePlayer()) {
+      return false;
+    }
+
+    for (const player of this.players.values()) {
+      if (player.id === projectile.ownerCharacterId) {
+        continue;
+      }
+      if (player.currentHealth <= 0 || player.pendingRespawn) {
+        continue;
+      }
+
+      const halfWidth = PLAYER_COLLIDER_SIZE.width / 2;
+      const halfHeight = PLAYER_COLLIDER_SIZE.height / 2;
+      const hit =
+        projectile.position.x + projectile.radius >=
+          player.position.x - halfWidth &&
+        projectile.position.x - projectile.radius <=
+          player.position.x + halfWidth &&
+        projectile.position.y + projectile.radius >=
+          player.position.y - halfHeight &&
+        projectile.position.y - projectile.radius <=
+          player.position.y + halfHeight;
+      if (!hit) {
+        continue;
+      }
+
+      this.applyDamageToPlayer(player, projectile.damage);
+      return true;
+    }
+
+    return false;
+  }
+
+  private applyDamageToEnemy(enemyId: string, amount: number): void {
+    const enemy = this.enemies.get(enemyId);
+    if (!enemy) {
+      return;
+    }
+
+    enemy.currentHealth = Math.max(0, enemy.currentHealth - amount);
+    if (enemy.currentHealth > 0) {
+      return;
+    }
+
+    this.enemies.delete(enemy.id);
+  }
+
+  private applyDamageToPlayer(player: PlayerState, amount: number): void {
+    if (!this.canEnemyDamagePlayer()) {
+      return;
+    }
+    if (player.pendingRespawn || player.currentHealth <= 0) {
+      return;
+    }
+
+    player.currentHealth = clampHealth(
+      player.currentHealth - amount,
+      player.maxHealth,
+    );
+    if (player.currentHealth > 0) {
+      return;
+    }
+
+    player.pendingRespawn = true;
+    player.velocity = { x: 0, y: 0 };
+    this.deadPlayerQueue.set(player.id, player.socket);
+  }
+
+  private flushDeadPlayers(): void {
+    if (this.deadPlayerQueue.size === 0) {
+      return;
+    }
+
+    const queued = [...this.deadPlayerQueue.entries()];
+    this.deadPlayerQueue.clear();
+
+    for (const [characterId, socket] of queued) {
+      this.onPlayerDeath(socket, characterId);
+    }
+  }
+
+  private canPlayerDamageEnemy(): boolean {
+    return this.map.combat.allowCombat;
+  }
+
+  private canEnemyDamagePlayer(): boolean {
+    return this.map.combat.allowCombat;
+  }
+
+  private canPlayerDamagePlayer(): boolean {
+    return this.map.combat.allowCombat && this.map.combat.pvpEnabled;
   }
 
   private findEnemySpawnPosition(
@@ -608,6 +1032,7 @@ class WorldInstance {
     serverTimeMs: number;
     players: PlayerSnapshot[];
     enemies: EnemySnapshot[];
+    projectiles: ProjectileSnapshot[];
   } {
     return {
       worldId: this.worldId,
@@ -615,6 +1040,9 @@ class WorldInstance {
       players: [...this.players.values()].map((player) => toSnapshot(player)),
       enemies: [...this.enemies.values()].map((enemy) =>
         toEnemySnapshot(enemy),
+      ),
+      projectiles: [...this.projectiles.values()].map((projectile) =>
+        toProjectileSnapshot(projectile),
       ),
     };
   }
@@ -648,6 +1076,11 @@ export class WorldManager {
         characterClass: null,
         characterColorHex: null,
         worldId: null,
+        characterCurrentHealth: null,
+        characterMaxHealth: null,
+        characterBaseDamage: null,
+        characterBaseAttackSpeedMs: null,
+        characterBaseAttackRange: null,
       },
     };
   }
@@ -671,20 +1104,35 @@ export class WorldManager {
       this.leaveWorld(socket);
     }
 
-    const spawn = instance.addPlayer(
+    const player = instance.addPlayer(
       socket.data.session.connectionId,
       characterId,
       nickname,
       characterClass,
       colorHex,
       socket,
+      options?.combatStats ?? {
+        currentHealth: socket.data.session.characterCurrentHealth ?? undefined,
+        maxHealth: socket.data.session.characterMaxHealth ?? undefined,
+        baseDamage: socket.data.session.characterBaseDamage ?? undefined,
+        baseAttackSpeedMs:
+          socket.data.session.characterBaseAttackSpeedMs ?? undefined,
+        baseAttackRange:
+          socket.data.session.characterBaseAttackRange ?? undefined,
+      },
       options?.spawnOverride,
     );
+    const spawn = player.position;
     socket.data.session.worldId = worldId;
     socket.data.session.characterId = characterId;
     socket.data.session.characterNickname = nickname;
     socket.data.session.characterClass = characterClass;
     socket.data.session.characterColorHex = colorHex;
+    socket.data.session.characterCurrentHealth = player.currentHealth;
+    socket.data.session.characterMaxHealth = player.maxHealth;
+    socket.data.session.characterBaseDamage = player.baseDamage;
+    socket.data.session.characterBaseAttackSpeedMs = player.baseAttackSpeedMs;
+    socket.data.session.characterBaseAttackRange = player.baseAttackRange;
 
     socket.send(
       stringifyServerMessage({
@@ -695,6 +1143,8 @@ export class WorldManager {
         class: characterClass,
         colorHex,
         spawn,
+        currentHealth: player.currentHealth,
+        maxHealth: player.maxHealth,
       }),
     );
     instance.sendSnapshotTo(socket);
@@ -714,8 +1164,16 @@ export class WorldManager {
       return;
     }
 
-    instance.removePlayer(characterId, connectionId);
+    const removed = instance.removePlayer(characterId, connectionId);
     socket.data.session.worldId = null;
+    if (removed) {
+      socket.data.session.characterCurrentHealth = removed.currentHealth;
+      socket.data.session.characterMaxHealth = removed.maxHealth;
+      socket.data.session.characterBaseDamage = removed.baseDamage;
+      socket.data.session.characterBaseAttackSpeedMs =
+        removed.baseAttackSpeedMs;
+      socket.data.session.characterBaseAttackRange = removed.baseAttackRange;
+    }
 
     if (instance.size === 0) {
       instance.dispose();
@@ -743,6 +1201,23 @@ export class WorldManager {
     }
 
     this.tryTravelThroughPortal(socket, portal);
+  }
+
+  applyAttack(
+    socket: ServerWebSocket<RealtimeSocketData>,
+    message: Extract<ClientToServerMessage, { type: "player.attack" }>,
+  ): void {
+    const { connectionId, characterId, worldId } = socket.data.session;
+    if (!characterId || !worldId) {
+      return;
+    }
+
+    const instance = this.instances.get(worldId);
+    if (!instance) {
+      return;
+    }
+
+    instance.applyAttack(characterId, connectionId, message);
   }
 
   acknowledgeDrop(
@@ -786,7 +1261,14 @@ export class WorldManager {
       return null;
     }
 
-    const created = new WorldInstance(worldId, map, this.resolveEnemyArchetype);
+    const created = new WorldInstance(
+      worldId,
+      map,
+      this.resolveEnemyArchetype,
+      (socket, characterId) => {
+        this.handlePlayerDeath(socket, characterId);
+      },
+    );
     this.instances.set(worldId, created);
     return created;
   }
@@ -801,6 +1283,11 @@ export class WorldManager {
       characterNickname,
       characterClass,
       characterColorHex,
+      characterCurrentHealth,
+      characterMaxHealth,
+      characterBaseDamage,
+      characterBaseAttackSpeedMs,
+      characterBaseAttackRange,
     } = socket.data.session;
     if (
       !characterId ||
@@ -841,9 +1328,88 @@ export class WorldManager {
       characterClass,
       characterColorHex,
       {
+        combatStats: {
+          currentHealth: characterCurrentHealth ?? undefined,
+          maxHealth: characterMaxHealth ?? undefined,
+          baseDamage: characterBaseDamage ?? undefined,
+          baseAttackSpeedMs: characterBaseAttackSpeedMs ?? undefined,
+          baseAttackRange: characterBaseAttackRange ?? undefined,
+        },
         spawnOverride: {
           x: targetSpawn.x + portal.exitOffset.x,
           y: targetSpawn.y + portal.exitOffset.y,
+        },
+      },
+    );
+  }
+
+  private handlePlayerDeath(
+    socket: ServerWebSocket<RealtimeSocketData>,
+    characterId: string,
+  ): void {
+    const {
+      worldId,
+      characterId: sessionCharacterId,
+      characterNickname,
+      characterClass,
+      characterColorHex,
+      characterMaxHealth,
+      characterBaseDamage,
+      characterBaseAttackSpeedMs,
+      characterBaseAttackRange,
+    } = socket.data.session;
+    if (
+      !worldId ||
+      !sessionCharacterId ||
+      sessionCharacterId !== characterId ||
+      !characterNickname ||
+      !characterClass ||
+      !characterColorHex
+    ) {
+      return;
+    }
+
+    const respawnWorldId = DEFAULT_WORLD_ID;
+    const classDefaults = getCharacterClassBaseCombatStats(characterClass);
+    const maxHealth = Math.max(1, characterMaxHealth ?? classDefaults.maxHp);
+    socket.data.session.characterCurrentHealth = maxHealth;
+
+    socket.send(
+      stringifyServerMessage({
+        type: "combat.playerDied",
+        characterId,
+        respawnWorldId,
+      }),
+    );
+
+    const fromWorldId = worldId;
+    this.leaveWorld(socket);
+    socket.send(
+      stringifyServerMessage({
+        type: "world.transitioning",
+        fromWorldId,
+        toWorldId: respawnWorldId,
+        portalId: "respawn",
+        reason: "respawn",
+      }),
+    );
+
+    this.joinWorld(
+      socket,
+      respawnWorldId,
+      characterId,
+      characterNickname,
+      characterClass,
+      characterColorHex,
+      {
+        combatStats: {
+          currentHealth: maxHealth,
+          maxHealth,
+          baseDamage: characterBaseDamage ?? classDefaults.baseDamage,
+          baseAttackSpeedMs:
+            characterBaseAttackSpeedMs ?? classDefaults.baseAttackSpeedMs,
+          baseAttackRange:
+            characterBaseAttackRange ?? classDefaults.baseAttackRange,
         },
       },
     );

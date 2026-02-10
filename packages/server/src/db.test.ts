@@ -55,4 +55,19 @@ describe("database bootstrap", () => {
     expect(slime?.visual_width).toBe(99);
     db.close();
   });
+
+  test("character table exposes base combat stat columns", () => {
+    const db = createDatabase(":memory:");
+
+    const columns = db
+      .query<{ name: string }, []>("PRAGMA table_info(characters);")
+      .all()
+      .map((column) => column.name);
+
+    expect(columns).toContain("max_hp");
+    expect(columns).toContain("base_damage");
+    expect(columns).toContain("base_attack_speed_ms");
+    expect(columns).toContain("base_attack_range");
+    db.close();
+  });
 });

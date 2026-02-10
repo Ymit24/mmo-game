@@ -105,6 +105,9 @@ export function isWorldMap(value: unknown): value is WorldMap {
     isNumber(value.height) &&
     typeof value.background.color === "string" &&
     isNumber(value.background.gridSize) &&
+    isObject(value.combat) &&
+    typeof value.combat.allowCombat === "boolean" &&
+    typeof value.combat.pvpEnabled === "boolean" &&
     typeof value.playerSpawnId === "string" &&
     Array.isArray(value.spawnPoints) &&
     value.spawnPoints.every((spawn) => isSpawnPoint(spawn)) &&
