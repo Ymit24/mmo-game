@@ -360,6 +360,20 @@ function computeEffectiveCombatStatsForLevel(
   };
 }
 
+function recalculateNextAttackAtMs(
+  previousNextAttackAtMs: number,
+  previousAttackSpeedMs: number,
+  nextAttackSpeedMs: number,
+  now: number,
+): number {
+  if (previousNextAttackAtMs <= now) {
+    return previousNextAttackAtMs;
+  }
+
+  const previousAttackAtMs = previousNextAttackAtMs - previousAttackSpeedMs;
+  return Math.max(now, previousAttackAtMs + nextAttackSpeedMs);
+}
+
 class WorldInstance {
   readonly worldId: string;
   readonly map: WorldMap;
@@ -633,6 +647,8 @@ class WorldInstance {
     }
 
     const safeModifiers = resolveWeaponModifiers(modifiers);
+    const previousAttackSpeedMs = player.baseAttackSpeedMs;
+    const previousNextAttackAtMs = player.nextAttackAtMs;
     player.weaponDamageFlat = safeModifiers.damageFlat;
     player.weaponRangeFlat = safeModifiers.rangeFlat;
     player.weaponSpeedPercent = safeModifiers.speedPercent;
@@ -651,6 +667,12 @@ class WorldInstance {
     player.baseDamage = effectiveStats.baseDamage;
     player.baseAttackSpeedMs = effectiveStats.baseAttackSpeedMs;
     player.baseAttackRange = effectiveStats.baseAttackRange;
+    player.nextAttackAtMs = recalculateNextAttackAtMs(
+      previousNextAttackAtMs,
+      previousAttackSpeedMs,
+      player.baseAttackSpeedMs,
+      Date.now(),
+    );
 
     return player;
   }

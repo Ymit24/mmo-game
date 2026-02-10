@@ -65,6 +65,58 @@ function parseMessages(
   );
 }
 
+function seedCharacterWithInventory(
+  db: ReturnType<typeof createDatabase>,
+): void {
+  const now = new Date().toISOString();
+  const baseStats = getCharacterClassBaseCombatStats("knight");
+
+  db.query(
+    `INSERT INTO users (
+      id,
+      email,
+      password_hash,
+      created_at,
+      updated_at
+    ) VALUES ('player-a', 'player-a@example.com', 'hash', ?1, ?2)`,
+  ).run(now, now);
+  db.query(
+    `INSERT INTO characters (
+      id,
+      user_id,
+      nickname,
+      nickname_normalized,
+      class,
+      level,
+      xp,
+      max_hp,
+      base_damage,
+      base_attack_speed_ms,
+      base_attack_range,
+      created_at,
+      updated_at
+    ) VALUES ('character-1', 'player-a', 'Alpha', 'alpha', 'knight', 1, 0, ?1, ?2, ?3, ?4, ?5, ?6)`,
+  ).run(
+    baseStats.maxHp,
+    baseStats.baseDamage,
+    baseStats.baseAttackSpeedMs,
+    baseStats.baseAttackRange,
+    now,
+    now,
+  );
+  db.query(
+    `INSERT INTO character_inventory (
+      id,
+      character_id,
+      item_definition_id,
+      slot_kind,
+      slot_index,
+      created_at,
+      updated_at
+    ) VALUES ('inv-1', 'character-1', 'training_sword', 'bag', 0, ?1, ?2)`,
+  ).run(now, now);
+}
+
 describe("realtime gateway", () => {
   test("authenticates with minimal JWT claims", async () => {
     const db = createDatabase(":memory:");
@@ -122,53 +174,7 @@ describe("realtime gateway", () => {
     const gateway = createRealtimeGateway(baseConfig, db);
     const socket = createMockSocket(gateway.createSocketData);
     const token = await issueAccessToken({ sub: "player-a" }, baseConfig);
-    const now = new Date().toISOString();
-    const baseStats = getCharacterClassBaseCombatStats("knight");
-
-    db.query(
-      `INSERT INTO users (
-        id,
-        email,
-        password_hash,
-        created_at,
-        updated_at
-      ) VALUES ('player-a', 'player-a@example.com', 'hash', ?1, ?2)`,
-    ).run(now, now);
-    db.query(
-      `INSERT INTO characters (
-        id,
-        user_id,
-        nickname,
-        nickname_normalized,
-        class,
-        level,
-        xp,
-        max_hp,
-        base_damage,
-        base_attack_speed_ms,
-        base_attack_range,
-        created_at,
-        updated_at
-      ) VALUES ('character-1', 'player-a', 'Alpha', 'alpha', 'knight', 1, 0, ?1, ?2, ?3, ?4, ?5, ?6)`,
-    ).run(
-      baseStats.maxHp,
-      baseStats.baseDamage,
-      baseStats.baseAttackSpeedMs,
-      baseStats.baseAttackRange,
-      now,
-      now,
-    );
-    db.query(
-      `INSERT INTO character_inventory (
-        id,
-        character_id,
-        item_definition_id,
-        slot_kind,
-        slot_index,
-        created_at,
-        updated_at
-      ) VALUES ('inv-1', 'character-1', 'training_sword', 'bag', 0, ?1, ?2)`,
-    ).run(now, now);
+    seedCharacterWithInventory(db);
 
     await gateway.handlers.message(
       asServerSocket(socket),
@@ -200,6 +206,106 @@ describe("realtime gateway", () => {
       (inventoryMessage?.state as { bagSlots?: Array<{ id: string } | null> })
         ?.bagSlots?.[0]?.id,
     ).toBe("inv-1");
+    db.close();
+  });
+
+  test("inventory move requires an active world session", async () => {
+    const db = createDatabase(":memory:");
+    const gateway = createRealtimeGateway(baseConfig, db);
+    const socket = createMockSocket(gateway.createSocketData);
+    const token = await issueAccessToken({ sub: "player-a" }, baseConfig);
+    seedCharacterWithInventory(db);
+
+    await gateway.handlers.message(
+      asServerSocket(socket),
+      JSON.stringify({
+        type: "auth.hello",
+        token: token.token,
+      }),
+    );
+    await gateway.handlers.message(
+      asServerSocket(socket),
+      JSON.stringify({
+        type: "world.join",
+        worldId: "invalid-world",
+        characterId: "character-1",
+      }),
+    );
+
+    socket.sent = [];
+    await gateway.handlers.message(
+      asServerSocket(socket),
+      JSON.stringify({
+        type: "inventory.move",
+        payload: {
+          from: { kind: "bag", index: 0 },
+          to: { kind: "bag", index: 1 },
+        },
+      }),
+    );
+
+    const message = parseLastMessage(socket);
+    expect(message.type).toBe("error");
+    expect(message.error).toBe("Join a world before inventory actions.");
+
+    const item = db
+      .query<{ slot_index: number | null }, []>(
+        `SELECT slot_index
+         FROM character_inventory
+         WHERE id = 'inv-1'`,
+      )
+      .get();
+    expect(item?.slot_index).toBe(0);
+    db.close();
+  });
+
+  test("inventory drop requires an active world session", async () => {
+    const db = createDatabase(":memory:");
+    const gateway = createRealtimeGateway(baseConfig, db);
+    const socket = createMockSocket(gateway.createSocketData);
+    const token = await issueAccessToken({ sub: "player-a" }, baseConfig);
+    seedCharacterWithInventory(db);
+
+    await gateway.handlers.message(
+      asServerSocket(socket),
+      JSON.stringify({
+        type: "auth.hello",
+        token: token.token,
+      }),
+    );
+    await gateway.handlers.message(
+      asServerSocket(socket),
+      JSON.stringify({
+        type: "world.join",
+        worldId: "invalid-world",
+        characterId: "character-1",
+      }),
+    );
+
+    socket.sent = [];
+    await gateway.handlers.message(
+      asServerSocket(socket),
+      JSON.stringify({
+        type: "inventory.drop",
+        payload: {
+          from: { kind: "bag", index: 0 },
+          position: { x: 100, y: 100 },
+        },
+      }),
+    );
+
+    const message = parseLastMessage(socket);
+    expect(message.type).toBe("error");
+    expect(message.error).toBe("Join a world before inventory actions.");
+
+    const item = db
+      .query<{ id: string }, []>(
+        `SELECT id
+         FROM character_inventory
+         WHERE id = 'inv-1'`,
+      )
+      .get();
+    expect(item?.id).toBe("inv-1");
     db.close();
   });
 });

@@ -337,10 +337,14 @@ export function createRealtimeGateway(
             return;
 
           case "inventory.move": {
-            const { characterId, characterClass, characterLevel } =
+            const { characterId, characterClass, characterLevel, worldId } =
               socket.data.session;
             if (!characterId || !characterClass || !characterLevel) {
               sendError(socket, "Character session is not initialized.");
+              return;
+            }
+            if (!worldId) {
+              sendError(socket, "Join a world before inventory actions.");
               return;
             }
 
@@ -376,9 +380,13 @@ export function createRealtimeGateway(
 
           case "inventory.drop":
             {
-              const { characterId } = socket.data.session;
+              const { characterId, worldId } = socket.data.session;
               if (!characterId) {
                 sendError(socket, "Character session is not initialized.");
+                return;
+              }
+              if (!worldId) {
+                sendError(socket, "Join a world before inventory actions.");
                 return;
               }
 
