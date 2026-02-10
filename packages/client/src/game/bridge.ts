@@ -1,4 +1,8 @@
-import type { Vector2 } from "@mmo/shared";
+import type {
+  InventorySlotRef,
+  InventoryStatePayload,
+  Vector2,
+} from "@mmo/shared";
 
 export interface OverlayPlayer {
   id: string;
@@ -24,9 +28,13 @@ export interface OverlayProjectile {
   y: number;
 }
 
-export interface DropRequest {
-  itemId: string;
-  quantity: number;
+export interface InventoryMoveRequest {
+  from: InventorySlotRef;
+  to: InventorySlotRef;
+}
+
+export interface InventoryDropRequest {
+  from: InventorySlotRef;
 }
 
 export type GameModalKind = "conflict" | "kicked" | "error";
@@ -58,11 +66,14 @@ export interface GameBridgeState {
   localXp: number | null;
   localXpToNextLevel: number | null;
   lastCombatDeniedReason: "safe_zone" | "cooldown" | "dead" | null;
+  inventory: InventoryStatePayload | null;
+  inventoryError: string | null;
   lastMessage: string | null;
 }
 
 type StateListener = (state: GameBridgeState) => void;
-type DropListener = (request: DropRequest) => void;
+type InventoryMoveListener = (request: InventoryMoveRequest) => void;
+type InventoryDropListener = (request: InventoryDropRequest) => void;
 type TakeoverListener = () => void;
 
 const DEFAULT_STATE: GameBridgeState = {
@@ -87,13 +98,16 @@ const DEFAULT_STATE: GameBridgeState = {
   localXp: null,
   localXpToNextLevel: null,
   lastCombatDeniedReason: null,
+  inventory: null,
+  inventoryError: null,
   lastMessage: null,
 };
 
 export class GameBridge {
   private state: GameBridgeState;
   private stateListeners = new Set<StateListener>();
-  private dropListeners = new Set<DropListener>();
+  private inventoryMoveListeners = new Set<InventoryMoveListener>();
+  private inventoryDropListeners = new Set<InventoryDropListener>();
   private takeoverListeners = new Set<TakeoverListener>();
 
   constructor(initialState: Partial<GameBridgeState> = {}) {
@@ -126,15 +140,28 @@ export class GameBridge {
     }
   }
 
-  onDropRequest(listener: DropListener): () => void {
-    this.dropListeners.add(listener);
+  onInventoryMoveRequest(listener: InventoryMoveListener): () => void {
+    this.inventoryMoveListeners.add(listener);
     return () => {
-      this.dropListeners.delete(listener);
+      this.inventoryMoveListeners.delete(listener);
     };
   }
 
-  requestDrop(request: DropRequest): void {
-    for (const listener of this.dropListeners) {
+  requestInventoryMove(request: InventoryMoveRequest): void {
+    for (const listener of this.inventoryMoveListeners) {
+      listener(request);
+    }
+  }
+
+  onInventoryDropRequest(listener: InventoryDropListener): () => void {
+    this.inventoryDropListeners.add(listener);
+    return () => {
+      this.inventoryDropListeners.delete(listener);
+    };
+  }
+
+  requestInventoryDrop(request: InventoryDropRequest): void {
+    for (const listener of this.inventoryDropListeners) {
       listener(request);
     }
   }

@@ -152,7 +152,8 @@ class HubScene extends Phaser.Scene {
   private arrowKeys: Phaser.Types.Input.Keyboard.CursorKeys | null = null;
   private attackKey: Phaser.Input.Keyboard.Key | null = null;
 
-  private unsubscribeDropRequest: (() => void) | null = null;
+  private unsubscribeInventoryMoveRequest: (() => void) | null = null;
+  private unsubscribeInventoryDropRequest: (() => void) | null = null;
   private unsubscribeTakeoverRequest: (() => void) | null = null;
 
   constructor(token: string, characterId: string, bridge: GameBridge) {
@@ -208,16 +209,29 @@ class HubScene extends Phaser.Scene {
       this.tryAttack();
     });
 
-    this.unsubscribeDropRequest = this.bridge.onDropRequest(
-      ({ itemId, quantity }) => {
+    this.unsubscribeInventoryMoveRequest = this.bridge.onInventoryMoveRequest(
+      ({ from, to }) => {
+        if (!this.bridge.getState().isInWorld) {
+          return;
+        }
+        this.sendMessage({
+          type: "inventory.move",
+          payload: {
+            from,
+            to,
+          },
+        });
+      },
+    );
+    this.unsubscribeInventoryDropRequest = this.bridge.onInventoryDropRequest(
+      ({ from }) => {
         if (!this.bridge.getState().isInWorld) {
           return;
         }
         this.sendMessage({
           type: "inventory.drop",
           payload: {
-            itemId,
-            quantity,
+            from,
             position: {
               x: this.pointerWorld.x,
               y: this.pointerWorld.y,
@@ -235,6 +249,7 @@ class HubScene extends Phaser.Scene {
       modal: null,
       isInWorld: false,
       transitionMessage: null,
+      inventory: null,
       pointerWorld: {
         x: this.pointerWorld.x,
         y: this.pointerWorld.y,
@@ -246,11 +261,14 @@ class HubScene extends Phaser.Scene {
       localXp: null,
       localXpToNextLevel: null,
       lastCombatDeniedReason: null,
+      inventoryError: null,
     });
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-      this.unsubscribeDropRequest?.();
-      this.unsubscribeDropRequest = null;
+      this.unsubscribeInventoryMoveRequest?.();
+      this.unsubscribeInventoryMoveRequest = null;
+      this.unsubscribeInventoryDropRequest?.();
+      this.unsubscribeInventoryDropRequest = null;
       this.unsubscribeTakeoverRequest?.();
       this.unsubscribeTakeoverRequest = null;
       this.attackKey?.off("down");
@@ -458,6 +476,8 @@ class HubScene extends Phaser.Scene {
         isInWorld: false,
         transitionMessage: null,
         worldId: null,
+        inventory: null,
+        inventoryError: null,
         lastMessage:
           current.modal?.message ??
           current.lastMessage ??
@@ -473,6 +493,8 @@ class HubScene extends Phaser.Scene {
         isInWorld: false,
         transitionMessage: null,
         worldId: null,
+        inventory: null,
+        inventoryError: null,
         lastMessage:
           current.modal?.message ??
           current.lastMessage ??
@@ -506,6 +528,8 @@ class HubScene extends Phaser.Scene {
           isInWorld: false,
           transitionMessage: null,
           worldId: null,
+          inventory: null,
+          inventoryError: null,
           lastMessage: message.error,
         });
         this.socket?.close();
@@ -542,6 +566,7 @@ class HubScene extends Phaser.Scene {
           localXp: message.xp,
           localXpToNextLevel: message.xpToNextLevel,
           lastCombatDeniedReason: null,
+          inventoryError: null,
         });
         this.inputLocked = false;
 
@@ -755,9 +780,33 @@ class HubScene extends Phaser.Scene {
         });
         return;
 
+      case "inventory.state":
+        this.bridge.updateState({
+          inventory: message.state,
+          inventoryError: null,
+        });
+        return;
+
+      case "inventory.moved":
+        this.bridge.updateState({
+          inventory: message.state,
+          inventoryError: null,
+          lastMessage: "Inventory updated.",
+        });
+        return;
+
       case "inventory.drop.ack":
         this.bridge.updateState({
-          lastMessage: `Dropped ${message.quantity}x ${message.itemId}`,
+          inventory: message.state,
+          inventoryError: null,
+          lastMessage: "Dropped item.",
+        });
+        return;
+
+      case "inventory.actionRejected":
+        this.bridge.updateState({
+          inventoryError: message.message,
+          lastMessage: message.message,
         });
         return;
 
@@ -781,6 +830,8 @@ class HubScene extends Phaser.Scene {
           lastMessage: message.reason,
           players: [],
           enemies: [],
+          inventory: null,
+          inventoryError: null,
         });
         this.socket?.close();
         return;
@@ -798,6 +849,8 @@ class HubScene extends Phaser.Scene {
             lastMessage: "Reconnecting to existing session...",
             players: [],
             enemies: [],
+            inventory: null,
+            inventoryError: null,
           });
           setTimeout(() => {
             this.authenticate(false);
@@ -816,6 +869,8 @@ class HubScene extends Phaser.Scene {
           lastMessage: message.reason,
           players: [],
           enemies: [],
+          inventory: null,
+          inventoryError: null,
         });
         return;
 
@@ -1373,6 +1428,7 @@ class HubScene extends Phaser.Scene {
       localXp: null,
       localXpToNextLevel: null,
       lastCombatDeniedReason: null,
+      inventoryError: null,
     });
   }
 

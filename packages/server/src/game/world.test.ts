@@ -606,44 +606,118 @@ describe("world manager", () => {
     expect(playerState.lastProcessedInputSequence).toBe(1);
   });
 
-  test("acknowledgeDrop validates payload and responds with error for invalid item", () => {
+  test("updatePlayerWeaponModifiers recalculates effective combat stats", () => {
     const manager = new WorldManager();
     const socket = createMockSocket(manager, "user-a", "player-a");
 
-    manager.acknowledgeDrop(asServerSocket(socket), {
-      type: "inventory.drop",
-      payload: {
-        itemId: " ",
-        quantity: 1,
-        position: { x: 200, y: 300 },
+    manager.joinWorld(
+      asServerSocket(socket),
+      HUB_ALPHA_MAP.id,
+      "player-a",
+      "Alpha",
+      "knight",
+      "#E8A832",
+      {
+        baseStats: {
+          maxHp: 180,
+          baseDamage: 24,
+          baseAttackSpeedMs: 600,
+          baseAttackRange: 60,
+        },
       },
+    );
+    cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
+
+    manager.updatePlayerWeaponModifiers(asServerSocket(socket), {
+      damageFlat: 10,
+      rangeFlat: 20,
+      speedPercent: 10,
     });
 
-    const response = parseMessages(socket)[0];
-    expect(response?.type).toBe("error");
-
-    if (!response || response.type !== "error") {
-      throw new Error("missing error response");
-    }
-
-    expect(response.error).toContain("Invalid drop payload");
+    expect(socket.data.session.characterBaseDamage).toBe(34);
+    expect(socket.data.session.characterBaseAttackRange).toBe(80);
+    expect(socket.data.session.characterBaseAttackSpeedMs).toBe(540);
   });
 
-  test("acknowledgeDrop rejects non-finite coordinates", () => {
-    const manager = new WorldManager();
-    const socket = createMockSocket(manager, "user-a", "player-a");
+  test("updatePlayerWeaponModifiers recalculates active attack cooldown", () => {
+    const originalDateNow = Date.now;
+    let nowMs = 1_000;
+    Date.now = () => nowMs;
 
-    manager.acknowledgeDrop(asServerSocket(socket), {
-      type: "inventory.drop",
-      payload: {
-        itemId: "health_potion",
-        quantity: 1,
-        position: { x: Number.NaN, y: 300 },
-      },
-    });
+    try {
+      const manager = new WorldManager();
+      const socket = createMockSocket(manager, "user-a", "player-a");
 
-    const response = parseMessages(socket)[0];
-    expect(response?.type).toBe("error");
+      manager.joinWorld(
+        asServerSocket(socket),
+        WILDS_BETA_MAP.id,
+        "player-a",
+        "Alpha",
+        "knight",
+        "#E8A832",
+        {
+          spawnOverride: { x: 1_220, y: 700 },
+          baseStats: {
+            maxHp: 180,
+            baseDamage: 24,
+            baseAttackSpeedMs: 1_000,
+            baseAttackRange: 60,
+          },
+          combatStats: {
+            maxHealth: 180,
+            currentHealth: 180,
+            baseDamage: 24,
+            baseAttackSpeedMs: 1_000,
+            baseAttackRange: 60,
+          },
+        },
+      );
+      cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
+
+      socket.sent = [];
+      manager.applyAttack(asServerSocket(socket), {
+        type: "player.attack",
+        aim: { x: 1_260, y: 700 },
+      });
+      const firstAttack = parseMessages(socket).find(
+        (message) => message.type === "combat.attackPerformed",
+      );
+      expect(firstAttack?.type).toBe("combat.attackPerformed");
+
+      nowMs = 1_300;
+      manager.updatePlayerWeaponModifiers(asServerSocket(socket), {
+        speedPercent: -50,
+      });
+      expect(socket.data.session.characterBaseAttackSpeedMs).toBe(1500);
+
+      nowMs = 2_200;
+      socket.sent = [];
+      manager.applyAttack(asServerSocket(socket), {
+        type: "player.attack",
+        aim: { x: 1_260, y: 700 },
+      });
+      const cooldownDenied = parseMessages(socket).find(
+        (message) => message.type === "combat.attackDenied",
+      );
+      expect(cooldownDenied?.type).toBe("combat.attackDenied");
+      if (!cooldownDenied || cooldownDenied.type !== "combat.attackDenied") {
+        throw new Error("missing combat.attackDenied message");
+      }
+      expect(cooldownDenied.reason).toBe("cooldown");
+
+      nowMs = 2_500;
+      socket.sent = [];
+      manager.applyAttack(asServerSocket(socket), {
+        type: "player.attack",
+        aim: { x: 1_260, y: 700 },
+      });
+      const secondAttack = parseMessages(socket).find(
+        (message) => message.type === "combat.attackPerformed",
+      );
+      expect(secondAttack?.type).toBe("combat.attackPerformed");
+    } finally {
+      Date.now = originalDateNow;
+    }
   });
 
   test("closing an old connection does not remove a newer connection for the same player", () => {

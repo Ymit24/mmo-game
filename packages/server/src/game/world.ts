@@ -11,6 +11,7 @@ import type {
   ProjectileSnapshot,
   ServerToClientMessage,
   Vector2,
+  WeaponStatModifiers,
   WorldMap,
 } from "@mmo/shared";
 import {
@@ -18,6 +19,7 @@ import {
   PLAYER_COLLIDER_SIZE,
   WORLD_MAPS_BY_ID,
   applyCharacterExperience,
+  applyWeaponModifiersToCombatStats,
   centeredBoxToCollisionShape,
   clampInputDtMs,
   clampToWorldBounds,
@@ -28,6 +30,7 @@ import {
   getXpToNextLevelForLevel,
   inputToVelocity,
   normalizeCharacterProgress,
+  normalizeWeaponStatModifiers,
   positionCollidesWithMap,
   resolveMovementWithSliding,
   stringifyServerMessage,
@@ -73,6 +76,11 @@ interface PlayerState {
   baseAttackRange: number;
   rawMaxHealth: number;
   rawBaseDamage: number;
+  rawBaseAttackSpeedMs: number;
+  rawBaseAttackRange: number;
+  weaponDamageFlat: number;
+  weaponRangeFlat: number;
+  weaponSpeedPercent: number;
   level: number;
   xp: number;
   nextAttackAtMs: number;
@@ -120,6 +128,7 @@ interface JoinWorldOptions {
   combatStats?: Partial<PlayerCombatStats>;
   baseStats?: Partial<CharacterBaseCombatStats>;
   progression?: Partial<PlayerProgression>;
+  weaponModifiers?: Partial<WeaponStatModifiers>;
 }
 
 interface CharacterProgressionUpdate {
@@ -155,6 +164,11 @@ export interface RealtimeSession {
   characterBaseAttackRange: number | null;
   characterRawMaxHealth: number | null;
   characterRawBaseDamage: number | null;
+  characterRawBaseAttackSpeedMs: number | null;
+  characterRawBaseAttackRange: number | null;
+  characterWeaponDamageFlat: number | null;
+  characterWeaponRangeFlat: number | null;
+  characterWeaponSpeedPercent: number | null;
   characterLevel: number | null;
   characterXp: number | null;
   characterXpToNextLevel: number | null;
@@ -314,6 +328,52 @@ function resolveProgression(
   };
 }
 
+function resolveWeaponModifiers(
+  partialModifiers?: Partial<WeaponStatModifiers>,
+): WeaponStatModifiers {
+  return normalizeWeaponStatModifiers(partialModifiers);
+}
+
+function computeEffectiveCombatStatsForLevel(
+  baseStats: CharacterBaseCombatStats,
+  level: number,
+  weaponModifiers: WeaponStatModifiers,
+): Pick<
+  PlayerCombatStats,
+  "maxHealth" | "baseDamage" | "baseAttackSpeedMs" | "baseAttackRange"
+> {
+  const scaledBase = computeLevelScaledCombatStats(baseStats, level);
+  const effective = applyWeaponModifiersToCombatStats(
+    {
+      baseDamage: scaledBase.baseDamage,
+      baseAttackRange: scaledBase.baseAttackRange,
+      baseAttackSpeedMs: scaledBase.baseAttackSpeedMs,
+    },
+    weaponModifiers,
+  );
+
+  return {
+    maxHealth: scaledBase.maxHp,
+    baseDamage: effective.baseDamage,
+    baseAttackSpeedMs: effective.baseAttackSpeedMs,
+    baseAttackRange: effective.baseAttackRange,
+  };
+}
+
+function recalculateNextAttackAtMs(
+  previousNextAttackAtMs: number,
+  previousAttackSpeedMs: number,
+  nextAttackSpeedMs: number,
+  now: number,
+): number {
+  if (previousNextAttackAtMs <= now) {
+    return previousNextAttackAtMs;
+  }
+
+  const previousAttackAtMs = previousNextAttackAtMs - previousAttackSpeedMs;
+  return Math.max(now, previousAttackAtMs + nextAttackSpeedMs);
+}
+
 class WorldInstance {
   readonly worldId: string;
   readonly map: WorldMap;
@@ -382,6 +442,7 @@ class WorldInstance {
     combatStats: Partial<PlayerCombatStats>,
     baseStats: Partial<CharacterBaseCombatStats>,
     progression: Partial<PlayerProgression>,
+    weaponModifiers?: Partial<WeaponStatModifiers>,
     spawnOverride?: Vector2,
   ): PlayerState {
     const fallbackSpawn = findSpawnPoint(this.map, this.map.playerSpawnId) ??
@@ -389,18 +450,20 @@ class WorldInstance {
     const spawn = spawnOverride ?? fallbackSpawn;
     const resolvedBaseStats = resolveBaseStats(characterClass, baseStats);
     const resolvedProgression = resolveProgression(progression);
-    const scaledBaseStats = computeLevelScaledCombatStats(
+    const resolvedWeaponModifiers = resolveWeaponModifiers(weaponModifiers);
+    const effectiveCombatStats = computeEffectiveCombatStatsForLevel(
       resolvedBaseStats,
       resolvedProgression.level,
+      resolvedWeaponModifiers,
     );
     const resolvedCombat = resolveCombatStats(characterClass, {
-      maxHealth: combatStats.maxHealth ?? scaledBaseStats.maxHp,
+      maxHealth: combatStats.maxHealth ?? effectiveCombatStats.maxHealth,
       currentHealth: combatStats.currentHealth ?? combatStats.maxHealth,
-      baseDamage: combatStats.baseDamage ?? scaledBaseStats.baseDamage,
+      baseDamage: combatStats.baseDamage ?? effectiveCombatStats.baseDamage,
       baseAttackSpeedMs:
-        combatStats.baseAttackSpeedMs ?? scaledBaseStats.baseAttackSpeedMs,
+        combatStats.baseAttackSpeedMs ?? effectiveCombatStats.baseAttackSpeedMs,
       baseAttackRange:
-        combatStats.baseAttackRange ?? scaledBaseStats.baseAttackRange,
+        combatStats.baseAttackRange ?? effectiveCombatStats.baseAttackRange,
     });
 
     const player: PlayerState = {
@@ -420,6 +483,11 @@ class WorldInstance {
       baseAttackRange: resolvedCombat.baseAttackRange,
       rawMaxHealth: resolvedBaseStats.maxHp,
       rawBaseDamage: resolvedBaseStats.baseDamage,
+      rawBaseAttackSpeedMs: resolvedBaseStats.baseAttackSpeedMs,
+      rawBaseAttackRange: resolvedBaseStats.baseAttackRange,
+      weaponDamageFlat: resolvedWeaponModifiers.damageFlat,
+      weaponRangeFlat: resolvedWeaponModifiers.rangeFlat,
+      weaponSpeedPercent: resolvedWeaponModifiers.speedPercent,
       level: resolvedProgression.level,
       xp: resolvedProgression.xp,
       nextAttackAtMs: 0,
@@ -566,6 +634,47 @@ class WorldInstance {
     }
 
     this.spawnPlayerProjectile(player, direction);
+  }
+
+  updatePlayerWeaponModifiers(
+    characterId: string,
+    connectionId: string,
+    modifiers: WeaponStatModifiers,
+  ): PlayerState | null {
+    const player = this.players.get(characterId);
+    if (!player || player.connectionId !== connectionId) {
+      return null;
+    }
+
+    const safeModifiers = resolveWeaponModifiers(modifiers);
+    const previousAttackSpeedMs = player.baseAttackSpeedMs;
+    const previousNextAttackAtMs = player.nextAttackAtMs;
+    player.weaponDamageFlat = safeModifiers.damageFlat;
+    player.weaponRangeFlat = safeModifiers.rangeFlat;
+    player.weaponSpeedPercent = safeModifiers.speedPercent;
+
+    const effectiveStats = computeEffectiveCombatStatsForLevel(
+      {
+        maxHp: player.rawMaxHealth,
+        baseDamage: player.rawBaseDamage,
+        baseAttackSpeedMs: player.rawBaseAttackSpeedMs,
+        baseAttackRange: player.rawBaseAttackRange,
+      },
+      player.level,
+      safeModifiers,
+    );
+
+    player.baseDamage = effectiveStats.baseDamage;
+    player.baseAttackSpeedMs = effectiveStats.baseAttackSpeedMs;
+    player.baseAttackRange = effectiveStats.baseAttackRange;
+    player.nextAttackAtMs = recalculateNextAttackAtMs(
+      previousNextAttackAtMs,
+      previousAttackSpeedMs,
+      player.baseAttackSpeedMs,
+      Date.now(),
+    );
+
+    return player;
   }
 
   broadcast(
@@ -1073,18 +1182,25 @@ class WorldInstance {
     player.xp = nextProgression.xp;
 
     if (levelChanged) {
-      const scaledStats = computeLevelScaledCombatStats(
+      const scaledStats = computeEffectiveCombatStatsForLevel(
         {
           maxHp: player.rawMaxHealth,
           baseDamage: player.rawBaseDamage,
-          baseAttackSpeedMs: player.baseAttackSpeedMs,
-          baseAttackRange: player.baseAttackRange,
+          baseAttackSpeedMs: player.rawBaseAttackSpeedMs,
+          baseAttackRange: player.rawBaseAttackRange,
         },
         player.level,
+        {
+          damageFlat: player.weaponDamageFlat,
+          rangeFlat: player.weaponRangeFlat,
+          speedPercent: player.weaponSpeedPercent,
+        },
       );
-      player.maxHealth = scaledStats.maxHp;
+      player.maxHealth = scaledStats.maxHealth;
       player.currentHealth = player.maxHealth;
       player.baseDamage = scaledStats.baseDamage;
+      player.baseAttackSpeedMs = scaledStats.baseAttackSpeedMs;
+      player.baseAttackRange = scaledStats.baseAttackRange;
 
       this.emitFloatingText(
         player.socket,
@@ -1132,6 +1248,22 @@ class WorldInstance {
     player.socket.data.session.characterCurrentHealth = player.currentHealth;
     player.socket.data.session.characterMaxHealth = player.maxHealth;
     player.socket.data.session.characterBaseDamage = player.baseDamage;
+    player.socket.data.session.characterBaseAttackSpeedMs =
+      player.baseAttackSpeedMs;
+    player.socket.data.session.characterBaseAttackRange =
+      player.baseAttackRange;
+    player.socket.data.session.characterRawMaxHealth = player.rawMaxHealth;
+    player.socket.data.session.characterRawBaseDamage = player.rawBaseDamage;
+    player.socket.data.session.characterRawBaseAttackSpeedMs =
+      player.rawBaseAttackSpeedMs;
+    player.socket.data.session.characterRawBaseAttackRange =
+      player.rawBaseAttackRange;
+    player.socket.data.session.characterWeaponDamageFlat =
+      player.weaponDamageFlat;
+    player.socket.data.session.characterWeaponRangeFlat =
+      player.weaponRangeFlat;
+    player.socket.data.session.characterWeaponSpeedPercent =
+      player.weaponSpeedPercent;
     player.socket.data.session.characterLevel = player.level;
     player.socket.data.session.characterXp = player.xp;
     player.socket.data.session.characterXpToNextLevel = xpToNextLevel;
@@ -1330,6 +1462,11 @@ export class WorldManager {
         characterBaseAttackRange: null,
         characterRawMaxHealth: null,
         characterRawBaseDamage: null,
+        characterRawBaseAttackSpeedMs: null,
+        characterRawBaseAttackRange: null,
+        characterWeaponDamageFlat: null,
+        characterWeaponRangeFlat: null,
+        characterWeaponSpeedPercent: null,
         characterLevel: null,
         characterXp: null,
         characterXpToNextLevel: null,
@@ -1376,13 +1513,19 @@ export class WorldManager {
         maxHp: socket.data.session.characterRawMaxHealth ?? undefined,
         baseDamage: socket.data.session.characterRawBaseDamage ?? undefined,
         baseAttackSpeedMs:
-          socket.data.session.characterBaseAttackSpeedMs ?? undefined,
+          socket.data.session.characterRawBaseAttackSpeedMs ?? undefined,
         baseAttackRange:
-          socket.data.session.characterBaseAttackRange ?? undefined,
+          socket.data.session.characterRawBaseAttackRange ?? undefined,
       },
       options?.progression ?? {
         level: socket.data.session.characterLevel ?? undefined,
         xp: socket.data.session.characterXp ?? undefined,
+      },
+      options?.weaponModifiers ?? {
+        damageFlat: socket.data.session.characterWeaponDamageFlat ?? undefined,
+        rangeFlat: socket.data.session.characterWeaponRangeFlat ?? undefined,
+        speedPercent:
+          socket.data.session.characterWeaponSpeedPercent ?? undefined,
       },
       options?.spawnOverride,
     );
@@ -1399,6 +1542,12 @@ export class WorldManager {
     socket.data.session.characterBaseAttackRange = player.baseAttackRange;
     socket.data.session.characterRawMaxHealth = player.rawMaxHealth;
     socket.data.session.characterRawBaseDamage = player.rawBaseDamage;
+    socket.data.session.characterRawBaseAttackSpeedMs =
+      player.rawBaseAttackSpeedMs;
+    socket.data.session.characterRawBaseAttackRange = player.rawBaseAttackRange;
+    socket.data.session.characterWeaponDamageFlat = player.weaponDamageFlat;
+    socket.data.session.characterWeaponRangeFlat = player.weaponRangeFlat;
+    socket.data.session.characterWeaponSpeedPercent = player.weaponSpeedPercent;
     socket.data.session.characterLevel = player.level;
     socket.data.session.characterXp = player.xp;
     socket.data.session.characterXpToNextLevel = getXpToNextLevelForLevel(
@@ -1449,6 +1598,14 @@ export class WorldManager {
       socket.data.session.characterBaseAttackRange = removed.baseAttackRange;
       socket.data.session.characterRawMaxHealth = removed.rawMaxHealth;
       socket.data.session.characterRawBaseDamage = removed.rawBaseDamage;
+      socket.data.session.characterRawBaseAttackSpeedMs =
+        removed.rawBaseAttackSpeedMs;
+      socket.data.session.characterRawBaseAttackRange =
+        removed.rawBaseAttackRange;
+      socket.data.session.characterWeaponDamageFlat = removed.weaponDamageFlat;
+      socket.data.session.characterWeaponRangeFlat = removed.weaponRangeFlat;
+      socket.data.session.characterWeaponSpeedPercent =
+        removed.weaponSpeedPercent;
       socket.data.session.characterLevel = removed.level;
       socket.data.session.characterXp = removed.xp;
       socket.data.session.characterXpToNextLevel = getXpToNextLevelForLevel(
@@ -1501,34 +1658,38 @@ export class WorldManager {
     instance.applyAttack(characterId, connectionId, message);
   }
 
-  acknowledgeDrop(
+  updatePlayerWeaponModifiers(
     socket: ServerWebSocket<RealtimeSocketData>,
-    message: Extract<ClientToServerMessage, { type: "inventory.drop" }>,
+    modifiers: Partial<WeaponStatModifiers>,
   ): void {
-    if (
-      !Number.isSafeInteger(message.payload.quantity) ||
-      message.payload.quantity <= 0 ||
-      message.payload.itemId.trim().length === 0 ||
-      !Number.isFinite(message.payload.position.x) ||
-      !Number.isFinite(message.payload.position.y)
-    ) {
-      socket.send(
-        stringifyServerMessage({
-          type: "error",
-          error: "Invalid drop payload.",
-        }),
-      );
+    const normalized = resolveWeaponModifiers(modifiers);
+    const { connectionId, characterId, worldId } = socket.data.session;
+
+    socket.data.session.characterWeaponDamageFlat = normalized.damageFlat;
+    socket.data.session.characterWeaponRangeFlat = normalized.rangeFlat;
+    socket.data.session.characterWeaponSpeedPercent = normalized.speedPercent;
+
+    if (!characterId || !worldId) {
       return;
     }
 
-    socket.send(
-      stringifyServerMessage({
-        type: "inventory.drop.ack",
-        itemId: message.payload.itemId,
-        quantity: message.payload.quantity,
-        position: message.payload.position,
-      }),
+    const instance = this.instances.get(worldId);
+    if (!instance) {
+      return;
+    }
+
+    const updated = instance.updatePlayerWeaponModifiers(
+      characterId,
+      connectionId,
+      normalized,
     );
+    if (!updated) {
+      return;
+    }
+
+    socket.data.session.characterBaseDamage = updated.baseDamage;
+    socket.data.session.characterBaseAttackSpeedMs = updated.baseAttackSpeedMs;
+    socket.data.session.characterBaseAttackRange = updated.baseAttackRange;
   }
 
   private getOrCreate(worldId: string): WorldInstance | null {
@@ -1572,6 +1733,11 @@ export class WorldManager {
       characterBaseAttackRange,
       characterRawMaxHealth,
       characterRawBaseDamage,
+      characterRawBaseAttackSpeedMs,
+      characterRawBaseAttackRange,
+      characterWeaponDamageFlat,
+      characterWeaponRangeFlat,
+      characterWeaponSpeedPercent,
       characterLevel,
       characterXp,
     } = socket.data.session;
@@ -1624,12 +1790,17 @@ export class WorldManager {
         baseStats: {
           maxHp: characterRawMaxHealth ?? undefined,
           baseDamage: characterRawBaseDamage ?? undefined,
-          baseAttackSpeedMs: characterBaseAttackSpeedMs ?? undefined,
-          baseAttackRange: characterBaseAttackRange ?? undefined,
+          baseAttackSpeedMs: characterRawBaseAttackSpeedMs ?? undefined,
+          baseAttackRange: characterRawBaseAttackRange ?? undefined,
         },
         progression: {
           level: characterLevel ?? undefined,
           xp: characterXp ?? undefined,
+        },
+        weaponModifiers: {
+          damageFlat: characterWeaponDamageFlat ?? undefined,
+          rangeFlat: characterWeaponRangeFlat ?? undefined,
+          speedPercent: characterWeaponSpeedPercent ?? undefined,
         },
         spawnOverride: {
           x: targetSpawn.x + portal.exitOffset.x,
@@ -1650,10 +1821,13 @@ export class WorldManager {
       characterClass,
       characterColorHex,
       characterMaxHealth,
-      characterBaseAttackSpeedMs,
-      characterBaseAttackRange,
       characterRawMaxHealth,
       characterRawBaseDamage,
+      characterRawBaseAttackSpeedMs,
+      characterRawBaseAttackRange,
+      characterWeaponDamageFlat,
+      characterWeaponRangeFlat,
+      characterWeaponSpeedPercent,
       characterLevel,
       characterXp,
     } = socket.data.session;
@@ -1683,19 +1857,24 @@ export class WorldManager {
       baseAttackSpeedMs: Math.max(
         1,
         Math.floor(
-          characterBaseAttackSpeedMs ?? classDefaults.baseAttackSpeedMs,
+          characterRawBaseAttackSpeedMs ?? classDefaults.baseAttackSpeedMs,
         ),
       ),
       baseAttackRange: Math.max(
         1,
-        characterBaseAttackRange ?? classDefaults.baseAttackRange,
+        characterRawBaseAttackRange ?? classDefaults.baseAttackRange,
       ),
     };
-    const scaledStats = computeLevelScaledCombatStats(
+    const scaledStats = computeEffectiveCombatStatsForLevel(
       baseStats,
       normalizedProgression.level,
+      resolveWeaponModifiers({
+        damageFlat: characterWeaponDamageFlat ?? undefined,
+        rangeFlat: characterWeaponRangeFlat ?? undefined,
+        speedPercent: characterWeaponSpeedPercent ?? undefined,
+      }),
     );
-    const maxHealth = Math.max(1, characterMaxHealth ?? scaledStats.maxHp);
+    const maxHealth = Math.max(1, characterMaxHealth ?? scaledStats.maxHealth);
     socket.data.session.characterCurrentHealth = maxHealth;
 
     socket.send(
@@ -1737,6 +1916,11 @@ export class WorldManager {
         progression: {
           level: normalizedProgression.level,
           xp: normalizedProgression.xp,
+        },
+        weaponModifiers: {
+          damageFlat: characterWeaponDamageFlat ?? undefined,
+          rangeFlat: characterWeaponRangeFlat ?? undefined,
+          speedPercent: characterWeaponSpeedPercent ?? undefined,
         },
       },
     );

@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Iron Broadsword">
+  <defs>
+    <linearGradient id="blade" x1="0%" x2="100%" y1="0%" y2="100%">
+      <stop offset="0%" stop-color="#f3f7ff" />
+      <stop offset="100%" stop-color="#8ba2c7" />
+    </linearGradient>
+    <linearGradient id="guard" x1="0%" x2="100%" y1="0%" y2="0%">
+      <stop offset="0%" stop-color="#9f7b37" />
+      <stop offset="100%" stop-color="#d7b56a" />
+    </linearGradient>
+  </defs>
+  <rect x="27" y="5" width="10" height="34" rx="2" fill="url(#blade)" />
+  <polygon points="32,1 38,8 26,8" fill="#ecf3ff" />
+  <rect x="19" y="37" width="26" height="7" rx="2" fill="url(#guard)" />
+  <rect x="28" y="44" width="8" height="14" rx="2" fill="#5b4324" />
+  <circle cx="32" cy="59" r="3" fill="#c8a55b" />
+</svg>

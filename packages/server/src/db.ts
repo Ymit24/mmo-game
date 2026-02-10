@@ -76,6 +76,9 @@ export function bootstrapDatabase(db: Database): void {
     ON characters (user_id, updated_at DESC);
   `);
   ensureCharacterProgressionColumns(db);
+  ensureItemDefinitionsTable(db);
+  ensureCharacterInventoryTable(db);
+  ensureItemDefinitionSeeds(db);
   db.exec(`
     CREATE TABLE IF NOT EXISTS enemy_archetypes (
       id TEXT PRIMARY KEY,
@@ -173,7 +176,7 @@ function ensureEnemyArchetypeSeeds(db: Database): void {
     "Stone Golem",
     6,
     70,
-    220,
+    250,
     18,
     95,
     240,
@@ -217,7 +220,7 @@ function ensureEnemyArchetypeSeeds(db: Database): void {
     "Ember Mantis",
     5,
     54,
-    150,
+    180,
     16,
     170,
     320,
@@ -239,7 +242,7 @@ function ensureEnemyArchetypeSeeds(db: Database): void {
     "Iron Reaver",
     9,
     120,
-    290,
+    320,
     24,
     120,
     300,
@@ -261,7 +264,7 @@ function ensureEnemyArchetypeSeeds(db: Database): void {
     "Dusk Harrier",
     10,
     148,
-    210,
+    400,
     26,
     195,
     380,
@@ -283,7 +286,7 @@ function ensureEnemyArchetypeSeeds(db: Database): void {
     "Void Acolyte",
     12,
     210,
-    320,
+    480,
     32,
     150,
     340,
@@ -305,7 +308,7 @@ function ensureEnemyArchetypeSeeds(db: Database): void {
     "Rune Guardian",
     13,
     248,
-    380,
+    550,
     34,
     128,
     320,
@@ -327,7 +330,7 @@ function ensureEnemyArchetypeSeeds(db: Database): void {
     "Warden Colossus",
     14,
     292,
-    470,
+    650,
     38,
     112,
     320,
@@ -349,7 +352,7 @@ function ensureEnemyArchetypeSeeds(db: Database): void {
     "Storm Archon",
     15,
     340,
-    420,
+    800,
     42,
     178,
     420,
@@ -407,6 +410,194 @@ function ensureCharacterProgressionColumns(db: Database): void {
       "ALTER TABLE characters ADD COLUMN xp INTEGER NOT NULL DEFAULT 0 CHECK (xp >= 0);",
     );
   }
+}
+
+function ensureItemDefinitionsTable(db: Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS item_definitions (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      icon_key TEXT NOT NULL,
+      type TEXT NOT NULL CHECK (type IN ('weapon', 'armor', 'potion', 'misc')),
+      class_requirement TEXT CHECK (class_requirement IS NULL OR class_requirement IN ('knight', 'mage')),
+      min_level_to_equip INTEGER CHECK (min_level_to_equip IS NULL OR min_level_to_equip >= 1),
+      weapon_damage_flat REAL,
+      weapon_range_flat REAL,
+      weapon_speed_percent REAL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+}
+
+function ensureCharacterInventoryTable(db: Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS character_inventory (
+      id TEXT PRIMARY KEY,
+      character_id TEXT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+      item_definition_id TEXT NOT NULL REFERENCES item_definitions(id),
+      slot_kind TEXT NOT NULL CHECK (slot_kind IN ('bag', 'weapon', 'armor')),
+      slot_index INTEGER,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      CHECK (
+        (slot_kind = 'bag' AND slot_index IS NOT NULL AND slot_index >= 0 AND slot_index < 9)
+        OR
+        (slot_kind IN ('weapon', 'armor') AND slot_index IS NULL)
+      )
+    );
+  `);
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_character_inventory_character_id
+    ON character_inventory (character_id);
+  `);
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_character_inventory_bag_slot_unique
+    ON character_inventory (character_id, slot_index)
+    WHERE slot_kind = 'bag';
+  `);
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_character_inventory_weapon_slot_unique
+    ON character_inventory (character_id)
+    WHERE slot_kind = 'weapon';
+  `);
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_character_inventory_armor_slot_unique
+    ON character_inventory (character_id)
+    WHERE slot_kind = 'armor';
+  `);
+}
+
+function ensureItemDefinitionSeeds(db: Database): void {
+  const timestamp = new Date().toISOString();
+  const statement = db.query(
+    `INSERT OR IGNORE INTO item_definitions (
+      id,
+      name,
+      icon_key,
+      type,
+      class_requirement,
+      min_level_to_equip,
+      weapon_damage_flat,
+      weapon_range_flat,
+      weapon_speed_percent,
+      created_at,
+      updated_at
+    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
+  );
+
+  statement.run(
+    "training_sword",
+    "Training Sword",
+    "training_sword",
+    "weapon",
+    "knight",
+    1,
+    10,
+    8,
+    5,
+    timestamp,
+    timestamp,
+  );
+
+  statement.run(
+    "training_wand",
+    "Training Wand",
+    "training_wand",
+    "weapon",
+    "mage",
+    1,
+    8,
+    24,
+    7,
+    timestamp,
+    timestamp,
+  );
+
+  statement.run(
+    "iron_broadsword",
+    "Iron Broadsword",
+    "iron_broadsword",
+    "weapon",
+    "knight",
+    5,
+    28,
+    12,
+    8,
+    timestamp,
+    timestamp,
+  );
+
+  statement.run(
+    "runed_greatsword",
+    "Runed Greatsword",
+    "runed_greatsword",
+    "weapon",
+    "knight",
+    10,
+    55,
+    18,
+    12,
+    timestamp,
+    timestamp,
+  );
+
+  statement.run(
+    "adept_focus_wand",
+    "Adept Focus Wand",
+    "adept_focus_wand",
+    "weapon",
+    "mage",
+    5,
+    22,
+    42,
+    10,
+    timestamp,
+    timestamp,
+  );
+
+  statement.run(
+    "stormweave_rod",
+    "Stormweave Rod",
+    "stormweave_rod",
+    "weapon",
+    "mage",
+    10,
+    45,
+    70,
+    14,
+    timestamp,
+    timestamp,
+  );
+
+  statement.run(
+    "arcane_scepter",
+    "Arcane Scepter",
+    "arcane_scepter",
+    "weapon",
+    "mage",
+    15,
+    65,
+    85,
+    12,
+    timestamp,
+    timestamp,
+  );
+
+  statement.run(
+    "dragonbone_blade",
+    "Dragonbone Blade",
+    "dragonbone_blade",
+    "weapon",
+    "knight",
+    15,
+    80,
+    22,
+    10,
+    timestamp,
+    timestamp,
+  );
 }
 
 function ensureEnemyArchetypeProgressionColumns(db: Database): void {

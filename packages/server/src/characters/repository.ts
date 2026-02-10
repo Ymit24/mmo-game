@@ -7,6 +7,7 @@ import {
   normalizeCharacterProgress,
   normalizeNickname,
 } from "@mmo/shared";
+import { grantStarterInventoryForCharacter } from "../inventory/repository";
 
 interface CharacterRow {
   id: string;
@@ -186,6 +187,8 @@ function insertCharacter(
     timestamp,
     timestamp,
   );
+
+  grantStarterInventoryForCharacter(db, input.id, input.class, timestamp);
 
   setLastUsedCharacterIdForUser(db, input.userId, input.id);
   return {

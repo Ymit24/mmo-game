@@ -73,6 +73,97 @@ describe("database bootstrap", () => {
     db.close();
   });
 
+  test("creates item definition and character inventory tables", () => {
+    const db = createDatabase(":memory:");
+
+    const itemColumns = db
+      .query<{ name: string }, []>("PRAGMA table_info(item_definitions);")
+      .all()
+      .map((column) => column.name);
+    expect(itemColumns).toContain("id");
+    expect(itemColumns).toContain("icon_key");
+    expect(itemColumns).toContain("class_requirement");
+    expect(itemColumns).toContain("weapon_speed_percent");
+
+    const inventoryColumns = db
+      .query<{ name: string }, []>("PRAGMA table_info(character_inventory);")
+      .all()
+      .map((column) => column.name);
+    expect(inventoryColumns).toContain("character_id");
+    expect(inventoryColumns).toContain("item_definition_id");
+    expect(inventoryColumns).toContain("slot_kind");
+    expect(inventoryColumns).toContain("slot_index");
+    db.close();
+  });
+
+  test("seeds starter and progression weapons", () => {
+    const db = createDatabase(":memory:");
+
+    const items = db
+      .query<
+        {
+          id: string;
+          type: string;
+          class_requirement: string | null;
+          min_level_to_equip: number | null;
+        },
+        []
+      >(
+        `SELECT id, type, class_requirement, min_level_to_equip
+         FROM item_definitions
+         WHERE id IN (
+           'training_sword',
+           'training_wand',
+           'iron_broadsword',
+           'runed_greatsword',
+           'adept_focus_wand',
+           'stormweave_rod'
+         )
+         ORDER BY id ASC`,
+      )
+      .all();
+
+    expect(items).toEqual([
+      {
+        id: "adept_focus_wand",
+        type: "weapon",
+        class_requirement: "mage",
+        min_level_to_equip: 5,
+      },
+      {
+        id: "iron_broadsword",
+        type: "weapon",
+        class_requirement: "knight",
+        min_level_to_equip: 5,
+      },
+      {
+        id: "runed_greatsword",
+        type: "weapon",
+        class_requirement: "knight",
+        min_level_to_equip: 10,
+      },
+      {
+        id: "stormweave_rod",
+        type: "weapon",
+        class_requirement: "mage",
+        min_level_to_equip: 10,
+      },
+      {
+        id: "training_sword",
+        type: "weapon",
+        class_requirement: "knight",
+        min_level_to_equip: 1,
+      },
+      {
+        id: "training_wand",
+        type: "weapon",
+        class_requirement: "mage",
+        min_level_to_equip: 1,
+      },
+    ]);
+    db.close();
+  });
+
   test("enemy archetype table exposes level and xp reward columns", () => {
     const db = createDatabase(":memory:");
 
