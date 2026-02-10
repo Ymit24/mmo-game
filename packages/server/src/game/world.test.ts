@@ -782,7 +782,7 @@ describe("world manager", () => {
   test("world snapshots include spawned enemies for worlds with spawners", async () => {
     const archetypes = new Map<string, EnemyArchetype>([
       ["slime_scout", createTestArchetype("slime_scout")],
-      ["stone_golem", createTestArchetype("stone_golem")],
+      ["briar_wolf", createTestArchetype("briar_wolf")],
     ]);
     const manager = new WorldManager(
       (archetypeId) => archetypes.get(archetypeId) ?? null,
@@ -820,8 +820,8 @@ describe("world manager", () => {
           createTestArchetype("slime_scout", { detectionRadius: 1 }),
         ],
         [
-          "stone_golem",
-          createTestArchetype("stone_golem", { detectionRadius: 1 }),
+          "briar_wolf",
+          createTestArchetype("briar_wolf", { detectionRadius: 1 }),
         ],
       ]);
       const manager = new WorldManager(
@@ -870,8 +870,8 @@ describe("world manager", () => {
           }),
         ],
         [
-          "stone_golem",
-          createTestArchetype("stone_golem", {
+          "briar_wolf",
+          createTestArchetype("briar_wolf", {
             detectionRadius: 1,
             leashRadius: 1,
           }),
@@ -934,7 +934,7 @@ describe("world manager", () => {
     try {
       const archetypes = new Map<string, EnemyArchetype>([
         ["slime_scout", createTestArchetype("slime_scout", { speed: 160 })],
-        ["stone_golem", createTestArchetype("stone_golem", { speed: 160 })],
+        ["briar_wolf", createTestArchetype("briar_wolf", { speed: 160 })],
       ]);
       const manager = new WorldManager(
         (archetypeId) => archetypes.get(archetypeId) ?? null,
@@ -981,8 +981,8 @@ describe("world manager", () => {
           }),
         ],
         [
-          "stone_golem",
-          createTestArchetype("stone_golem", {
+          "briar_wolf",
+          createTestArchetype("briar_wolf", {
             detectionRadius: 1,
             leashRadius: 1,
             visualWidth: 40,
@@ -1060,8 +1060,8 @@ describe("world manager", () => {
           }),
         ],
         [
-          "stone_golem",
-          createTestArchetype("stone_golem", {
+          "briar_wolf",
+          createTestArchetype("briar_wolf", {
             detectionRadius: 1,
             leashRadius: 1,
           }),
@@ -1264,8 +1264,8 @@ describe("world manager", () => {
           }),
         ],
         [
-          "stone_golem",
-          createTestArchetype("stone_golem", {
+          "briar_wolf",
+          createTestArchetype("briar_wolf", {
             detectionRadius: 1,
             leashRadius: 1,
           }),
@@ -1344,8 +1344,8 @@ describe("world manager", () => {
           }),
         ],
         [
-          "stone_golem",
-          createTestArchetype("stone_golem", {
+          "briar_wolf",
+          createTestArchetype("briar_wolf", {
             detectionRadius: 1,
             leashRadius: 1,
           }),
@@ -1457,8 +1457,8 @@ describe("world manager", () => {
           }),
         ],
         [
-          "stone_golem",
-          createTestArchetype("stone_golem", {
+          "briar_wolf",
+          createTestArchetype("briar_wolf", {
             detectionRadius: 1,
             leashRadius: 1,
           }),
