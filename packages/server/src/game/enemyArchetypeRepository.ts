@@ -4,6 +4,8 @@ import type { EnemyArchetype } from "@mmo/shared";
 interface EnemyArchetypeRow {
   id: string;
   name: string;
+  level: number;
+  xp_reward: number;
   max_health: number;
   damage: number;
   speed: number;
@@ -23,6 +25,8 @@ function mapEnemyArchetype(row: EnemyArchetypeRow): EnemyArchetype {
   return {
     id: row.id,
     name: row.name,
+    level: row.level,
+    xpReward: row.xp_reward,
     maxHealth: row.max_health,
     damage: row.damage,
     speed: row.speed,
@@ -48,6 +52,8 @@ export function findEnemyArchetypeById(
       `SELECT
          id,
          name,
+         level,
+         xp_reward,
          max_health,
          damage,
          speed,

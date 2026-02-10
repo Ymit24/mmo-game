@@ -12,6 +12,8 @@ export type EnemyBehaviorState = (typeof ENEMY_BEHAVIOR_STATES)[number];
 export interface EnemyArchetype {
   id: string;
   name: string;
+  level: number;
+  xpReward: number;
   maxHealth: number;
   damage: number;
   speed: number;

@@ -1,6 +1,7 @@
 import {
   type ClientToServerMessage,
   type CollisionShape,
+  type CombatFloatingTextVariant,
   DEFAULT_WORLD_ID,
   type EnemySnapshot,
   PLAYER_COLLIDER_SIZE,
@@ -137,6 +138,7 @@ class HubScene extends Phaser.Scene {
   private pendingInputs: PendingInput[] = [];
   private inputLocked = true;
   private conflictRetryCount = 0;
+  private floatingTextSerial = 0;
   private currentMap: WorldMap;
   private mapBackgroundGraphics: Phaser.GameObjects.Graphics | null = null;
   private mapOverlayGraphics: Phaser.GameObjects.Graphics | null = null;
@@ -240,6 +242,9 @@ class HubScene extends Phaser.Scene {
       projectiles: [],
       localHealthCurrent: null,
       localHealthMax: null,
+      localLevel: null,
+      localXp: null,
+      localXpToNextLevel: null,
       lastCombatDeniedReason: null,
     });
 
@@ -533,6 +538,9 @@ class HubScene extends Phaser.Scene {
           localPlayerId: message.characterId,
           localHealthCurrent: message.currentHealth,
           localHealthMax: message.maxHealth,
+          localLevel: message.level,
+          localXp: message.xp,
+          localXpToNextLevel: message.xpToNextLevel,
           lastCombatDeniedReason: null,
         });
         this.inputLocked = false;
@@ -718,6 +726,32 @@ class HubScene extends Phaser.Scene {
       case "combat.playerDied":
         this.bridge.updateState({
           lastMessage: "You were defeated. Respawning...",
+        });
+        return;
+
+      case "combat.floatingText":
+        this.spawnCombatFloatingText(
+          message.position.x,
+          message.position.y,
+          message.text,
+          message.variant,
+        );
+        return;
+
+      case "progression.updated":
+        this.bridge.updateState({
+          localLevel: message.level,
+          localXp: message.xp,
+          localXpToNextLevel: message.xpToNextLevel,
+          localHealthMax: message.maxHealth,
+          localHealthCurrent: Math.min(
+            message.maxHealth,
+            message.currentHealth,
+          ),
+          lastMessage:
+            message.xpToNextLevel === null
+              ? `Level ${message.level} (max) reached`
+              : `Level ${message.level} • ${message.xp}/${message.xpToNextLevel} XP`,
         });
         return;
 
@@ -1134,6 +1168,167 @@ class HubScene extends Phaser.Scene {
     });
   }
 
+  private spawnCombatFloatingText(
+    x: number,
+    y: number,
+    text: string,
+    variant: CombatFloatingTextVariant,
+  ): void {
+    const serial = this.floatingTextSerial++;
+    const lane = (serial % 3) - 1;
+    const jitterX = Phaser.Math.Between(-8, 8);
+    const startX = Math.round(x + lane * 18 + jitterX);
+    const startY = Math.round(y - 44 - (serial % 2) * 8);
+
+    const styleByVariant: Record<
+      CombatFloatingTextVariant,
+      {
+        color: string;
+        glowColor: string;
+        stroke: string;
+        fontSize: string;
+        driftY: number;
+        duration: number;
+        holdMs: number;
+        scaleTo: number;
+        shake: number;
+      }
+    > = {
+      damage_enemy: {
+        color: "#fde68a",
+        glowColor: "#f59e0b",
+        stroke: "#261500",
+        fontSize: "24px",
+        driftY: 98,
+        duration: 1_260,
+        holdMs: 130,
+        scaleTo: 1.34,
+        shake: 0.0012,
+      },
+      damage_player: {
+        color: "#fecdd3",
+        glowColor: "#fb7185",
+        stroke: "#3f0a18",
+        fontSize: "24px",
+        driftY: 96,
+        duration: 1_300,
+        holdMs: 140,
+        scaleTo: 1.3,
+        shake: 0.0014,
+      },
+      xp_gain: {
+        color: "#ccfbf1",
+        glowColor: "#22d3ee",
+        stroke: "#05303c",
+        fontSize: "26px",
+        driftY: 120,
+        duration: 1_520,
+        holdMs: 180,
+        scaleTo: 1.38,
+        shake: 0.0016,
+      },
+      level_up: {
+        color: "#fff7cf",
+        glowColor: "#fbbf24",
+        stroke: "#4a2f00",
+        fontSize: "38px",
+        driftY: 160,
+        duration: 2_150,
+        holdMs: 260,
+        scaleTo: 1.55,
+        shake: 0.0032,
+      },
+    };
+
+    const style = styleByVariant[variant];
+    const glowText = this.add
+      .text(startX, startY, text, {
+        fontFamily: "Chakra Petch",
+        fontSize: style.fontSize,
+        color: style.glowColor,
+        stroke: style.glowColor,
+        strokeThickness: 8,
+      })
+      .setOrigin(0.5, 0.5)
+      .setDepth(138)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setAlpha(0.34)
+      .setScale(0.62);
+    const floatingText = this.add
+      .text(startX, startY, text, {
+        fontFamily: "Chakra Petch",
+        fontSize: style.fontSize,
+        color: style.color,
+        stroke: style.stroke,
+        strokeThickness: 3,
+      })
+      .setOrigin(0.5, 0.5)
+      .setDepth(140)
+      .setShadow(0, 0, style.glowColor, 12, false, true)
+      .setScale(0.62)
+      .setAlpha(0.98);
+
+    this.tweens.add({
+      targets: [floatingText, glowText],
+      y: startY - style.driftY,
+      alpha: 0,
+      scaleX: style.scaleTo,
+      scaleY: style.scaleTo,
+      delay: style.holdMs,
+      duration: style.duration,
+      ease: variant === "level_up" ? "Back.Out" : "Cubic.Out",
+      onComplete: () => {
+        glowText.destroy();
+        floatingText.destroy();
+      },
+    });
+
+    const burst = this.add
+      .circle(startX, startY + 6, 16, hexToNumber(style.glowColor), 0.36)
+      .setDepth(137)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({
+      targets: burst,
+      alpha: 0,
+      scaleX: variant === "level_up" ? 3.4 : 2.5,
+      scaleY: variant === "level_up" ? 3.4 : 2.5,
+      duration: variant === "level_up" ? 700 : 420,
+      ease: "Cubic.Out",
+      onComplete: () => {
+        burst.destroy();
+      },
+    });
+
+    this.cameras.main.shake(
+      variant === "level_up" ? 210 : 90,
+      style.shake,
+      true,
+    );
+
+    if (variant === "level_up" || variant === "xp_gain") {
+      const burst = this.add
+        .circle(
+          startX,
+          startY - 2,
+          variant === "level_up" ? 20 : 14,
+          0xffffff,
+          0.22,
+        )
+        .setDepth(29);
+      this.tweens.add({
+        targets: burst,
+        alpha: 0,
+        scaleX: variant === "level_up" ? 3.9 : 2.7,
+        scaleY: variant === "level_up" ? 3.9 : 2.7,
+        duration: variant === "level_up" ? 800 : 520,
+        ease: "Cubic.Out",
+        onComplete: () => {
+          burst.destroy();
+        },
+      });
+    }
+  }
+
   private authenticate(forceTakeover: boolean): void {
     this.sendMessage({
       type: "auth.hello",
@@ -1174,6 +1369,9 @@ class HubScene extends Phaser.Scene {
       projectiles: [],
       localHealthCurrent: null,
       localHealthMax: null,
+      localLevel: null,
+      localXp: null,
+      localXpToNextLevel: null,
       lastCombatDeniedReason: null,
     });
   }

@@ -1,3 +1,5 @@
+import citadelDeltaMapJson from "../maps/citadel-delta.json";
+import frontierGammaMapJson from "../maps/frontier-gamma.json";
 import hubAlphaMapJson from "../maps/hub-alpha.json";
 import wildsBetaMapJson from "../maps/wilds-beta.json";
 
@@ -14,9 +16,21 @@ export const WILDS_BETA_MAP: WorldMap = parseWorldMap(
   "wilds-beta.json",
 );
 
+export const FRONTIER_GAMMA_MAP: WorldMap = parseWorldMap(
+  frontierGammaMapJson,
+  "frontier-gamma.json",
+);
+
+export const CITADEL_DELTA_MAP: WorldMap = parseWorldMap(
+  citadelDeltaMapJson,
+  "citadel-delta.json",
+);
+
 export const WORLD_MAPS_BY_ID = new Map<string, WorldMap>([
   [HUB_ALPHA_MAP.id, HUB_ALPHA_MAP],
   [WILDS_BETA_MAP.id, WILDS_BETA_MAP],
+  [FRONTIER_GAMMA_MAP.id, FRONTIER_GAMMA_MAP],
+  [CITADEL_DELTA_MAP.id, CITADEL_DELTA_MAP],
 ]);
 
 export const DEFAULT_WORLD_ID = HUB_ALPHA_MAP.id;

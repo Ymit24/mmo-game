@@ -4,6 +4,7 @@ import {
   type CharacterSummary,
   MAX_CHARACTERS_PER_ACCOUNT,
   getCharacterClassBaseCombatStats,
+  normalizeCharacterProgress,
   normalizeNickname,
 } from "@mmo/shared";
 
@@ -11,6 +12,8 @@ interface CharacterRow {
   id: string;
   nickname: string;
   class: CharacterClass;
+  level: number;
+  xp: number;
   created_at: string;
   updated_at: string;
 }
@@ -31,6 +34,9 @@ export interface CharacterRecord {
   userId: string;
   nickname: string;
   class: CharacterClass;
+  level: number;
+  xp: number;
+  xpToNextLevel: number | null;
   maxHp: number;
   baseDamage: number;
   baseAttackSpeedMs: number;
@@ -48,11 +54,15 @@ interface CharacterRecordRow extends CharacterRow {
 }
 
 function mapCharacterRecord(row: CharacterRecordRow): CharacterRecord {
+  const normalizedProgress = normalizeCharacterProgress(row.level, row.xp);
   return {
     id: row.id,
     userId: row.user_id,
     nickname: row.nickname,
     class: row.class,
+    level: normalizedProgress.level,
+    xp: normalizedProgress.xp,
+    xpToNextLevel: normalizedProgress.xpToNextLevel,
     maxHp: row.max_hp,
     baseDamage: row.base_damage,
     baseAttackSpeedMs: row.base_attack_speed_ms,
@@ -66,10 +76,14 @@ function mapCharacterSummary(
   row: CharacterRow,
   lastUsedCharacterId: string | null,
 ): CharacterSummary {
+  const normalizedProgress = normalizeCharacterProgress(row.level, row.xp);
   return {
     id: row.id,
     nickname: row.nickname,
     class: row.class,
+    level: normalizedProgress.level,
+    xp: normalizedProgress.xp,
+    xpToNextLevel: normalizedProgress.xpToNextLevel,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     isLastUsed: row.id === lastUsedCharacterId,
@@ -88,6 +102,8 @@ export function findCharacterByIdForUser(
          user_id,
          nickname,
          class,
+         level,
+         xp,
          max_hp,
          base_damage,
          base_attack_speed_ms,
@@ -109,7 +125,7 @@ export function listCharactersForUser(
   const lastUsedCharacterId = getLastUsedCharacterIdForUser(db, userId);
   const rows = db
     .query<CharacterRow, [string]>(
-      `SELECT id, nickname, class, created_at, updated_at
+      `SELECT id, nickname, class, level, xp, created_at, updated_at
        FROM characters
        WHERE user_id = ?1
        ORDER BY updated_at DESC`,
@@ -146,19 +162,23 @@ function insertCharacter(
       nickname,
       nickname_normalized,
       class,
+      level,
+      xp,
       max_hp,
       base_damage,
       base_attack_speed_ms,
       base_attack_range,
       created_at,
       updated_at
-    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
+    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)`,
   ).run(
     input.id,
     input.userId,
     nickname,
     normalizedNickname,
     input.class,
+    1,
+    0,
     baseStats.maxHp,
     baseStats.baseDamage,
     baseStats.baseAttackSpeedMs,
@@ -172,6 +192,9 @@ function insertCharacter(
     id: input.id,
     nickname,
     class: input.class,
+    level: 1,
+    xp: 0,
+    xpToNextLevel: normalizeCharacterProgress(1, 0).xpToNextLevel,
     createdAt: timestamp,
     updatedAt: timestamp,
     isLastUsed: true,
@@ -233,6 +256,38 @@ export function deleteCharacterForUser(
 
 export function canCreateCharacter(db: Database, userId: string): boolean {
   return countCharactersForUser(db, userId) < MAX_CHARACTERS_PER_ACCOUNT;
+}
+
+export function updateCharacterProgressForUser(
+  db: Database,
+  userId: string,
+  characterId: string,
+  level: number,
+  xp: number,
+): CharacterRecord | null {
+  const normalizedProgress = normalizeCharacterProgress(level, xp);
+  const timestamp = new Date().toISOString();
+  const result = db
+    .query(
+      `UPDATE characters
+       SET level = ?3,
+           xp = ?4,
+           updated_at = ?5
+       WHERE user_id = ?1 AND id = ?2`,
+    )
+    .run(
+      userId,
+      characterId,
+      normalizedProgress.level,
+      normalizedProgress.xp,
+      timestamp,
+    ) as { changes?: number };
+
+  if (!result.changes) {
+    return null;
+  }
+
+  return findCharacterByIdForUser(db, userId, characterId);
 }
 
 export function getLastUsedCharacterIdForUser(

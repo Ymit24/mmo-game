@@ -78,12 +78,18 @@ describe("character routes", () => {
         nickname: string;
         class: string;
         isLastUsed: boolean;
+        level: number;
+        xp: number;
+        xpToNextLevel: number | null;
       }>;
     };
     expect(body.characters).toHaveLength(1);
     expect(body.characters[0]?.nickname).toBe("AlphaOne");
     expect(body.characters[0]?.class).toBe("knight");
     expect(body.characters[0]?.isLastUsed).toBe(true);
+    expect(body.characters[0]?.level).toBe(1);
+    expect(body.characters[0]?.xp).toBe(0);
+    expect(body.characters[0]?.xpToNextLevel).not.toBeNull();
   });
 
   test("enforces per-account nickname uniqueness", async () => {
