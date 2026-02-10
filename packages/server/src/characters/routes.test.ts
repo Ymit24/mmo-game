@@ -347,14 +347,14 @@ describe("character routes", () => {
       {
         nickname: "StarterKnight",
         item_definition_id: "training_sword",
-        slot_kind: "bag",
-        slot_index: 0,
+        slot_kind: "weapon",
+        slot_index: null,
       },
       {
         nickname: "StarterMage",
         item_definition_id: "training_wand",
-        slot_kind: "bag",
-        slot_index: 0,
+        slot_kind: "weapon",
+        slot_index: null,
       },
     ]);
   });

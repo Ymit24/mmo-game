@@ -486,7 +486,7 @@ export function grantStarterInventoryForCharacter(
        slot_index,
        created_at,
        updated_at
-     ) VALUES (?1, ?2, ?3, 'bag', 0, ?4, ?5)`,
+     ) VALUES (?1, ?2, ?3, 'weapon', NULL, ?4, ?5)`,
   ).run(crypto.randomUUID(), characterId, starterItemId, timestamp, timestamp);
 }
 

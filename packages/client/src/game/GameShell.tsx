@@ -29,6 +29,13 @@ function slotRefLabel(slot: InventorySlotRef): string {
   return slot.slot === "weapon" ? "Weapon" : "Armor";
 }
 
+function slotRefKey(slot: InventorySlotRef): string {
+  if (slot.kind === "bag") {
+    return `bag:${slot.index}`;
+  }
+  return `equip:${slot.slot}`;
+}
+
 function encodeSlotRef(slot: InventorySlotRef): string {
   return JSON.stringify(slot);
 }
@@ -79,6 +86,9 @@ export function GameShell({ characterId }: GameShellProps) {
 
   const [uiState, setUiState] = useState<GameBridgeState>(() =>
     bridge.getState(),
+  );
+  const [activeDropSlotKey, setActiveDropSlotKey] = useState<string | null>(
+    null,
   );
 
   useEffect(() => {
@@ -140,6 +150,7 @@ export function GameShell({ characterId }: GameShellProps) {
     event: DragEvent<HTMLButtonElement>,
     from: InventorySlotRef,
   ): void {
+    setActiveDropSlotKey(null);
     const encoded = encodeSlotRef(from);
     event.dataTransfer.setData(DRAG_SLOT_MIME, encoded);
     event.dataTransfer.setData("text/plain", encoded);
@@ -151,6 +162,7 @@ export function GameShell({ characterId }: GameShellProps) {
     to: InventorySlotRef,
   ): void {
     event.preventDefault();
+    setActiveDropSlotKey(null);
     const from = getDraggedSlot(event);
     if (!from) {
       return;
@@ -159,8 +171,26 @@ export function GameShell({ characterId }: GameShellProps) {
     bridge.requestInventoryMove({ from, to });
   }
 
+  function onSlotDragOver(
+    event: DragEvent<HTMLElement>,
+    to: InventorySlotRef,
+  ): void {
+    event.preventDefault();
+    setActiveDropSlotKey(slotRefKey(to));
+  }
+
+  function onSlotDragLeave(to: InventorySlotRef): void {
+    const key = slotRefKey(to);
+    setActiveDropSlotKey((current) => (current === key ? null : current));
+  }
+
+  function onSlotDragEnd(): void {
+    setActiveDropSlotKey(null);
+  }
+
   function onGroundDrop(event: DragEvent<HTMLDivElement>): void {
     event.preventDefault();
+    setActiveDropSlotKey(null);
     const from = getDraggedSlot(event);
     if (!from) {
       return;
@@ -328,6 +358,7 @@ export function GameShell({ characterId }: GameShellProps) {
                     kind: "equip",
                     slot: equipSlot,
                   };
+                  const key = slotRefKey(slotRef);
                   const instance = equipSlots[equipSlot];
                   const definition = instance
                     ? (definitions[instance.itemDefinitionId] ?? null)
@@ -351,9 +382,15 @@ export function GameShell({ characterId }: GameShellProps) {
                           }
                           onSlotDragStart(event, slotRef);
                         }}
-                        onDragOver={(event) => event.preventDefault()}
+                        onDragEnd={onSlotDragEnd}
+                        onDragOver={(event) => onSlotDragOver(event, slotRef)}
+                        onDragLeave={() => onSlotDragLeave(slotRef)}
                         onDrop={(event) => onSlotDrop(event, slotRef)}
-                        className="flex h-20 w-full items-center gap-2 rounded border border-border bg-deep/80 px-2 text-left hover:border-amber/60"
+                        className={`flex h-20 w-full items-center gap-2 rounded border bg-deep/80 px-2 text-left ${
+                          activeDropSlotKey === key
+                            ? "border-amber/80"
+                            : "border-border"
+                        }`}
                       >
                         {instance && definition ? (
                           <>
@@ -394,6 +431,7 @@ export function GameShell({ characterId }: GameShellProps) {
                     kind: "bag",
                     index,
                   };
+                  const key = slotRefKey(slotRef);
                   const definition = instance
                     ? (definitions[instance.itemDefinitionId] ?? null)
                     : null;
@@ -413,9 +451,15 @@ export function GameShell({ characterId }: GameShellProps) {
                         }
                         onSlotDragStart(event, slotRef);
                       }}
-                      onDragOver={(event) => event.preventDefault()}
+                      onDragEnd={onSlotDragEnd}
+                      onDragOver={(event) => onSlotDragOver(event, slotRef)}
+                      onDragLeave={() => onSlotDragLeave(slotRef)}
                       onDrop={(event) => onSlotDrop(event, slotRef)}
-                      className="flex h-24 flex-col items-center justify-center rounded border border-border bg-deep px-2 text-center hover:border-amber/60"
+                      className={`flex h-24 flex-col items-center justify-center rounded border bg-deep px-2 text-center ${
+                        activeDropSlotKey === key
+                          ? "border-amber/80"
+                          : "border-border"
+                      }`}
                     >
                       {instance && definition ? (
                         <>
@@ -457,11 +501,6 @@ export function GameShell({ characterId }: GameShellProps) {
                   {uiState.inventoryError}
                 </p>
               ) : null}
-
-              <p className="mt-2 min-h-5 text-xs text-muted">
-                {uiState.lastMessage ??
-                  `Move items between ${slotRefLabel({ kind: "bag", index: 0 })}..${slotRefLabel({ kind: "bag", index: 8 })}`}
-              </p>
             </aside>
           </div>
 
