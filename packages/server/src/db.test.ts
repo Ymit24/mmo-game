@@ -86,6 +86,112 @@ describe("database bootstrap", () => {
     db.close();
   });
 
+  test("backfills enemy archetype progression values for legacy rows", () => {
+    const db = createDatabase(":memory:");
+    db.exec("DROP TABLE enemy_archetypes;");
+    db.exec(`
+      CREATE TABLE enemy_archetypes (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        max_health REAL NOT NULL CHECK (max_health > 0),
+        damage REAL NOT NULL CHECK (damage >= 0),
+        speed REAL NOT NULL CHECK (speed > 0),
+        detection_radius REAL NOT NULL CHECK (detection_radius > 0),
+        leash_radius REAL NOT NULL CHECK (leash_radius > 0),
+        attack_speed_ms INTEGER NOT NULL CHECK (attack_speed_ms > 0),
+        melee_range REAL NOT NULL CHECK (melee_range > 0),
+        ranged_range REAL NOT NULL CHECK (ranged_range > 0),
+        can_melee INTEGER NOT NULL CHECK (can_melee IN (0, 1)),
+        can_ranged INTEGER NOT NULL CHECK (can_ranged IN (0, 1)),
+        visual_width REAL NOT NULL CHECK (visual_width > 0),
+        visual_height REAL NOT NULL CHECK (visual_height > 0),
+        color_hex TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        CHECK (can_melee = 1 OR can_ranged = 1)
+      );
+    `);
+
+    const timestamp = new Date().toISOString();
+    const insertLegacy = db.query(
+      `INSERT INTO enemy_archetypes (
+        id,
+        name,
+        max_health,
+        damage,
+        speed,
+        detection_radius,
+        leash_radius,
+        attack_speed_ms,
+        melee_range,
+        ranged_range,
+        can_melee,
+        can_ranged,
+        visual_width,
+        visual_height,
+        color_hex,
+        created_at,
+        updated_at
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)`,
+    );
+
+    insertLegacy.run(
+      "slime_scout",
+      "Slime Scout",
+      60,
+      8,
+      130,
+      280,
+      420,
+      900,
+      42,
+      220,
+      1,
+      0,
+      34,
+      24,
+      "#22d3ee",
+      timestamp,
+      timestamp,
+    );
+    insertLegacy.run(
+      "stone_golem",
+      "Stone Golem",
+      220,
+      18,
+      95,
+      240,
+      380,
+      1400,
+      42,
+      220,
+      1,
+      0,
+      46,
+      46,
+      "#a3a3a3",
+      timestamp,
+      timestamp,
+    );
+
+    bootstrapDatabase(db);
+
+    const rows = db
+      .query<{ id: string; level: number; xp_reward: number }, []>(
+        `SELECT id, level, xp_reward
+         FROM enemy_archetypes
+         WHERE id IN ('slime_scout', 'stone_golem')
+         ORDER BY id ASC`,
+      )
+      .all();
+
+    expect(rows).toEqual([
+      { id: "slime_scout", level: 1, xp_reward: 16 },
+      { id: "stone_golem", level: 6, xp_reward: 70 },
+    ]);
+    db.close();
+  });
+
   test("seeds level progression rows for levels 1 through 60", () => {
     const db = createDatabase(":memory:");
 

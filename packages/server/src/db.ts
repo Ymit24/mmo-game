@@ -3,6 +3,19 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { MAX_CHARACTER_LEVEL, getLevelProgressionTable } from "@mmo/shared";
 
+const ENEMY_ARCHETYPE_PROGRESSION_SEEDS = [
+  { id: "slime_scout", level: 1, xpReward: 16 },
+  { id: "stone_golem", level: 6, xpReward: 70 },
+  { id: "briar_wolf", level: 4, xpReward: 42 },
+  { id: "ember_mantis", level: 5, xpReward: 54 },
+  { id: "iron_reaver", level: 9, xpReward: 120 },
+  { id: "dusk_harrier", level: 10, xpReward: 148 },
+  { id: "void_acolyte", level: 12, xpReward: 210 },
+  { id: "rune_guardian", level: 13, xpReward: 248 },
+  { id: "warden_colossus", level: 14, xpReward: 292 },
+  { id: "storm_archon", level: 15, xpReward: 340 },
+] as const;
+
 function ensureDatabaseDirectory(dbPath: string): void {
   if (dbPath === ":memory:" || dbPath.startsWith("file:")) {
     return;
@@ -89,6 +102,7 @@ export function bootstrapDatabase(db: Database): void {
   `);
   ensureEnemyArchetypeRangeColumns(db);
   ensureEnemyArchetypeProgressionColumns(db);
+  backfillLegacyEnemyArchetypeProgression(db);
   ensureLevelProgressionTable(db);
   ensureLevelProgressionSeed(db);
   ensureEnemyArchetypeSeeds(db);
@@ -412,6 +426,21 @@ function ensureEnemyArchetypeProgressionColumns(db: Database): void {
     db.exec(
       "ALTER TABLE enemy_archetypes ADD COLUMN xp_reward INTEGER NOT NULL DEFAULT 10 CHECK (xp_reward >= 0);",
     );
+  }
+}
+
+function backfillLegacyEnemyArchetypeProgression(db: Database): void {
+  const statement = db.query(
+    `UPDATE enemy_archetypes
+     SET level = ?2,
+         xp_reward = ?3
+     WHERE id = ?1
+       AND level = 1
+       AND xp_reward = 10`,
+  );
+
+  for (const row of ENEMY_ARCHETYPE_PROGRESSION_SEEDS) {
+    statement.run(row.id, row.level, row.xpReward);
   }
 }
 
