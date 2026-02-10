@@ -1,5 +1,11 @@
 import { type CharacterClass, isCharacterClass } from "../characters";
 import type { EnemyBehaviorState, EnemySnapshot } from "../enemies";
+import {
+  type InventoryActionErrorCode,
+  type InventorySlotRef,
+  type InventoryStatePayload,
+  isInventorySlotRef,
+} from "../items";
 
 export interface Vector2 {
   x: number;
@@ -42,9 +48,13 @@ export interface WorldSnapshotPayload {
   projectiles: ProjectileSnapshot[];
 }
 
+export interface InventoryMovePayload {
+  from: InventorySlotRef;
+  to: InventorySlotRef;
+}
+
 export interface InventoryDropPayload {
-  itemId: string;
-  quantity: number;
+  from: InventorySlotRef;
   position: Vector2;
 }
 
@@ -74,6 +84,10 @@ export type ClientToServerMessage =
   | {
       type: "player.attack";
       aim: Vector2;
+    }
+  | {
+      type: "inventory.move";
+      payload: InventoryMovePayload;
     }
   | {
       type: "inventory.drop";
@@ -165,10 +179,25 @@ export type ServerToClientMessage =
       baseDamage: number;
     }
   | {
+      type: "inventory.state";
+      state: InventoryStatePayload;
+    }
+  | {
+      type: "inventory.moved";
+      from: InventorySlotRef;
+      to: InventorySlotRef;
+      state: InventoryStatePayload;
+    }
+  | {
       type: "inventory.drop.ack";
-      itemId: string;
-      quantity: number;
-      position: Vector2;
+      from: InventorySlotRef;
+      removedItemInstanceId: string;
+      state: InventoryStatePayload;
+    }
+  | {
+      type: "inventory.actionRejected";
+      code: InventoryActionErrorCode;
+      message: string;
     }
   | {
       type: "error";
@@ -390,16 +419,30 @@ export function parseClientMessage(raw: string): ClientToServerMessage | null {
         aim: parsed.aim,
       };
 
-    case "inventory.drop": {
+    case "inventory.move": {
       const payload = parsed.payload;
-      const quantity = isObject(payload) ? payload.quantity : undefined;
       if (
         !isObject(payload) ||
-        typeof payload.itemId !== "string" ||
-        typeof quantity !== "number" ||
-        !Number.isSafeInteger(quantity) ||
-        quantity < 1 ||
-        quantity > 9_999 ||
+        !isInventorySlotRef(payload.from) ||
+        !isInventorySlotRef(payload.to)
+      ) {
+        return null;
+      }
+
+      return {
+        type: "inventory.move",
+        payload: {
+          from: payload.from,
+          to: payload.to,
+        },
+      };
+    }
+
+    case "inventory.drop": {
+      const payload = parsed.payload;
+      if (
+        !isObject(payload) ||
+        !isInventorySlotRef(payload.from) ||
         !isVector2(payload.position)
       ) {
         return null;
@@ -408,8 +451,7 @@ export function parseClientMessage(raw: string): ClientToServerMessage | null {
       return {
         type: "inventory.drop",
         payload: {
-          itemId: payload.itemId,
-          quantity,
+          from: payload.from,
           position: payload.position,
         },
       };

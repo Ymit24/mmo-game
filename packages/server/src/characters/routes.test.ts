@@ -300,4 +300,62 @@ describe("character routes", () => {
       base_attack_range: 360,
     });
   });
+
+  test("assigns class starter weapon into first inventory slot", async () => {
+    const token = await signupAndGetToken(app, "player7@example.com");
+
+    const knightResponse = await app.fetch(
+      createJsonRequest("/characters", "POST", token, {
+        nickname: "StarterKnight",
+        class: "knight",
+      }),
+    );
+    expect(knightResponse.status).toBe(201);
+
+    const mageResponse = await app.fetch(
+      createJsonRequest("/characters", "POST", token, {
+        nickname: "StarterMage",
+        class: "mage",
+      }),
+    );
+    expect(mageResponse.status).toBe(201);
+
+    const rows = app.db
+      .query<
+        {
+          nickname: string;
+          item_definition_id: string;
+          slot_kind: string;
+          slot_index: number | null;
+        },
+        []
+      >(
+        `SELECT
+           c.nickname,
+           i.item_definition_id,
+           i.slot_kind,
+           i.slot_index
+         FROM character_inventory i
+         INNER JOIN characters c
+           ON c.id = i.character_id
+         WHERE c.nickname IN ('StarterKnight', 'StarterMage')
+         ORDER BY c.nickname ASC`,
+      )
+      .all();
+
+    expect(rows).toEqual([
+      {
+        nickname: "StarterKnight",
+        item_definition_id: "training_sword",
+        slot_kind: "bag",
+        slot_index: 0,
+      },
+      {
+        nickname: "StarterMage",
+        item_definition_id: "training_wand",
+        slot_kind: "bag",
+        slot_index: 0,
+      },
+    ]);
+  });
 });

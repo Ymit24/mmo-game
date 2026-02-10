@@ -1,23 +1,73 @@
+import {
+  type EquipSlot,
+  INVENTORY_BAG_SLOT_COUNT,
+  type InventorySlotRef,
+} from "@mmo/shared";
 import { type DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthContext";
 import { type GameBridgeState, createGameBridge } from "./bridge";
+import { resolveItemIconUrl } from "./itemIconMap";
 import { mountGameRuntime } from "./phaser/runtime";
-
-interface InventoryItem {
-  id: string;
-  label: string;
-  quantity: number;
-}
-
-const INVENTORY_SEED: InventoryItem[] = [
-  { id: "health_potion", label: "Health Potion", quantity: 3 },
-  { id: "mana_cube", label: "Mana Cube", quantity: 2 },
-];
 
 interface GameShellProps {
   characterId: string;
+}
+
+const DRAG_SLOT_MIME = "application/x.mmo.inventory-slot";
+
+const EMPTY_EQUIP_SLOTS: Record<EquipSlot, null> = {
+  weapon: null,
+  armor: null,
+};
+
+function slotRefLabel(slot: InventorySlotRef): string {
+  if (slot.kind === "bag") {
+    return `Slot ${slot.index + 1}`;
+  }
+  return slot.slot === "weapon" ? "Weapon" : "Armor";
+}
+
+function encodeSlotRef(slot: InventorySlotRef): string {
+  return JSON.stringify(slot);
+}
+
+function decodeSlotRef(raw: string): InventorySlotRef | null {
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as InventorySlotRef;
+    if (parsed.kind === "bag") {
+      if (
+        Number.isSafeInteger(parsed.index) &&
+        parsed.index >= 0 &&
+        parsed.index < INVENTORY_BAG_SLOT_COUNT
+      ) {
+        return parsed;
+      }
+      return null;
+    }
+    if (
+      parsed.kind === "equip" &&
+      (parsed.slot === "weapon" || parsed.slot === "armor")
+    ) {
+      return parsed;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function getDraggedSlot(
+  event: DragEvent<HTMLElement>,
+): InventorySlotRef | null {
+  const custom = event.dataTransfer.getData(DRAG_SLOT_MIME);
+  const fallback = event.dataTransfer.getData("text/plain");
+  return decodeSlotRef(custom || fallback);
 }
 
 export function GameShell({ characterId }: GameShellProps) {
@@ -30,7 +80,6 @@ export function GameShell({ characterId }: GameShellProps) {
   const [uiState, setUiState] = useState<GameBridgeState>(() =>
     bridge.getState(),
   );
-  const [inventory, setInventory] = useState<InventoryItem[]>(INVENTORY_SEED);
 
   useEffect(() => {
     return bridge.subscribe((nextState) => {
@@ -77,46 +126,47 @@ export function GameShell({ characterId }: GameShellProps) {
       ? 1
       : Math.max(0, Math.min(1, localXp / xpToNextLevel));
 
+  const bagSlots =
+    uiState.inventory?.bagSlots ??
+    Array.from({ length: INVENTORY_BAG_SLOT_COUNT }, () => null);
+  const equipSlots = uiState.inventory?.equipSlots ?? EMPTY_EQUIP_SLOTS;
+  const definitions = uiState.inventory?.definitions ?? {};
+
   function reconnect(): void {
     window.location.reload();
   }
 
-  function handleDropToGround(itemId: string): void {
-    setInventory((prev) =>
-      prev
-        .map((item) =>
-          item.id === itemId
-            ? {
-                ...item,
-                quantity: Math.max(0, item.quantity - 1),
-              }
-            : item,
-        )
-        .filter((item) => item.quantity > 0),
-    );
-
-    bridge.requestDrop({
-      itemId,
-      quantity: 1,
-    });
+  function onSlotDragStart(
+    event: DragEvent<HTMLButtonElement>,
+    from: InventorySlotRef,
+  ): void {
+    const encoded = encodeSlotRef(from);
+    event.dataTransfer.setData(DRAG_SLOT_MIME, encoded);
+    event.dataTransfer.setData("text/plain", encoded);
+    event.dataTransfer.effectAllowed = "move";
   }
 
-  function onInventoryDragStart(
-    event: DragEvent<HTMLButtonElement>,
-    itemId: string,
+  function onSlotDrop(
+    event: DragEvent<HTMLElement>,
+    to: InventorySlotRef,
   ): void {
-    event.dataTransfer.setData("text/plain", itemId);
-    event.dataTransfer.effectAllowed = "move";
+    event.preventDefault();
+    const from = getDraggedSlot(event);
+    if (!from) {
+      return;
+    }
+
+    bridge.requestInventoryMove({ from, to });
   }
 
   function onGroundDrop(event: DragEvent<HTMLDivElement>): void {
     event.preventDefault();
-    const itemId = event.dataTransfer.getData("text/plain");
-    if (!itemId) {
+    const from = getDraggedSlot(event);
+    if (!from) {
       return;
     }
 
-    handleDropToGround(itemId);
+    bridge.requestInventoryDrop({ from });
   }
 
   return (
@@ -263,29 +313,135 @@ export function GameShell({ characterId }: GameShellProps) {
             </aside>
 
             <aside className="pointer-events-auto rounded-lg border border-border/80 bg-abyss/85 p-3 backdrop-blur-sm">
-              <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.2em] text-cyan">
-                Inventory
-              </p>
-              <div className="grid gap-2">
-                {inventory.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    draggable
-                    onDragStart={(event) =>
-                      onInventoryDragStart(event, item.id)
-                    }
-                    onClick={() => handleDropToGround(item.id)}
-                    className="flex items-center justify-between rounded border border-border bg-deep px-3 py-2 text-left hover:border-amber/60"
-                  >
-                    <span className="text-sm text-text-bright">
-                      {item.label}
-                    </span>
-                    <span className="font-mono text-xs text-muted">
-                      x{item.quantity}
-                    </span>
-                  </button>
-                ))}
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-cyan">
+                  Inventory
+                </p>
+                <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted">
+                  9 slots
+                </span>
+              </div>
+
+              <div className="mb-3 grid grid-cols-2 gap-2">
+                {(["weapon", "armor"] as const).map((equipSlot) => {
+                  const slotRef: InventorySlotRef = {
+                    kind: "equip",
+                    slot: equipSlot,
+                  };
+                  const instance = equipSlots[equipSlot];
+                  const definition = instance
+                    ? (definitions[instance.itemDefinitionId] ?? null)
+                    : null;
+                  const iconUrl = definition
+                    ? resolveItemIconUrl(definition.iconKey)
+                    : null;
+
+                  return (
+                    <div key={equipSlot}>
+                      <p className="mb-1 font-mono text-[10px] uppercase tracking-[0.14em] text-muted">
+                        {equipSlot}
+                      </p>
+                      <button
+                        type="button"
+                        aria-label={`${slotRefLabel(slotRef)} Slot${definition ? `: ${definition.name}` : ""}`}
+                        draggable={!!instance}
+                        onDragStart={(event) => {
+                          if (!instance) {
+                            return;
+                          }
+                          onSlotDragStart(event, slotRef);
+                        }}
+                        onDragOver={(event) => event.preventDefault()}
+                        onDrop={(event) => onSlotDrop(event, slotRef)}
+                        className="flex h-20 w-full items-center gap-2 rounded border border-border bg-deep/80 px-2 text-left hover:border-amber/60"
+                      >
+                        {instance && definition ? (
+                          <>
+                            {iconUrl ? (
+                              <img
+                                src={iconUrl}
+                                alt={definition.name}
+                                className="h-10 w-10 rounded border border-border/70 bg-void/60 p-1"
+                              />
+                            ) : (
+                              <span className="flex h-10 w-10 items-center justify-center rounded border border-border/70 bg-void/60 font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
+                                icon
+                              </span>
+                            )}
+                            <span className="min-w-0">
+                              <span className="block truncate text-xs text-text-bright">
+                                {definition.name}
+                              </span>
+                              <span className="block text-[10px] uppercase tracking-[0.12em] text-muted">
+                                {definition.type}
+                              </span>
+                            </span>
+                          </>
+                        ) : (
+                          <span className="w-full text-center font-mono text-[10px] uppercase tracking-[0.14em] text-muted">
+                            Empty {equipSlot}
+                          </span>
+                        )}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                {bagSlots.map((instance, index) => {
+                  const slotRef: InventorySlotRef = {
+                    kind: "bag",
+                    index,
+                  };
+                  const definition = instance
+                    ? (definitions[instance.itemDefinitionId] ?? null)
+                    : null;
+                  const iconUrl = definition
+                    ? resolveItemIconUrl(definition.iconKey)
+                    : null;
+
+                  return (
+                    <button
+                      key={`bag-slot-${index + 1}`}
+                      type="button"
+                      aria-label={`Bag Slot ${index + 1}${definition ? `: ${definition.name}` : ""}`}
+                      draggable={!!instance}
+                      onDragStart={(event) => {
+                        if (!instance) {
+                          return;
+                        }
+                        onSlotDragStart(event, slotRef);
+                      }}
+                      onDragOver={(event) => event.preventDefault()}
+                      onDrop={(event) => onSlotDrop(event, slotRef)}
+                      className="flex h-24 flex-col items-center justify-center rounded border border-border bg-deep px-2 text-center hover:border-amber/60"
+                    >
+                      {instance && definition ? (
+                        <>
+                          {iconUrl ? (
+                            <img
+                              src={iconUrl}
+                              alt={definition.name}
+                              className="h-9 w-9 rounded border border-border/70 bg-void/60 p-1"
+                            />
+                          ) : (
+                            <span className="flex h-9 w-9 items-center justify-center rounded border border-border/70 bg-void/60 font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
+                              icon
+                            </span>
+                          )}
+                          <span className="mt-1 line-clamp-2 text-[10px] leading-tight text-text-bright">
+                            {definition.name}
+                          </span>
+                        </>
+                      ) : (
+                        <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted">
+                          {index + 1}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
 
               <div
@@ -293,11 +449,18 @@ export function GameShell({ characterId }: GameShellProps) {
                 onDrop={onGroundDrop}
                 className="mt-3 rounded border border-dashed border-amber/60 bg-void/40 px-3 py-4 text-center text-xs text-amber"
               >
-                Drag item here to drop on ground at cursor
+                Drag an item here to drop it on the ground
               </div>
 
+              {uiState.inventoryError ? (
+                <p className="mt-2 rounded border border-danger/40 bg-danger/10 px-2 py-1 text-xs text-danger">
+                  {uiState.inventoryError}
+                </p>
+              ) : null}
+
               <p className="mt-2 min-h-5 text-xs text-muted">
-                {uiState.lastMessage ?? "No events yet."}
+                {uiState.lastMessage ??
+                  `Move items between ${slotRefLabel({ kind: "bag", index: 0 })}..${slotRefLabel({ kind: "bag", index: 8 })}`}
               </p>
             </aside>
           </div>

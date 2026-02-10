@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Training Wand">
+  <defs>
+    <radialGradient id="orb" cx="50%" cy="45%" r="55%">
+      <stop offset="0%" stop-color="#bff8ff" />
+      <stop offset="100%" stop-color="#4bc7de" />
+    </radialGradient>
+    <linearGradient id="shaft" x1="0%" x2="100%" y1="0%" y2="100%">
+      <stop offset="0%" stop-color="#7b4b27" />
+      <stop offset="100%" stop-color="#4a2f18" />
+    </linearGradient>
+  </defs>
+  <rect x="29" y="16" width="6" height="36" rx="3" fill="url(#shaft)" />
+  <circle cx="32" cy="13" r="9" fill="url(#orb)" />
+  <circle cx="32" cy="13" r="4" fill="#ecfeff" opacity="0.8" />
+  <path d="M32 2l2.2 4.6L39 9l-4.8 2.4L32 16l-2.2-4.6L25 9l4.8-2.4z" fill="#e8fdff" opacity="0.7" />
+</svg>

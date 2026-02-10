@@ -1,5 +1,7 @@
 import type { Database } from "bun:sqlite";
 import {
+  type InventoryActionErrorCode,
+  applyWeaponModifiersToCombatStats,
   computeLevelScaledCombatStats,
   getCharacterClassColorHex,
   parseClientMessage,
@@ -14,6 +16,12 @@ import {
   updateCharacterProgressForUser,
 } from "../characters/repository";
 import type { ServerConfig } from "../config";
+import {
+  dropInventoryItem,
+  getWeaponModifiersFromInventoryState,
+  loadInventoryStateForCharacter,
+  moveInventoryItem,
+} from "../inventory/repository";
 import { findEnemyArchetypeById } from "./enemyArchetypeRepository";
 import { WorldManager } from "./world";
 import type { RealtimeSocketData } from "./world";
@@ -36,6 +44,20 @@ function sendError(
   error: string,
 ): void {
   socket.send(stringifyServerMessage({ type: "error", error }));
+}
+
+function sendInventoryActionRejected(
+  socket: ServerWebSocket<RealtimeSocketData>,
+  code: InventoryActionErrorCode,
+  message: string,
+): void {
+  socket.send(
+    stringifyServerMessage({
+      type: "inventory.actionRejected",
+      code,
+      message,
+    }),
+  );
 }
 
 export function createRealtimeGateway(
@@ -197,6 +219,12 @@ export function createRealtimeGateway(
             }
 
             const previousCharacterId = socket.data.session.characterId;
+            const inventoryState = loadInventoryStateForCharacter(
+              db,
+              character.id,
+            );
+            const weaponModifiers =
+              getWeaponModifiersFromInventoryState(inventoryState);
             socket.data.session.characterId = character.id;
             socket.data.session.characterNickname = character.nickname;
             socket.data.session.characterClass = character.class;
@@ -205,12 +233,22 @@ export function createRealtimeGateway(
             );
             socket.data.session.characterRawMaxHealth = character.maxHp;
             socket.data.session.characterRawBaseDamage = character.baseDamage;
+            socket.data.session.characterRawBaseAttackSpeedMs =
+              character.baseAttackSpeedMs;
+            socket.data.session.characterRawBaseAttackRange =
+              character.baseAttackRange;
+            socket.data.session.characterWeaponDamageFlat =
+              weaponModifiers.damageFlat;
+            socket.data.session.characterWeaponRangeFlat =
+              weaponModifiers.rangeFlat;
+            socket.data.session.characterWeaponSpeedPercent =
+              weaponModifiers.speedPercent;
             socket.data.session.characterLevel = character.level;
             socket.data.session.characterXp = character.xp;
             socket.data.session.characterXpToNextLevel =
               character.xpToNextLevel;
 
-            const scaledStats = computeLevelScaledCombatStats(
+            const scaledBaseStats = computeLevelScaledCombatStats(
               {
                 maxHp: character.maxHp,
                 baseDamage: character.baseDamage,
@@ -219,12 +257,20 @@ export function createRealtimeGateway(
               },
               character.level,
             );
-            socket.data.session.characterMaxHealth = scaledStats.maxHp;
-            socket.data.session.characterBaseDamage = scaledStats.baseDamage;
+            const effectiveStats = applyWeaponModifiersToCombatStats(
+              {
+                baseDamage: scaledBaseStats.baseDamage,
+                baseAttackSpeedMs: scaledBaseStats.baseAttackSpeedMs,
+                baseAttackRange: scaledBaseStats.baseAttackRange,
+              },
+              weaponModifiers,
+            );
+            socket.data.session.characterMaxHealth = scaledBaseStats.maxHp;
+            socket.data.session.characterBaseDamage = effectiveStats.baseDamage;
             socket.data.session.characterBaseAttackSpeedMs =
-              scaledStats.baseAttackSpeedMs;
+              effectiveStats.baseAttackSpeedMs;
             socket.data.session.characterBaseAttackRange =
-              scaledStats.baseAttackRange;
+              effectiveStats.baseAttackRange;
             const shouldKeepRuntimeHealth =
               socket.data.session.characterCurrentHealth !== null &&
               previousCharacterId === character.id;
@@ -232,12 +278,12 @@ export function createRealtimeGateway(
               ? Math.max(
                   0,
                   Math.min(
-                    scaledStats.maxHp,
+                    scaledBaseStats.maxHp,
                     socket.data.session.characterCurrentHealth ??
-                      scaledStats.maxHp,
+                      scaledBaseStats.maxHp,
                   ),
                 )
-              : scaledStats.maxHp;
+              : scaledBaseStats.maxHp;
 
             const spawn = worlds.joinWorld(
               socket,
@@ -249,10 +295,10 @@ export function createRealtimeGateway(
               {
                 combatStats: {
                   currentHealth: socket.data.session.characterCurrentHealth,
-                  maxHealth: scaledStats.maxHp,
-                  baseDamage: scaledStats.baseDamage,
-                  baseAttackSpeedMs: scaledStats.baseAttackSpeedMs,
-                  baseAttackRange: scaledStats.baseAttackRange,
+                  maxHealth: scaledBaseStats.maxHp,
+                  baseDamage: effectiveStats.baseDamage,
+                  baseAttackSpeedMs: effectiveStats.baseAttackSpeedMs,
+                  baseAttackRange: effectiveStats.baseAttackRange,
                 },
                 baseStats: {
                   maxHp: character.maxHp,
@@ -265,6 +311,7 @@ export function createRealtimeGateway(
                   xp: character.xp,
                   xpToNextLevel: character.xpToNextLevel,
                 },
+                weaponModifiers,
               },
             );
             if (!spawn) {
@@ -272,6 +319,12 @@ export function createRealtimeGateway(
               return;
             }
             setLastUsedCharacterIdForUser(db, userId, character.id);
+            socket.send(
+              stringifyServerMessage({
+                type: "inventory.state",
+                state: inventoryState,
+              }),
+            );
             return;
           }
 
@@ -283,8 +336,79 @@ export function createRealtimeGateway(
             worlds.applyAttack(socket, incoming);
             return;
 
+          case "inventory.move": {
+            const { characterId, characterClass, characterLevel } =
+              socket.data.session;
+            if (!characterId || !characterClass || !characterLevel) {
+              sendError(socket, "Character session is not initialized.");
+              return;
+            }
+
+            const result = moveInventoryItem(
+              db,
+              characterId,
+              incoming.payload.from,
+              incoming.payload.to,
+              {
+                characterClass,
+                characterLevel,
+              },
+            );
+            if (!result.ok) {
+              sendInventoryActionRejected(socket, result.code, result.message);
+              return;
+            }
+
+            worlds.updatePlayerWeaponModifiers(
+              socket,
+              getWeaponModifiersFromInventoryState(result.state),
+            );
+            socket.send(
+              stringifyServerMessage({
+                type: "inventory.moved",
+                from: result.from,
+                to: result.to,
+                state: result.state,
+              }),
+            );
+            return;
+          }
+
           case "inventory.drop":
-            worlds.acknowledgeDrop(socket, incoming);
+            {
+              const { characterId } = socket.data.session;
+              if (!characterId) {
+                sendError(socket, "Character session is not initialized.");
+                return;
+              }
+
+              const result = dropInventoryItem(
+                db,
+                characterId,
+                incoming.payload.from,
+              );
+              if (!result.ok) {
+                sendInventoryActionRejected(
+                  socket,
+                  result.code,
+                  result.message,
+                );
+                return;
+              }
+
+              worlds.updatePlayerWeaponModifiers(
+                socket,
+                getWeaponModifiersFromInventoryState(result.state),
+              );
+              socket.send(
+                stringifyServerMessage({
+                  type: "inventory.drop.ack",
+                  from: result.from,
+                  removedItemInstanceId: result.removedItemInstanceId,
+                  state: result.state,
+                }),
+              );
+            }
             return;
 
           default:

@@ -606,44 +606,37 @@ describe("world manager", () => {
     expect(playerState.lastProcessedInputSequence).toBe(1);
   });
 
-  test("acknowledgeDrop validates payload and responds with error for invalid item", () => {
+  test("updatePlayerWeaponModifiers recalculates effective combat stats", () => {
     const manager = new WorldManager();
     const socket = createMockSocket(manager, "user-a", "player-a");
 
-    manager.acknowledgeDrop(asServerSocket(socket), {
-      type: "inventory.drop",
-      payload: {
-        itemId: " ",
-        quantity: 1,
-        position: { x: 200, y: 300 },
+    manager.joinWorld(
+      asServerSocket(socket),
+      HUB_ALPHA_MAP.id,
+      "player-a",
+      "Alpha",
+      "knight",
+      "#E8A832",
+      {
+        baseStats: {
+          maxHp: 180,
+          baseDamage: 24,
+          baseAttackSpeedMs: 600,
+          baseAttackRange: 60,
+        },
       },
+    );
+    cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
+
+    manager.updatePlayerWeaponModifiers(asServerSocket(socket), {
+      damageFlat: 10,
+      rangeFlat: 20,
+      speedPercent: 10,
     });
 
-    const response = parseMessages(socket)[0];
-    expect(response?.type).toBe("error");
-
-    if (!response || response.type !== "error") {
-      throw new Error("missing error response");
-    }
-
-    expect(response.error).toContain("Invalid drop payload");
-  });
-
-  test("acknowledgeDrop rejects non-finite coordinates", () => {
-    const manager = new WorldManager();
-    const socket = createMockSocket(manager, "user-a", "player-a");
-
-    manager.acknowledgeDrop(asServerSocket(socket), {
-      type: "inventory.drop",
-      payload: {
-        itemId: "health_potion",
-        quantity: 1,
-        position: { x: Number.NaN, y: 300 },
-      },
-    });
-
-    const response = parseMessages(socket)[0];
-    expect(response?.type).toBe("error");
+    expect(socket.data.session.characterBaseDamage).toBe(34);
+    expect(socket.data.session.characterBaseAttackRange).toBe(80);
+    expect(socket.data.session.characterBaseAttackSpeedMs).toBe(540);
   });
 
   test("closing an old connection does not remove a newer connection for the same player", () => {
