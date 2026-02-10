@@ -1079,7 +1079,7 @@ class HubScene extends Phaser.Scene {
         alpha: 0,
         scaleX: 1.04,
         scaleY: 1.2,
-        duration: 120,
+        duration: 170,
         ease: "Cubic.Out",
         onComplete: () => {
           sweep.destroy();
