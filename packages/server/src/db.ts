@@ -125,7 +125,7 @@ function ensureCharacterCombatColumns(db: Database): void {
 
   if (!hasBaseAttackSpeedMs) {
     db.exec(
-      "ALTER TABLE characters ADD COLUMN base_attack_speed_ms INTEGER NOT NULL DEFAULT 900;",
+      "ALTER TABLE characters ADD COLUMN base_attack_speed_ms INTEGER NOT NULL DEFAULT 820;",
     );
   }
 

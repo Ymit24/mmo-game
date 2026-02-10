@@ -42,8 +42,6 @@ interface PendingInput {
 interface PlayerActor {
   sprite: Phaser.GameObjects.Rectangle;
   label: Phaser.GameObjects.Text;
-  healthBarBackground: Phaser.GameObjects.Rectangle;
-  healthBarFill: Phaser.GameObjects.Rectangle;
   nickname: string;
   className: string;
   colorHex: string;
@@ -65,7 +63,6 @@ interface ProjectileActor {
 }
 
 const PLAYER_LABEL_OFFSET_Y = 30;
-const PLAYER_HEALTH_BAR_OFFSET_Y = 14;
 const ENEMY_LABEL_OFFSET_Y = 34;
 const ENEMY_HEALTH_TEXT_OFFSET_Y = 22;
 const ENEMY_HEALTH_BAR_OFFSET_Y = 12;
@@ -287,61 +284,6 @@ class HubScene extends Phaser.Scene {
     label.setPosition(Math.round(x), Math.round(y - PLAYER_LABEL_OFFSET_Y));
   }
 
-  private createPlayerHealthBarBackground(
-    x: number,
-    y: number,
-  ): Phaser.GameObjects.Rectangle {
-    return this.add.rectangle(
-      x,
-      y - PLAYER_HEALTH_BAR_OFFSET_Y,
-      36,
-      5,
-      0x020617,
-      0.95,
-    );
-  }
-
-  private createPlayerHealthBarFill(
-    x: number,
-    y: number,
-    colorHex: string,
-  ): Phaser.GameObjects.Rectangle {
-    return this.add
-      .rectangle(
-        x - 18,
-        y - PLAYER_HEALTH_BAR_OFFSET_Y,
-        36,
-        3,
-        hexToNumber(colorHex),
-        0.95,
-      )
-      .setOrigin(0, 0.5);
-  }
-
-  private updatePlayerHealthBar(
-    actor: PlayerActor,
-    x: number,
-    y: number,
-    currentHealth: number,
-    maxHealth: number,
-  ): void {
-    const width = 36;
-    const ratio =
-      maxHealth <= 0
-        ? 0
-        : Math.max(0, Math.min(1, currentHealth / Math.max(1, maxHealth)));
-    const left = x - width / 2;
-    const fillColor = ratio > 0.35 ? 0x22c55e : 0xef4444;
-
-    actor.healthBarBackground
-      .setPosition(Math.round(x), Math.round(y - PLAYER_HEALTH_BAR_OFFSET_Y))
-      .setSize(width, 5);
-    actor.healthBarFill
-      .setPosition(Math.round(left), Math.round(y - PLAYER_HEALTH_BAR_OFFSET_Y))
-      .setSize(Math.max(2, width * ratio), 3)
-      .setFillStyle(fillColor, 0.95);
-  }
-
   override update(_: number, dt: number): void {
     if (!this.localPlayer || this.inputLocked) {
       return;
@@ -378,14 +320,6 @@ class HubScene extends Phaser.Scene {
       this.localPlayer.label,
       this.predictedPosition.x,
       this.predictedPosition.y,
-    );
-    const bridgeState = this.bridge.getState();
-    this.updatePlayerHealthBar(
-      this.localPlayer,
-      this.predictedPosition.x,
-      this.predictedPosition.y,
-      bridgeState.localHealthCurrent ?? bridgeState.localHealthMax ?? 1,
-      bridgeState.localHealthMax ?? 1,
     );
 
     this.cameras.main.centerOn(
@@ -618,20 +552,9 @@ class HubScene extends Phaser.Scene {
             message.nickname,
             message.colorHex,
           );
-          const healthBarBackground = this.createPlayerHealthBarBackground(
-            message.spawn.x,
-            message.spawn.y,
-          );
-          const healthBarFill = this.createPlayerHealthBarFill(
-            message.spawn.x,
-            message.spawn.y,
-            message.colorHex,
-          );
           this.localPlayer = {
             sprite,
             label,
-            healthBarBackground,
-            healthBarFill,
             nickname: message.nickname,
             className: message.class,
             colorHex: message.colorHex,
@@ -647,13 +570,6 @@ class HubScene extends Phaser.Scene {
           this.localPlayer.label,
           message.spawn.x,
           message.spawn.y,
-        );
-        this.updatePlayerHealthBar(
-          this.localPlayer,
-          message.spawn.x,
-          message.spawn.y,
-          message.currentHealth,
-          message.maxHealth,
         );
         this.cameras.main.centerOn(message.spawn.x, message.spawn.y);
 
@@ -693,35 +609,14 @@ class HubScene extends Phaser.Scene {
           message.player.nickname,
           message.player.colorHex,
         );
-        const healthBarBackground = this.createPlayerHealthBarBackground(
-          message.player.position.x,
-          message.player.position.y,
-        );
-        const healthBarFill = this.createPlayerHealthBarFill(
-          message.player.position.x,
-          message.player.position.y,
-          message.player.colorHex,
-        );
 
         this.remotePlayers.set(message.player.id, {
           sprite,
           label,
-          healthBarBackground,
-          healthBarFill,
           nickname: message.player.nickname,
           className: message.player.class,
           colorHex: message.player.colorHex,
         });
-        const actor = this.remotePlayers.get(message.player.id);
-        if (actor) {
-          this.updatePlayerHealthBar(
-            actor,
-            message.player.position.x,
-            message.player.position.y,
-            message.player.currentHealth,
-            message.player.maxHealth,
-          );
-        }
         this.syncOverlayState();
         return;
       }
@@ -733,8 +628,6 @@ class HubScene extends Phaser.Scene {
         const actor = this.remotePlayers.get(message.characterId);
         actor?.sprite.destroy();
         actor?.label.destroy();
-        actor?.healthBarBackground.destroy();
-        actor?.healthBarFill.destroy();
         this.remotePlayers.delete(message.characterId);
         this.syncOverlayState();
         return;
@@ -787,13 +680,6 @@ class HubScene extends Phaser.Scene {
             this.localPlayer.label,
             this.predictedPosition.x,
             this.predictedPosition.y,
-          );
-          this.updatePlayerHealthBar(
-            this.localPlayer,
-            this.predictedPosition.x,
-            this.predictedPosition.y,
-            message.currentHealth,
-            message.maxHealth,
           );
         }
 
@@ -908,15 +794,6 @@ class HubScene extends Phaser.Scene {
     const snapshotIds = new Set<string>();
     for (const player of players) {
       if (player.id === this.localCharacterId) {
-        if (this.localPlayer) {
-          this.updatePlayerHealthBar(
-            this.localPlayer,
-            this.predictedPosition.x,
-            this.predictedPosition.y,
-            player.currentHealth,
-            player.maxHealth,
-          );
-        }
         this.bridge.updateState({
           localHealthCurrent: player.currentHealth,
           localHealthMax: player.maxHealth,
@@ -941,34 +818,13 @@ class HubScene extends Phaser.Scene {
           player.nickname,
           player.colorHex,
         );
-        const healthBarBackground = this.createPlayerHealthBarBackground(
-          player.position.x,
-          player.position.y,
-        );
-        const healthBarFill = this.createPlayerHealthBarFill(
-          player.position.x,
-          player.position.y,
-          player.colorHex,
-        );
         this.remotePlayers.set(player.id, {
           sprite,
           label,
-          healthBarBackground,
-          healthBarFill,
           nickname: player.nickname,
           className: player.class,
           colorHex: player.colorHex,
         });
-        const created = this.remotePlayers.get(player.id);
-        if (created) {
-          this.updatePlayerHealthBar(
-            created,
-            player.position.x,
-            player.position.y,
-            player.currentHealth,
-            player.maxHealth,
-          );
-        }
         continue;
       }
 
@@ -982,13 +838,6 @@ class HubScene extends Phaser.Scene {
       actor.nickname = player.nickname;
       actor.className = player.class;
       actor.colorHex = player.colorHex;
-      this.updatePlayerHealthBar(
-        actor,
-        player.position.x,
-        player.position.y,
-        player.currentHealth,
-        player.maxHealth,
-      );
     }
 
     for (const [id, actor] of this.remotePlayers.entries()) {
@@ -997,8 +846,6 @@ class HubScene extends Phaser.Scene {
       }
       actor.sprite.destroy();
       actor.label.destroy();
-      actor.healthBarBackground.destroy();
-      actor.healthBarFill.destroy();
       this.remotePlayers.delete(id);
     }
   }
@@ -1201,21 +1048,42 @@ class HubScene extends Phaser.Scene {
     range: number,
   ): void {
     if (attackStyle === "melee") {
-      const sweep = this.add.circle(
-        origin.x + direction.x * (range * 0.5),
-        origin.y + direction.y * (range * 0.5),
-        Math.max(18, range * 0.6),
-        0xfbbf24,
-        0.24,
-      );
+      const swingLength = Phaser.Math.Clamp(range * 0.88, 38, 96);
+      const swingWidth = 10;
+      const baseRotation = Math.atan2(direction.y, direction.x);
+      const swingSign = Date.now() % 2 === 0 ? 1 : -1;
+      const startRotation = baseRotation - swingSign * Phaser.Math.DegToRad(50);
+      const endRotation = baseRotation + swingSign * Phaser.Math.DegToRad(26);
+      const handleOffset = 14;
+      const handleX = origin.x + direction.x * handleOffset;
+      const handleY = origin.y + direction.y * handleOffset;
+      const sweep = this.add
+        .rectangle(handleX, handleY, swingLength, swingWidth, 0xfbbf24, 0.38)
+        .setOrigin(0.12, 0.5)
+        .setRotation(startRotation)
+        .setStrokeStyle(2, 0xfef3c7, 0.82);
+      const bladeCore = this.add
+        .rectangle(
+          handleX,
+          handleY,
+          swingLength * 0.86,
+          Math.max(4, swingWidth * 0.48),
+          0xfffbeb,
+          0.5,
+        )
+        .setOrigin(0.12, 0.5)
+        .setRotation(startRotation);
       this.tweens.add({
-        targets: sweep,
+        targets: [sweep, bladeCore],
+        rotation: endRotation,
         alpha: 0,
-        scaleX: 1.25,
-        scaleY: 1.25,
-        duration: 150,
+        scaleX: 1.04,
+        scaleY: 1.2,
+        duration: 120,
+        ease: "Cubic.Out",
         onComplete: () => {
           sweep.destroy();
+          bladeCore.destroy();
         },
       });
       return;
@@ -1286,8 +1154,6 @@ class HubScene extends Phaser.Scene {
   private clearWorldActors(): void {
     this.localPlayer?.sprite.destroy();
     this.localPlayer?.label.destroy();
-    this.localPlayer?.healthBarBackground.destroy();
-    this.localPlayer?.healthBarFill.destroy();
     this.localPlayer = null;
     this.clearRemotePlayers();
     this.clearEnemyActors();
@@ -1321,8 +1187,6 @@ class HubScene extends Phaser.Scene {
     for (const actor of this.remotePlayers.values()) {
       actor.sprite.destroy();
       actor.label.destroy();
-      actor.healthBarBackground.destroy();
-      actor.healthBarFill.destroy();
     }
     this.remotePlayers.clear();
   }

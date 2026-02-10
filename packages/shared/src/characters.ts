@@ -115,21 +115,21 @@ export function getCharacterClassBaseCombatStats(
       return {
         maxHp: 180,
         baseDamage: 24,
-        baseAttackSpeedMs: 650,
+        baseAttackSpeedMs: 600,
         baseAttackRange: 60,
       };
     case "mage":
       return {
         maxHp: 110,
         baseDamage: 18,
-        baseAttackSpeedMs: 900,
+        baseAttackSpeedMs: 820,
         baseAttackRange: 360,
       };
     default:
       return {
         maxHp: 120,
         baseDamage: 12,
-        baseAttackSpeedMs: 900,
+        baseAttackSpeedMs: 820,
         baseAttackRange: 120,
       };
   }

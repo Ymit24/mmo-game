@@ -283,14 +283,14 @@ describe("character routes", () => {
       class: "knight",
       max_hp: 180,
       base_damage: 24,
-      base_attack_speed_ms: 650,
+      base_attack_speed_ms: 600,
       base_attack_range: 60,
     });
     expect(mage).toEqual({
       class: "mage",
       max_hp: 110,
       base_damage: 18,
-      base_attack_speed_ms: 900,
+      base_attack_speed_ms: 820,
       base_attack_range: 360,
     });
   });
