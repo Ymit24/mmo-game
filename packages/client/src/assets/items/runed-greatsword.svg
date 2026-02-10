@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Runed Greatsword">
+  <defs>
+    <linearGradient id="blade" x1="0%" x2="100%" y1="0%" y2="100%">
+      <stop offset="0%" stop-color="#d7e7ff" />
+      <stop offset="100%" stop-color="#6f89bb" />
+    </linearGradient>
+  </defs>
+  <rect x="25" y="4" width="14" height="34" rx="2" fill="url(#blade)" />
+  <polygon points="32,1 40,8 24,8" fill="#e9f4ff" />
+  <path d="M29 12h6M29 18h6M29 24h6" stroke="#22d3ee" stroke-width="1.5" stroke-linecap="round" />
+  <rect x="18" y="36" width="28" height="8" rx="2" fill="#b98f3b" />
+  <rect x="29" y="44" width="6" height="14" rx="2" fill="#4b361d" />
+  <circle cx="32" cy="59" r="3" fill="#f5d07b" />
+</svg>

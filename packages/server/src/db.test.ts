@@ -96,31 +96,69 @@ describe("database bootstrap", () => {
     db.close();
   });
 
-  test("seeds starter training items", () => {
+  test("seeds starter and progression weapons", () => {
     const db = createDatabase(":memory:");
 
     const items = db
       .query<
-        { id: string; type: string; class_requirement: string | null },
+        {
+          id: string;
+          type: string;
+          class_requirement: string | null;
+          min_level_to_equip: number | null;
+        },
         []
       >(
-        `SELECT id, type, class_requirement
+        `SELECT id, type, class_requirement, min_level_to_equip
          FROM item_definitions
-         WHERE id IN ('training_sword', 'training_wand')
+         WHERE id IN (
+           'training_sword',
+           'training_wand',
+           'iron_broadsword',
+           'runed_greatsword',
+           'adept_focus_wand',
+           'stormweave_rod'
+         )
          ORDER BY id ASC`,
       )
       .all();
 
     expect(items).toEqual([
       {
+        id: "adept_focus_wand",
+        type: "weapon",
+        class_requirement: "mage",
+        min_level_to_equip: 5,
+      },
+      {
+        id: "iron_broadsword",
+        type: "weapon",
+        class_requirement: "knight",
+        min_level_to_equip: 5,
+      },
+      {
+        id: "runed_greatsword",
+        type: "weapon",
+        class_requirement: "knight",
+        min_level_to_equip: 10,
+      },
+      {
+        id: "stormweave_rod",
+        type: "weapon",
+        class_requirement: "mage",
+        min_level_to_equip: 10,
+      },
+      {
         id: "training_sword",
         type: "weapon",
         class_requirement: "knight",
+        min_level_to_equip: 1,
       },
       {
         id: "training_wand",
         type: "weapon",
         class_requirement: "mage",
+        min_level_to_equip: 1,
       },
     ]);
     db.close();

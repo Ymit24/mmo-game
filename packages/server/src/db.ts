@@ -514,6 +514,62 @@ function ensureItemDefinitionSeeds(db: Database): void {
     timestamp,
     timestamp,
   );
+
+  statement.run(
+    "iron_broadsword",
+    "Iron Broadsword",
+    "iron_broadsword",
+    "weapon",
+    "knight",
+    5,
+    11,
+    12,
+    8,
+    timestamp,
+    timestamp,
+  );
+
+  statement.run(
+    "runed_greatsword",
+    "Runed Greatsword",
+    "runed_greatsword",
+    "weapon",
+    "knight",
+    10,
+    22,
+    18,
+    12,
+    timestamp,
+    timestamp,
+  );
+
+  statement.run(
+    "adept_focus_wand",
+    "Adept Focus Wand",
+    "adept_focus_wand",
+    "weapon",
+    "mage",
+    5,
+    9,
+    42,
+    10,
+    timestamp,
+    timestamp,
+  );
+
+  statement.run(
+    "stormweave_rod",
+    "Stormweave Rod",
+    "stormweave_rod",
+    "weapon",
+    "mage",
+    10,
+    16,
+    70,
+    14,
+    timestamp,
+    timestamp,
+  );
 }
 
 function ensureEnemyArchetypeProgressionColumns(db: Database): void {

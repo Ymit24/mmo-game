@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Adept Focus Wand">
+  <defs>
+    <radialGradient id="orb" cx="50%" cy="45%" r="55%">
+      <stop offset="0%" stop-color="#e3fcff" />
+      <stop offset="100%" stop-color="#42bfdc" />
+    </radialGradient>
+    <linearGradient id="shaft" x1="0%" x2="100%" y1="0%" y2="100%">
+      <stop offset="0%" stop-color="#82502a" />
+      <stop offset="100%" stop-color="#4a2e1b" />
+    </linearGradient>
+  </defs>
+  <rect x="28" y="16" width="8" height="36" rx="3" fill="url(#shaft)" />
+  <circle cx="32" cy="12" r="10" fill="url(#orb)" />
+  <circle cx="32" cy="12" r="4" fill="#f1feff" opacity="0.9" />
+  <path d="M32 2l2.6 5.4L40 10l-5.4 2.6L32 18l-2.6-5.4L24 10l5.4-2.6z" fill="#b9f6ff" opacity="0.8" />
+</svg>
