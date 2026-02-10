@@ -78,9 +78,21 @@ export type InventoryDropResult =
   | InventoryDropSuccessResult
   | InventoryErrorResult;
 
-const STARTER_WEAPON_BY_CLASS: Record<CharacterClass, string> = {
-  knight: "training_sword",
-  mage: "training_wand",
+const STARTER_LOADOUT_BY_CLASS: Record<
+  CharacterClass,
+  {
+    equippedWeaponId: string;
+    bagWeaponIds: [string, string];
+  }
+> = {
+  knight: {
+    equippedWeaponId: "training_sword",
+    bagWeaponIds: ["iron_broadsword", "runed_greatsword"],
+  },
+  mage: {
+    equippedWeaponId: "training_wand",
+    bagWeaponIds: ["adept_focus_wand", "stormweave_rod"],
+  },
 };
 
 function mapItemDefinition(row: ItemDefinitionRow): ItemDefinition {
@@ -476,7 +488,7 @@ export function grantStarterInventoryForCharacter(
   characterClass: CharacterClass,
   timestamp: string,
 ): void {
-  const starterItemId = STARTER_WEAPON_BY_CLASS[characterClass];
+  const starterLoadout = STARTER_LOADOUT_BY_CLASS[characterClass];
   db.query(
     `INSERT INTO character_inventory (
        id,
@@ -487,7 +499,51 @@ export function grantStarterInventoryForCharacter(
        created_at,
        updated_at
      ) VALUES (?1, ?2, ?3, 'weapon', NULL, ?4, ?5)`,
-  ).run(crypto.randomUUID(), characterId, starterItemId, timestamp, timestamp);
+  ).run(
+    crypto.randomUUID(),
+    characterId,
+    starterLoadout.equippedWeaponId,
+    timestamp,
+    timestamp,
+  );
+
+  db.query(
+    `INSERT INTO character_inventory (
+       id,
+       character_id,
+       item_definition_id,
+       slot_kind,
+       slot_index,
+       created_at,
+       updated_at
+     ) VALUES (?1, ?2, ?3, 'bag', ?4, ?5, ?6)`,
+  ).run(
+    crypto.randomUUID(),
+    characterId,
+    starterLoadout.bagWeaponIds[0],
+    0,
+    timestamp,
+    timestamp,
+  );
+
+  db.query(
+    `INSERT INTO character_inventory (
+       id,
+       character_id,
+       item_definition_id,
+       slot_kind,
+       slot_index,
+       created_at,
+       updated_at
+     ) VALUES (?1, ?2, ?3, 'bag', ?4, ?5, ?6)`,
+  ).run(
+    crypto.randomUUID(),
+    characterId,
+    starterLoadout.bagWeaponIds[1],
+    1,
+    timestamp,
+    timestamp,
+  );
 }
 
 export function moveInventoryItem(

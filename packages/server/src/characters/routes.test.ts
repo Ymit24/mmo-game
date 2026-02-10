@@ -301,7 +301,7 @@ describe("character routes", () => {
     });
   });
 
-  test("assigns class starter weapon into first inventory slot", async () => {
+  test("assigns full class starter loadout on character creation", async () => {
     const token = await signupAndGetToken(app, "player7@example.com");
 
     const knightResponse = await app.fetch(
@@ -339,7 +339,12 @@ describe("character routes", () => {
          INNER JOIN characters c
            ON c.id = i.character_id
          WHERE c.nickname IN ('StarterKnight', 'StarterMage')
-         ORDER BY c.nickname ASC`,
+         ORDER BY
+           c.nickname ASC,
+           CASE
+             WHEN i.slot_kind = 'weapon' THEN -1
+             ELSE i.slot_index
+           END ASC`,
       )
       .all();
 
@@ -351,10 +356,34 @@ describe("character routes", () => {
         slot_index: null,
       },
       {
+        nickname: "StarterKnight",
+        item_definition_id: "iron_broadsword",
+        slot_kind: "bag",
+        slot_index: 0,
+      },
+      {
+        nickname: "StarterKnight",
+        item_definition_id: "runed_greatsword",
+        slot_kind: "bag",
+        slot_index: 1,
+      },
+      {
         nickname: "StarterMage",
         item_definition_id: "training_wand",
         slot_kind: "weapon",
         slot_index: null,
+      },
+      {
+        nickname: "StarterMage",
+        item_definition_id: "adept_focus_wand",
+        slot_kind: "bag",
+        slot_index: 0,
+      },
+      {
+        nickname: "StarterMage",
+        item_definition_id: "stormweave_rod",
+        slot_kind: "bag",
+        slot_index: 1,
       },
     ]);
   });
