@@ -132,6 +132,9 @@ export function PlayPage() {
                     <p className="text-sm capitalize text-muted">
                       {character.class}
                     </p>
+                    <p className="mt-1 inline-flex rounded border border-cyan/35 bg-cyan/10 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.14em] text-cyan">
+                      Lv. {character.level}
+                    </p>
                   </div>
                   <div className="flex items-center gap-2">
                     {character.isLastUsed ? (

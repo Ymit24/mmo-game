@@ -1,6 +1,7 @@
 import {
   type ClientToServerMessage,
   type CollisionShape,
+  type CombatFloatingTextVariant,
   DEFAULT_WORLD_ID,
   type EnemySnapshot,
   PLAYER_COLLIDER_SIZE,
@@ -240,6 +241,9 @@ class HubScene extends Phaser.Scene {
       projectiles: [],
       localHealthCurrent: null,
       localHealthMax: null,
+      localLevel: null,
+      localXp: null,
+      localXpToNextLevel: null,
       lastCombatDeniedReason: null,
     });
 
@@ -533,6 +537,9 @@ class HubScene extends Phaser.Scene {
           localPlayerId: message.characterId,
           localHealthCurrent: message.currentHealth,
           localHealthMax: message.maxHealth,
+          localLevel: message.level,
+          localXp: message.xp,
+          localXpToNextLevel: message.xpToNextLevel,
           lastCombatDeniedReason: null,
         });
         this.inputLocked = false;
@@ -718,6 +725,32 @@ class HubScene extends Phaser.Scene {
       case "combat.playerDied":
         this.bridge.updateState({
           lastMessage: "You were defeated. Respawning...",
+        });
+        return;
+
+      case "combat.floatingText":
+        this.spawnCombatFloatingText(
+          message.position.x,
+          message.position.y,
+          message.text,
+          message.variant,
+        );
+        return;
+
+      case "progression.updated":
+        this.bridge.updateState({
+          localLevel: message.level,
+          localXp: message.xp,
+          localXpToNextLevel: message.xpToNextLevel,
+          localHealthMax: message.maxHealth,
+          localHealthCurrent: Math.min(
+            message.maxHealth,
+            message.currentHealth,
+          ),
+          lastMessage:
+            message.xpToNextLevel === null
+              ? `Level ${message.level} (max) reached`
+              : `Level ${message.level} • ${message.xp}/${message.xpToNextLevel} XP`,
         });
         return;
 
@@ -1134,6 +1167,102 @@ class HubScene extends Phaser.Scene {
     });
   }
 
+  private spawnCombatFloatingText(
+    x: number,
+    y: number,
+    text: string,
+    variant: CombatFloatingTextVariant,
+  ): void {
+    const styleByVariant: Record<
+      CombatFloatingTextVariant,
+      {
+        color: string;
+        stroke: string;
+        fontSize: string;
+        driftY: number;
+        duration: number;
+        scaleTo: number;
+      }
+    > = {
+      damage_enemy: {
+        color: "#fbbf24",
+        stroke: "#2a1906",
+        fontSize: "13px",
+        driftY: 36,
+        duration: 520,
+        scaleTo: 1.06,
+      },
+      damage_player: {
+        color: "#fb7185",
+        stroke: "#2f0914",
+        fontSize: "13px",
+        driftY: 32,
+        duration: 540,
+        scaleTo: 1.05,
+      },
+      xp_gain: {
+        color: "#67e8f9",
+        stroke: "#04202b",
+        fontSize: "12px",
+        driftY: 44,
+        duration: 620,
+        scaleTo: 1.08,
+      },
+      level_up: {
+        color: "#fde68a",
+        stroke: "#3b2a04",
+        fontSize: "18px",
+        driftY: 56,
+        duration: 900,
+        scaleTo: 1.2,
+      },
+    };
+
+    const style = styleByVariant[variant];
+    const floatingText = this.add
+      .text(Math.round(x), Math.round(y - 28), text, {
+        fontFamily: "Chakra Petch",
+        fontSize: style.fontSize,
+        color: style.color,
+        stroke: style.stroke,
+        strokeThickness: 2,
+      })
+      .setOrigin(0.5, 0.5)
+      .setDepth(30)
+      .setScale(0.85)
+      .setAlpha(0.94);
+
+    this.tweens.add({
+      targets: floatingText,
+      y: floatingText.y - style.driftY,
+      alpha: 0,
+      scaleX: style.scaleTo,
+      scaleY: style.scaleTo,
+      duration: style.duration,
+      ease: variant === "level_up" ? "Back.Out" : "Cubic.Out",
+      onComplete: () => {
+        floatingText.destroy();
+      },
+    });
+
+    if (variant === "level_up") {
+      const burst = this.add
+        .circle(Math.round(x), Math.round(y - 16), 10, 0xfbbf24, 0.35)
+        .setDepth(29);
+      this.tweens.add({
+        targets: burst,
+        alpha: 0,
+        scaleX: 2.6,
+        scaleY: 2.6,
+        duration: 420,
+        ease: "Cubic.Out",
+        onComplete: () => {
+          burst.destroy();
+        },
+      });
+    }
+  }
+
   private authenticate(forceTakeover: boolean): void {
     this.sendMessage({
       type: "auth.hello",
@@ -1174,6 +1303,9 @@ class HubScene extends Phaser.Scene {
       projectiles: [],
       localHealthCurrent: null,
       localHealthMax: null,
+      localLevel: null,
+      localXp: null,
+      localXpToNextLevel: null,
       lastCombatDeniedReason: null,
     });
   }

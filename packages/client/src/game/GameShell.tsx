@@ -66,6 +66,16 @@ export function GameShell({ characterId }: GameShellProps) {
   );
   const healthRatio = localHealthCurrent / localHealthMax;
   const isLowHealth = healthRatio <= 0.3;
+  const localLevel = Math.max(1, uiState.localLevel ?? 1);
+  const xpToNextLevel = uiState.localXpToNextLevel;
+  const localXp =
+    xpToNextLevel === null
+      ? 0
+      : Math.max(0, Math.min(xpToNextLevel, uiState.localXp ?? 0));
+  const xpRatio =
+    xpToNextLevel === null || xpToNextLevel <= 0
+      ? 1
+      : Math.max(0, Math.min(1, localXp / xpToNextLevel));
 
   function reconnect(): void {
     window.location.reload();
@@ -311,6 +321,9 @@ export function GameShell({ characterId }: GameShellProps) {
                 <div className="rounded border border-border/70 bg-void/60 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.15em] text-amber">
                   {Math.round(healthRatio * 100)}%
                 </div>
+                <div className="rounded border border-cyan/40 bg-cyan/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.15em] text-cyan">
+                  Lv. {localLevel}
+                </div>
               </div>
 
               <div className="mt-3">
@@ -321,6 +334,27 @@ export function GameShell({ characterId }: GameShellProps) {
                     }`}
                     style={{
                       width: `${Math.max(4, healthRatio * 100)}%`,
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div className="mt-3">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-cyan-glow">
+                    Experience
+                  </p>
+                  <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted">
+                    {xpToNextLevel === null
+                      ? "MAX LEVEL"
+                      : `${Math.round(localXp)} / ${Math.round(xpToNextLevel)}`}
+                  </p>
+                </div>
+                <div className="hud-xp-track relative mt-2 h-3 overflow-hidden rounded-sm border border-cyan/35 bg-void/80">
+                  <div
+                    className="hud-xp-fill h-full rounded-sm"
+                    style={{
+                      width: `${Math.max(4, xpRatio * 100)}%`,
                     }}
                   />
                 </div>

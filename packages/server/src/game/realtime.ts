@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import {
+  computeLevelScaledCombatStats,
   getCharacterClassColorHex,
   parseClientMessage,
   stringifyServerMessage,
@@ -10,6 +11,7 @@ import { verifyAccessToken } from "../auth/jwt";
 import {
   findCharacterByIdForUser,
   setLastUsedCharacterIdForUser,
+  updateCharacterProgressForUser,
 } from "../characters/repository";
 import type { ServerConfig } from "../config";
 import { findEnemyArchetypeById } from "./enemyArchetypeRepository";
@@ -40,9 +42,13 @@ export function createRealtimeGateway(
   config: ServerConfig,
   db: Database,
 ): RealtimeGateway {
-  const worlds = new WorldManager((archetypeId) =>
-    findEnemyArchetypeById(db, archetypeId),
-  );
+  const worlds = new WorldManager({
+    resolveEnemyArchetype: (archetypeId) =>
+      findEnemyArchetypeById(db, archetypeId),
+    persistCharacterProgression: ({ userId, characterId, level, xp }) => {
+      updateCharacterProgressForUser(db, userId, characterId, level, xp);
+    },
+  });
   const activeSocketsByAccountKey = new Map<
     string,
     ServerWebSocket<RealtimeSocketData>
@@ -197,12 +203,28 @@ export function createRealtimeGateway(
             socket.data.session.characterColorHex = getCharacterClassColorHex(
               character.class,
             );
-            socket.data.session.characterMaxHealth = character.maxHp;
-            socket.data.session.characterBaseDamage = character.baseDamage;
+            socket.data.session.characterRawMaxHealth = character.maxHp;
+            socket.data.session.characterRawBaseDamage = character.baseDamage;
+            socket.data.session.characterLevel = character.level;
+            socket.data.session.characterXp = character.xp;
+            socket.data.session.characterXpToNextLevel =
+              character.xpToNextLevel;
+
+            const scaledStats = computeLevelScaledCombatStats(
+              {
+                maxHp: character.maxHp,
+                baseDamage: character.baseDamage,
+                baseAttackSpeedMs: character.baseAttackSpeedMs,
+                baseAttackRange: character.baseAttackRange,
+              },
+              character.level,
+            );
+            socket.data.session.characterMaxHealth = scaledStats.maxHp;
+            socket.data.session.characterBaseDamage = scaledStats.baseDamage;
             socket.data.session.characterBaseAttackSpeedMs =
-              character.baseAttackSpeedMs;
+              scaledStats.baseAttackSpeedMs;
             socket.data.session.characterBaseAttackRange =
-              character.baseAttackRange;
+              scaledStats.baseAttackRange;
             const shouldKeepRuntimeHealth =
               socket.data.session.characterCurrentHealth !== null &&
               previousCharacterId === character.id;
@@ -210,12 +232,12 @@ export function createRealtimeGateway(
               ? Math.max(
                   0,
                   Math.min(
-                    character.maxHp,
+                    scaledStats.maxHp,
                     socket.data.session.characterCurrentHealth ??
-                      character.maxHp,
+                      scaledStats.maxHp,
                   ),
                 )
-              : character.maxHp;
+              : scaledStats.maxHp;
 
             const spawn = worlds.joinWorld(
               socket,
@@ -227,10 +249,21 @@ export function createRealtimeGateway(
               {
                 combatStats: {
                   currentHealth: socket.data.session.characterCurrentHealth,
-                  maxHealth: character.maxHp,
+                  maxHealth: scaledStats.maxHp,
+                  baseDamage: scaledStats.baseDamage,
+                  baseAttackSpeedMs: scaledStats.baseAttackSpeedMs,
+                  baseAttackRange: scaledStats.baseAttackRange,
+                },
+                baseStats: {
+                  maxHp: character.maxHp,
                   baseDamage: character.baseDamage,
                   baseAttackSpeedMs: character.baseAttackSpeedMs,
                   baseAttackRange: character.baseAttackRange,
+                },
+                progression: {
+                  level: character.level,
+                  xp: character.xp,
+                  xpToNextLevel: character.xpToNextLevel,
                 },
               },
             );

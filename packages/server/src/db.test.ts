@@ -68,6 +68,40 @@ describe("database bootstrap", () => {
     expect(columns).toContain("base_damage");
     expect(columns).toContain("base_attack_speed_ms");
     expect(columns).toContain("base_attack_range");
+    expect(columns).toContain("level");
+    expect(columns).toContain("xp");
+    db.close();
+  });
+
+  test("enemy archetype table exposes level and xp reward columns", () => {
+    const db = createDatabase(":memory:");
+
+    const columns = db
+      .query<{ name: string }, []>("PRAGMA table_info(enemy_archetypes);")
+      .all()
+      .map((column) => column.name);
+
+    expect(columns).toContain("level");
+    expect(columns).toContain("xp_reward");
+    db.close();
+  });
+
+  test("seeds level progression rows for levels 1 through 60", () => {
+    const db = createDatabase(":memory:");
+
+    const row = db
+      .query<{ min_level: number; max_level: number; count: number }, []>(
+        `SELECT
+           MIN(level) AS min_level,
+           MAX(level) AS max_level,
+           COUNT(*) AS count
+         FROM level_progression`,
+      )
+      .get();
+
+    expect(row?.min_level).toBe(1);
+    expect(row?.max_level).toBe(60);
+    expect(row?.count).toBe(60);
     db.close();
   });
 });

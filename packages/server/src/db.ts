@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
+import { MAX_CHARACTER_LEVEL, getLevelProgressionTable } from "@mmo/shared";
 
 function ensureDatabaseDirectory(dbPath: string): void {
   if (dbPath === ":memory:" || dbPath.startsWith("file:")) {
@@ -42,6 +43,8 @@ export function bootstrapDatabase(db: Database): void {
       nickname TEXT NOT NULL,
       nickname_normalized TEXT NOT NULL,
       class TEXT NOT NULL CHECK (class IN ('knight', 'mage')),
+      level INTEGER NOT NULL DEFAULT 1 CHECK (level >= 1 AND level <= ${MAX_CHARACTER_LEVEL}),
+      xp INTEGER NOT NULL DEFAULT 0 CHECK (xp >= 0),
       max_hp REAL NOT NULL CHECK (max_hp > 0),
       base_damage REAL NOT NULL CHECK (base_damage >= 0),
       base_attack_speed_ms INTEGER NOT NULL CHECK (base_attack_speed_ms > 0),
@@ -59,10 +62,13 @@ export function bootstrapDatabase(db: Database): void {
     CREATE INDEX IF NOT EXISTS idx_characters_user_updated_at
     ON characters (user_id, updated_at DESC);
   `);
+  ensureCharacterProgressionColumns(db);
   db.exec(`
     CREATE TABLE IF NOT EXISTS enemy_archetypes (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
+      level INTEGER NOT NULL DEFAULT 1 CHECK (level >= 1),
+      xp_reward INTEGER NOT NULL DEFAULT 10 CHECK (xp_reward >= 0),
       max_health REAL NOT NULL CHECK (max_health > 0),
       damage REAL NOT NULL CHECK (damage >= 0),
       speed REAL NOT NULL CHECK (speed > 0),
@@ -82,6 +88,9 @@ export function bootstrapDatabase(db: Database): void {
     );
   `);
   ensureEnemyArchetypeRangeColumns(db);
+  ensureEnemyArchetypeProgressionColumns(db);
+  ensureLevelProgressionTable(db);
+  ensureLevelProgressionSeed(db);
   ensureEnemyArchetypeSeeds(db);
 }
 
@@ -103,6 +112,8 @@ function ensureEnemyArchetypeSeeds(db: Database): void {
     `INSERT OR IGNORE INTO enemy_archetypes (
       id,
       name,
+      level,
+      xp_reward,
       max_health,
       damage,
       speed,
@@ -118,12 +129,14 @@ function ensureEnemyArchetypeSeeds(db: Database): void {
       color_hex,
       created_at,
       updated_at
-    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)`,
+    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)`,
   );
 
   seedStatement.run(
     "slime_scout",
     "Slime Scout",
+    1,
+    16,
     60,
     8,
     130,
@@ -144,6 +157,8 @@ function ensureEnemyArchetypeSeeds(db: Database): void {
   seedStatement.run(
     "stone_golem",
     "Stone Golem",
+    6,
+    70,
     220,
     18,
     95,
@@ -180,6 +195,77 @@ function ensureEnemyArchetypeRangeColumns(db: Database): void {
   if (!hasRangedRange) {
     db.exec(
       "ALTER TABLE enemy_archetypes ADD COLUMN ranged_range REAL NOT NULL DEFAULT 220;",
+    );
+  }
+}
+
+function ensureCharacterProgressionColumns(db: Database): void {
+  const columns = db
+    .query<{ name: string }, []>("PRAGMA table_info(characters);")
+    .all();
+  const hasLevel = columns.some((column) => column.name === "level");
+  const hasXp = columns.some((column) => column.name === "xp");
+
+  if (!hasLevel) {
+    db.exec(
+      `ALTER TABLE characters ADD COLUMN level INTEGER NOT NULL DEFAULT 1 CHECK (level >= 1 AND level <= ${MAX_CHARACTER_LEVEL});`,
+    );
+  }
+
+  if (!hasXp) {
+    db.exec(
+      "ALTER TABLE characters ADD COLUMN xp INTEGER NOT NULL DEFAULT 0 CHECK (xp >= 0);",
+    );
+  }
+}
+
+function ensureEnemyArchetypeProgressionColumns(db: Database): void {
+  const columns = db
+    .query<{ name: string }, []>("PRAGMA table_info(enemy_archetypes);")
+    .all();
+  const hasLevel = columns.some((column) => column.name === "level");
+  const hasXpReward = columns.some((column) => column.name === "xp_reward");
+
+  if (!hasLevel) {
+    db.exec(
+      "ALTER TABLE enemy_archetypes ADD COLUMN level INTEGER NOT NULL DEFAULT 1 CHECK (level >= 1);",
+    );
+  }
+
+  if (!hasXpReward) {
+    db.exec(
+      "ALTER TABLE enemy_archetypes ADD COLUMN xp_reward INTEGER NOT NULL DEFAULT 10 CHECK (xp_reward >= 0);",
+    );
+  }
+}
+
+function ensureLevelProgressionTable(db: Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS level_progression (
+      level INTEGER PRIMARY KEY,
+      xp_to_next_level INTEGER,
+      hp_multiplier REAL NOT NULL CHECK (hp_multiplier > 0),
+      damage_multiplier REAL NOT NULL CHECK (damage_multiplier > 0)
+    );
+  `);
+}
+
+function ensureLevelProgressionSeed(db: Database): void {
+  const statement = db.query(
+    `INSERT OR IGNORE INTO level_progression (
+      level,
+      xp_to_next_level,
+      hp_multiplier,
+      damage_multiplier
+    ) VALUES (?1, ?2, ?3, ?4)`,
+  );
+
+  for (const row of getLevelProgressionTable()) {
+    statement.run(
+      row.level,
+      row.xpToNextLevel,
+      row.hpMultiplier,
+      row.damageMultiplier,
     );
   }
 }

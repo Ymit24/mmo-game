@@ -48,6 +48,12 @@ export interface InventoryDropPayload {
   position: Vector2;
 }
 
+export type CombatFloatingTextVariant =
+  | "damage_enemy"
+  | "damage_player"
+  | "xp_gain"
+  | "level_up";
+
 export type ClientToServerMessage =
   | {
       type: "auth.hello";
@@ -97,6 +103,9 @@ export type ServerToClientMessage =
       class: CharacterClass;
       colorHex: string;
       spawn: Vector2;
+      level: number;
+      xp: number;
+      xpToNextLevel: number | null;
       currentHealth: number;
       maxHealth: number;
     }
@@ -139,6 +148,21 @@ export type ServerToClientMessage =
       type: "combat.playerDied";
       characterId: string;
       respawnWorldId: string;
+    }
+  | {
+      type: "combat.floatingText";
+      position: Vector2;
+      text: string;
+      variant: CombatFloatingTextVariant;
+    }
+  | {
+      type: "progression.updated";
+      level: number;
+      xp: number;
+      xpToNextLevel: number | null;
+      currentHealth: number;
+      maxHealth: number;
+      baseDamage: number;
     }
   | {
       type: "inventory.drop.ack";

@@ -1,4 +1,5 @@
 import type {
+  CharacterBaseCombatStats,
   CharacterClass,
   ClientToServerMessage,
   CollisionShape,
@@ -16,12 +17,17 @@ import {
   DEFAULT_WORLD_ID,
   PLAYER_COLLIDER_SIZE,
   WORLD_MAPS_BY_ID,
+  applyCharacterExperience,
   centeredBoxToCollisionShape,
   clampInputDtMs,
   clampToWorldBounds,
+  computeAdjustedEnemyExperience,
+  computeLevelScaledCombatStats,
   findSpawnPoint,
   getCharacterClassBaseCombatStats,
+  getXpToNextLevelForLevel,
   inputToVelocity,
+  normalizeCharacterProgress,
   positionCollidesWithMap,
   resolveMovementWithSliding,
   stringifyServerMessage,
@@ -45,6 +51,12 @@ interface PlayerCombatStats {
   baseAttackRange: number;
 }
 
+interface PlayerProgression {
+  level: number;
+  xp: number;
+  xpToNextLevel: number | null;
+}
+
 interface PlayerState {
   connectionId: string;
   id: string;
@@ -59,6 +71,10 @@ interface PlayerState {
   baseDamage: number;
   baseAttackSpeedMs: number;
   baseAttackRange: number;
+  rawMaxHealth: number;
+  rawBaseDamage: number;
+  level: number;
+  xp: number;
   nextAttackAtMs: number;
   pendingRespawn: boolean;
   socket: ServerWebSocket<RealtimeSocketData>;
@@ -102,6 +118,22 @@ interface ProjectileState {
 interface JoinWorldOptions {
   spawnOverride?: Vector2;
   combatStats?: Partial<PlayerCombatStats>;
+  baseStats?: Partial<CharacterBaseCombatStats>;
+  progression?: Partial<PlayerProgression>;
+}
+
+interface CharacterProgressionUpdate {
+  userId: string;
+  characterId: string;
+  level: number;
+  xp: number;
+}
+
+type PersistCharacterProgression = (update: CharacterProgressionUpdate) => void;
+
+interface WorldManagerOptions {
+  resolveEnemyArchetype?: (archetypeId: string) => EnemyArchetype | null;
+  persistCharacterProgression?: PersistCharacterProgression;
 }
 
 export interface RealtimeSession {
@@ -121,6 +153,11 @@ export interface RealtimeSession {
   characterBaseDamage: number | null;
   characterBaseAttackSpeedMs: number | null;
   characterBaseAttackRange: number | null;
+  characterRawMaxHealth: number | null;
+  characterRawBaseDamage: number | null;
+  characterLevel: number | null;
+  characterXp: number | null;
+  characterXpToNextLevel: number | null;
 }
 
 export interface RealtimeSocketData {
@@ -242,6 +279,41 @@ function resolveCombatStats(
   };
 }
 
+function resolveBaseStats(
+  characterClass: CharacterClass,
+  baseStats?: Partial<CharacterBaseCombatStats>,
+): CharacterBaseCombatStats {
+  const classDefaults = getCharacterClassBaseCombatStats(characterClass);
+  return {
+    maxHp: Math.max(1, baseStats?.maxHp ?? classDefaults.maxHp),
+    baseDamage: Math.max(0, baseStats?.baseDamage ?? classDefaults.baseDamage),
+    baseAttackSpeedMs: Math.max(
+      1,
+      Math.floor(
+        baseStats?.baseAttackSpeedMs ?? classDefaults.baseAttackSpeedMs,
+      ),
+    ),
+    baseAttackRange: Math.max(
+      1,
+      baseStats?.baseAttackRange ?? classDefaults.baseAttackRange,
+    ),
+  };
+}
+
+function resolveProgression(
+  partialProgression?: Partial<PlayerProgression>,
+): PlayerProgression {
+  const normalized = normalizeCharacterProgress(
+    partialProgression?.level ?? 1,
+    partialProgression?.xp ?? 0,
+  );
+  return {
+    level: normalized.level,
+    xp: normalized.xp,
+    xpToNextLevel: normalized.xpToNextLevel,
+  };
+}
+
 class WorldInstance {
   readonly worldId: string;
   readonly map: WorldMap;
@@ -263,6 +335,7 @@ class WorldInstance {
     socket: ServerWebSocket<RealtimeSocketData>,
     characterId: string,
   ) => void;
+  private readonly persistCharacterProgression: PersistCharacterProgression | null;
 
   constructor(
     worldId: string,
@@ -272,11 +345,13 @@ class WorldInstance {
       socket: ServerWebSocket<RealtimeSocketData>,
       characterId: string,
     ) => void,
+    persistCharacterProgression: PersistCharacterProgression | null = null,
   ) {
     this.worldId = worldId;
     this.map = map;
     this.resolveEnemyArchetype = resolveEnemyArchetype;
     this.onPlayerDeath = onPlayerDeath;
+    this.persistCharacterProgression = persistCharacterProgression;
 
     for (const spawner of map.enemySpawners) {
       this.spawners.set(spawner.id, {
@@ -305,12 +380,28 @@ class WorldInstance {
     colorHex: string,
     socket: ServerWebSocket<RealtimeSocketData>,
     combatStats: Partial<PlayerCombatStats>,
+    baseStats: Partial<CharacterBaseCombatStats>,
+    progression: Partial<PlayerProgression>,
     spawnOverride?: Vector2,
   ): PlayerState {
     const fallbackSpawn = findSpawnPoint(this.map, this.map.playerSpawnId) ??
       this.map.spawnPoints[0] ?? { x: 120, y: 120 };
     const spawn = spawnOverride ?? fallbackSpawn;
-    const resolvedCombat = resolveCombatStats(characterClass, combatStats);
+    const resolvedBaseStats = resolveBaseStats(characterClass, baseStats);
+    const resolvedProgression = resolveProgression(progression);
+    const scaledBaseStats = computeLevelScaledCombatStats(
+      resolvedBaseStats,
+      resolvedProgression.level,
+    );
+    const resolvedCombat = resolveCombatStats(characterClass, {
+      maxHealth: combatStats.maxHealth ?? scaledBaseStats.maxHp,
+      currentHealth: combatStats.currentHealth ?? combatStats.maxHealth,
+      baseDamage: combatStats.baseDamage ?? scaledBaseStats.baseDamage,
+      baseAttackSpeedMs:
+        combatStats.baseAttackSpeedMs ?? scaledBaseStats.baseAttackSpeedMs,
+      baseAttackRange:
+        combatStats.baseAttackRange ?? scaledBaseStats.baseAttackRange,
+    });
 
     const player: PlayerState = {
       connectionId,
@@ -327,6 +418,10 @@ class WorldInstance {
       baseDamage: resolvedCombat.baseDamage,
       baseAttackSpeedMs: resolvedCombat.baseAttackSpeedMs,
       baseAttackRange: resolvedCombat.baseAttackRange,
+      rawMaxHealth: resolvedBaseStats.maxHp,
+      rawBaseDamage: resolvedBaseStats.baseDamage,
+      level: resolvedProgression.level,
+      xp: resolvedProgression.xp,
       nextAttackAtMs: 0,
       pendingRespawn: false,
     };
@@ -797,7 +892,7 @@ class WorldInstance {
         continue;
       }
 
-      this.applyDamageToEnemy(enemy.id, player.baseDamage);
+      this.applyDamageToEnemy(enemy.id, player.baseDamage, player.id);
     }
   }
 
@@ -842,7 +937,11 @@ class WorldInstance {
         continue;
       }
 
-      this.applyDamageToEnemy(enemy.id, projectile.damage);
+      this.applyDamageToEnemy(
+        enemy.id,
+        projectile.damage,
+        projectile.ownerCharacterId,
+      );
       return true;
     }
 
@@ -884,10 +983,28 @@ class WorldInstance {
     return false;
   }
 
-  private applyDamageToEnemy(enemyId: string, amount: number): void {
+  private applyDamageToEnemy(
+    enemyId: string,
+    amount: number,
+    attackerCharacterId: string | null = null,
+  ): void {
     const enemy = this.enemies.get(enemyId);
     if (!enemy) {
       return;
+    }
+
+    const attacker =
+      attackerCharacterId !== null
+        ? (this.players.get(attackerCharacterId) ?? null)
+        : null;
+
+    if (attacker) {
+      this.emitFloatingText(
+        attacker.socket,
+        enemy.position,
+        `-${Math.max(0, Math.round(amount))}`,
+        "damage_enemy",
+      );
     }
 
     enemy.currentHealth = Math.max(0, enemy.currentHealth - amount);
@@ -896,6 +1013,10 @@ class WorldInstance {
     }
 
     this.enemies.delete(enemy.id);
+
+    if (attacker) {
+      this.awardEnemyKillExperience(attacker, enemy);
+    }
   }
 
   private applyDamageToPlayer(player: PlayerState, amount: number): void {
@@ -910,6 +1031,12 @@ class WorldInstance {
       player.currentHealth - amount,
       player.maxHealth,
     );
+    this.emitFloatingText(
+      player.socket,
+      player.position,
+      `-${Math.max(0, Math.round(amount))}`,
+      "damage_player",
+    );
     if (player.currentHealth > 0) {
       return;
     }
@@ -917,6 +1044,116 @@ class WorldInstance {
     player.pendingRespawn = true;
     player.velocity = { x: 0, y: 0 };
     this.deadPlayerQueue.set(player.id, player.socket);
+  }
+
+  private awardEnemyKillExperience(
+    player: PlayerState,
+    enemy: EnemyState,
+  ): void {
+    const xpAward = computeAdjustedEnemyExperience(
+      enemy.archetype.xpReward,
+      enemy.archetype.level,
+      player.level,
+    );
+    if (xpAward <= 0) {
+      return;
+    }
+
+    const nextProgression = applyCharacterExperience(
+      player.level,
+      player.xp,
+      xpAward,
+    );
+    if (nextProgression.gainedXp <= 0) {
+      return;
+    }
+
+    const levelChanged = nextProgression.level > player.level;
+    player.level = nextProgression.level;
+    player.xp = nextProgression.xp;
+
+    if (levelChanged) {
+      const scaledStats = computeLevelScaledCombatStats(
+        {
+          maxHp: player.rawMaxHealth,
+          baseDamage: player.rawBaseDamage,
+          baseAttackSpeedMs: player.baseAttackSpeedMs,
+          baseAttackRange: player.baseAttackRange,
+        },
+        player.level,
+      );
+      player.maxHealth = scaledStats.maxHp;
+      player.currentHealth = player.maxHealth;
+      player.baseDamage = scaledStats.baseDamage;
+
+      this.emitFloatingText(
+        player.socket,
+        player.position,
+        `LEVEL ${player.level}!`,
+        "level_up",
+      );
+    }
+
+    this.emitFloatingText(
+      player.socket,
+      enemy.position,
+      `+${nextProgression.gainedXp} XP`,
+      "xp_gain",
+    );
+    this.syncPlayerSessionProgress(player);
+
+    player.socket.send(
+      stringifyServerMessage({
+        type: "progression.updated",
+        level: player.level,
+        xp: player.xp,
+        xpToNextLevel: getXpToNextLevelForLevel(player.level),
+        currentHealth: player.currentHealth,
+        maxHealth: player.maxHealth,
+        baseDamage: player.baseDamage,
+      }),
+    );
+
+    const userId = player.socket.data.session.userId;
+    if (!userId || !this.persistCharacterProgression) {
+      return;
+    }
+
+    this.persistCharacterProgression({
+      userId,
+      characterId: player.id,
+      level: player.level,
+      xp: player.xp,
+    });
+  }
+
+  private syncPlayerSessionProgress(player: PlayerState): void {
+    const xpToNextLevel = getXpToNextLevelForLevel(player.level);
+    player.socket.data.session.characterCurrentHealth = player.currentHealth;
+    player.socket.data.session.characterMaxHealth = player.maxHealth;
+    player.socket.data.session.characterBaseDamage = player.baseDamage;
+    player.socket.data.session.characterLevel = player.level;
+    player.socket.data.session.characterXp = player.xp;
+    player.socket.data.session.characterXpToNextLevel = xpToNextLevel;
+  }
+
+  private emitFloatingText(
+    socket: ServerWebSocket<RealtimeSocketData>,
+    position: Vector2,
+    text: string,
+    variant: "damage_enemy" | "damage_player" | "xp_gain" | "level_up",
+  ): void {
+    socket.send(
+      stringifyServerMessage({
+        type: "combat.floatingText",
+        position: {
+          x: position.x,
+          y: position.y,
+        },
+        text,
+        variant,
+      }),
+    );
   }
 
   private flushDeadPlayers(): void {
@@ -1053,13 +1290,23 @@ export class WorldManager {
   private readonly resolveEnemyArchetype: (
     archetypeId: string,
   ) => EnemyArchetype | null;
+  private readonly persistCharacterProgression: PersistCharacterProgression | null;
 
   constructor(
-    resolveEnemyArchetype: (
-      archetypeId: string,
-    ) => EnemyArchetype | null = () => null,
+    resolveEnemyArchetypeOrOptions:
+      | ((archetypeId: string) => EnemyArchetype | null)
+      | WorldManagerOptions = () => null,
   ) {
-    this.resolveEnemyArchetype = resolveEnemyArchetype;
+    if (typeof resolveEnemyArchetypeOrOptions === "function") {
+      this.resolveEnemyArchetype = resolveEnemyArchetypeOrOptions;
+      this.persistCharacterProgression = null;
+      return;
+    }
+
+    this.resolveEnemyArchetype =
+      resolveEnemyArchetypeOrOptions.resolveEnemyArchetype ?? (() => null);
+    this.persistCharacterProgression =
+      resolveEnemyArchetypeOrOptions.persistCharacterProgression ?? null;
   }
 
   createSocketData(): RealtimeSocketData {
@@ -1081,6 +1328,11 @@ export class WorldManager {
         characterBaseDamage: null,
         characterBaseAttackSpeedMs: null,
         characterBaseAttackRange: null,
+        characterRawMaxHealth: null,
+        characterRawBaseDamage: null,
+        characterLevel: null,
+        characterXp: null,
+        characterXpToNextLevel: null,
       },
     };
   }
@@ -1120,6 +1372,18 @@ export class WorldManager {
         baseAttackRange:
           socket.data.session.characterBaseAttackRange ?? undefined,
       },
+      options?.baseStats ?? {
+        maxHp: socket.data.session.characterRawMaxHealth ?? undefined,
+        baseDamage: socket.data.session.characterRawBaseDamage ?? undefined,
+        baseAttackSpeedMs:
+          socket.data.session.characterBaseAttackSpeedMs ?? undefined,
+        baseAttackRange:
+          socket.data.session.characterBaseAttackRange ?? undefined,
+      },
+      options?.progression ?? {
+        level: socket.data.session.characterLevel ?? undefined,
+        xp: socket.data.session.characterXp ?? undefined,
+      },
       options?.spawnOverride,
     );
     const spawn = player.position;
@@ -1133,6 +1397,13 @@ export class WorldManager {
     socket.data.session.characterBaseDamage = player.baseDamage;
     socket.data.session.characterBaseAttackSpeedMs = player.baseAttackSpeedMs;
     socket.data.session.characterBaseAttackRange = player.baseAttackRange;
+    socket.data.session.characterRawMaxHealth = player.rawMaxHealth;
+    socket.data.session.characterRawBaseDamage = player.rawBaseDamage;
+    socket.data.session.characterLevel = player.level;
+    socket.data.session.characterXp = player.xp;
+    socket.data.session.characterXpToNextLevel = getXpToNextLevelForLevel(
+      player.level,
+    );
 
     socket.send(
       stringifyServerMessage({
@@ -1143,6 +1414,9 @@ export class WorldManager {
         class: characterClass,
         colorHex,
         spawn,
+        level: player.level,
+        xp: player.xp,
+        xpToNextLevel: getXpToNextLevelForLevel(player.level),
         currentHealth: player.currentHealth,
         maxHealth: player.maxHealth,
       }),
@@ -1173,6 +1447,13 @@ export class WorldManager {
       socket.data.session.characterBaseAttackSpeedMs =
         removed.baseAttackSpeedMs;
       socket.data.session.characterBaseAttackRange = removed.baseAttackRange;
+      socket.data.session.characterRawMaxHealth = removed.rawMaxHealth;
+      socket.data.session.characterRawBaseDamage = removed.rawBaseDamage;
+      socket.data.session.characterLevel = removed.level;
+      socket.data.session.characterXp = removed.xp;
+      socket.data.session.characterXpToNextLevel = getXpToNextLevelForLevel(
+        removed.level,
+      );
     }
 
     if (instance.size === 0) {
@@ -1268,6 +1549,7 @@ export class WorldManager {
       (socket, characterId) => {
         this.handlePlayerDeath(socket, characterId);
       },
+      this.persistCharacterProgression,
     );
     this.instances.set(worldId, created);
     return created;
@@ -1288,6 +1570,10 @@ export class WorldManager {
       characterBaseDamage,
       characterBaseAttackSpeedMs,
       characterBaseAttackRange,
+      characterRawMaxHealth,
+      characterRawBaseDamage,
+      characterLevel,
+      characterXp,
     } = socket.data.session;
     if (
       !characterId ||
@@ -1335,6 +1621,16 @@ export class WorldManager {
           baseAttackSpeedMs: characterBaseAttackSpeedMs ?? undefined,
           baseAttackRange: characterBaseAttackRange ?? undefined,
         },
+        baseStats: {
+          maxHp: characterRawMaxHealth ?? undefined,
+          baseDamage: characterRawBaseDamage ?? undefined,
+          baseAttackSpeedMs: characterBaseAttackSpeedMs ?? undefined,
+          baseAttackRange: characterBaseAttackRange ?? undefined,
+        },
+        progression: {
+          level: characterLevel ?? undefined,
+          xp: characterXp ?? undefined,
+        },
         spawnOverride: {
           x: targetSpawn.x + portal.exitOffset.x,
           y: targetSpawn.y + portal.exitOffset.y,
@@ -1354,9 +1650,12 @@ export class WorldManager {
       characterClass,
       characterColorHex,
       characterMaxHealth,
-      characterBaseDamage,
       characterBaseAttackSpeedMs,
       characterBaseAttackRange,
+      characterRawMaxHealth,
+      characterRawBaseDamage,
+      characterLevel,
+      characterXp,
     } = socket.data.session;
     if (
       !worldId ||
@@ -1371,7 +1670,32 @@ export class WorldManager {
 
     const respawnWorldId = DEFAULT_WORLD_ID;
     const classDefaults = getCharacterClassBaseCombatStats(characterClass);
-    const maxHealth = Math.max(1, characterMaxHealth ?? classDefaults.maxHp);
+    const normalizedProgression = normalizeCharacterProgress(
+      characterLevel ?? 1,
+      characterXp ?? 0,
+    );
+    const baseStats: CharacterBaseCombatStats = {
+      maxHp: Math.max(1, characterRawMaxHealth ?? classDefaults.maxHp),
+      baseDamage: Math.max(
+        0,
+        characterRawBaseDamage ?? classDefaults.baseDamage,
+      ),
+      baseAttackSpeedMs: Math.max(
+        1,
+        Math.floor(
+          characterBaseAttackSpeedMs ?? classDefaults.baseAttackSpeedMs,
+        ),
+      ),
+      baseAttackRange: Math.max(
+        1,
+        characterBaseAttackRange ?? classDefaults.baseAttackRange,
+      ),
+    };
+    const scaledStats = computeLevelScaledCombatStats(
+      baseStats,
+      normalizedProgression.level,
+    );
+    const maxHealth = Math.max(1, characterMaxHealth ?? scaledStats.maxHp);
     socket.data.session.characterCurrentHealth = maxHealth;
 
     socket.send(
@@ -1405,11 +1729,14 @@ export class WorldManager {
         combatStats: {
           currentHealth: maxHealth,
           maxHealth,
-          baseDamage: characterBaseDamage ?? classDefaults.baseDamage,
-          baseAttackSpeedMs:
-            characterBaseAttackSpeedMs ?? classDefaults.baseAttackSpeedMs,
-          baseAttackRange:
-            characterBaseAttackRange ?? classDefaults.baseAttackRange,
+          baseDamage: scaledStats.baseDamage,
+          baseAttackSpeedMs: scaledStats.baseAttackSpeedMs,
+          baseAttackRange: scaledStats.baseAttackRange,
+        },
+        baseStats,
+        progression: {
+          level: normalizedProgression.level,
+          xp: normalizedProgression.xp,
         },
       },
     );

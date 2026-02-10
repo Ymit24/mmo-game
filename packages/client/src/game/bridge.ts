@@ -54,6 +54,9 @@ export interface GameBridgeState {
   projectiles: OverlayProjectile[];
   localHealthCurrent: number | null;
   localHealthMax: number | null;
+  localLevel: number | null;
+  localXp: number | null;
+  localXpToNextLevel: number | null;
   lastCombatDeniedReason: "safe_zone" | "cooldown" | "dead" | null;
   lastMessage: string | null;
 }
@@ -80,6 +83,9 @@ const DEFAULT_STATE: GameBridgeState = {
   projectiles: [],
   localHealthCurrent: null,
   localHealthMax: null,
+  localLevel: null,
+  localXp: null,
+  localXpToNextLevel: null,
   lastCombatDeniedReason: null,
   lastMessage: null,
 };

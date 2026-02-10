@@ -114,6 +114,8 @@ function createTestArchetype(
   return {
     id,
     name: id,
+    level: 1,
+    xpReward: 16,
     maxHealth: 100,
     damage: 10,
     speed: 120,
@@ -1314,6 +1316,125 @@ describe("world manager", () => {
         (enemy) => enemy.id !== target.id,
       );
       expect(killed).toBe(true);
+    } finally {
+      Math.random = originalRandom;
+    }
+  });
+
+  test("enemy kill grants xp, levels up, and persists progression immediately", async () => {
+    const originalRandom = Math.random;
+    Math.random = () => 0;
+
+    try {
+      const persistedUpdates: Array<{
+        userId: string;
+        characterId: string;
+        level: number;
+        xp: number;
+      }> = [];
+      const archetypes = new Map<string, EnemyArchetype>([
+        [
+          "slime_scout",
+          createTestArchetype("slime_scout", {
+            maxHealth: 20,
+            xpReward: 2_000,
+            level: 8,
+            detectionRadius: 1,
+            leashRadius: 1,
+          }),
+        ],
+        [
+          "stone_golem",
+          createTestArchetype("stone_golem", {
+            detectionRadius: 1,
+            leashRadius: 1,
+          }),
+        ],
+      ]);
+      const manager = new WorldManager({
+        resolveEnemyArchetype: (archetypeId) =>
+          archetypes.get(archetypeId) ?? null,
+        persistCharacterProgression: (update) => {
+          persistedUpdates.push(update);
+        },
+      });
+      const socket = createMockSocket(manager, "user-a", "player-a");
+
+      manager.joinWorld(
+        asServerSocket(socket),
+        WILDS_BETA_MAP.id,
+        "player-a",
+        "Alpha",
+        "knight",
+        "#E8A832",
+        {
+          spawnOverride: { x: 1_220, y: 700 },
+          progression: { level: 1, xp: 0 },
+          combatStats: {
+            maxHealth: 100,
+            currentHealth: 100,
+            baseDamage: 200,
+            baseAttackSpeedMs: 600,
+            baseAttackRange: 120,
+          },
+          baseStats: {
+            maxHp: 180,
+            baseDamage: 24,
+            baseAttackSpeedMs: 600,
+            baseAttackRange: 60,
+          },
+        },
+      );
+      cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
+
+      await wait(300);
+      const before = latestWorldSnapshot(socket);
+      const target = before?.payload.enemies[0];
+      expect(target).toBeDefined();
+      if (!target) {
+        throw new Error("expected at least one enemy");
+      }
+
+      socket.sent = [];
+      manager.applyAttack(asServerSocket(socket), {
+        type: "player.attack",
+        aim: { x: target.position.x, y: target.position.y },
+      });
+
+      await wait(150);
+      const messages = parseMessages(socket);
+      const progression = messages.find(
+        (message) => message.type === "progression.updated",
+      );
+      expect(progression?.type).toBe("progression.updated");
+      if (!progression || progression.type !== "progression.updated") {
+        throw new Error("missing progression.updated message");
+      }
+      expect(progression.level).toBeGreaterThan(1);
+      expect(
+        progression.xpToNextLevel === null ||
+          progression.xp < progression.xpToNextLevel,
+      ).toBe(true);
+
+      const xpGainText = messages.find(
+        (message) =>
+          message.type === "combat.floatingText" &&
+          message.variant === "xp_gain",
+      );
+      const levelUpText = messages.find(
+        (message) =>
+          message.type === "combat.floatingText" &&
+          message.variant === "level_up",
+      );
+
+      expect(xpGainText).toBeDefined();
+      expect(levelUpText).toBeDefined();
+      expect(persistedUpdates.length).toBeGreaterThan(0);
+      const persisted = persistedUpdates.at(-1);
+      expect(persisted?.userId).toBe("user-a");
+      expect(persisted?.characterId).toBe("player-a");
+      expect(persisted?.level).toBe(progression.level);
+      expect(persisted?.xp).toBe(progression.xp);
     } finally {
       Math.random = originalRandom;
     }
