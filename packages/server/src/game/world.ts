@@ -1408,7 +1408,8 @@ export class WorldManager {
           baseDamage: characterBaseDamage ?? classDefaults.baseDamage,
           baseAttackSpeedMs:
             characterBaseAttackSpeedMs ?? classDefaults.baseAttackSpeedMs,
-          baseAttackRange: characterBaseAttackRange ?? classDefaults.baseAttackRange,
+          baseAttackRange:
+            characterBaseAttackRange ?? classDefaults.baseAttackRange,
         },
       },
     );
