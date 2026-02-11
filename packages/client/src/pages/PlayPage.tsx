@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthContext";
+import { WorldGrid } from "../components/WorldGrid";
 import { CharacterHubTopbar } from "../components/characters/CharacterHubTopbar";
 import { deleteCharacter, listCharacters } from "../lib/api/characterApi";
 import { getCharacterApiErrorMessage } from "../lib/api/characterApiErrorMessage";
@@ -11,6 +12,16 @@ interface DeleteDialogState {
   id: string;
   nickname: string;
 }
+
+const CLASS_COLORS: Record<string, string> = {
+  knight: "text-vec-gold",
+  mage: "text-vec-cyan",
+};
+
+const CLASS_BORDER_COLORS: Record<string, string> = {
+  knight: "border-vec-gold",
+  mage: "border-vec-cyan",
+};
 
 export function PlayPage() {
   const auth = useAuth();
@@ -75,76 +86,88 @@ export function PlayPage() {
 
   if (loading) {
     return (
-      <div className="flex min-h-dvh items-center justify-center bg-void text-text">
-        Loading characters...
+      <div className="flex min-h-dvh items-center justify-center bg-void text-vec-green font-display text-xs animate-flicker">
+        Loading...
       </div>
     );
   }
 
   return (
-    <main className="min-h-dvh bg-void text-text">
+    <main className="scanlines min-h-dvh bg-void text-text">
+      <WorldGrid />
       <CharacterHubTopbar />
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 pb-8 pt-24 md:px-8">
-        <header className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-cyan">
-              Character Hub
-            </p>
-            <h1 className="mt-2 font-display text-3xl font-bold text-text-bright">
-              Select and Manage Characters
-            </h1>
-          </div>
+
+      <div className="relative z-10 mx-auto flex w-full max-w-lg flex-col gap-4 px-4 pb-8 pt-16 md:px-6">
+        <div className="flex items-center justify-between">
+          <h1 className="font-display text-lg text-vec-green text-glow-green">
+            Characters
+          </h1>
           <Link
             to="/characters/new"
-            className="rounded border border-border px-3 py-2 text-sm hover:border-amber/60"
+            className="border border-border px-3 py-1.5 text-[11px] text-muted hover:border-vec-green/40 hover:text-vec-green transition-colors duration-150"
           >
-            New Character
+            + New
           </Link>
-        </header>
+        </div>
 
         {error ? (
           <p
             role="alert"
-            className="rounded border border-danger/50 bg-danger/10 p-3 text-sm text-danger"
+            className="border border-vec-magenta/40 bg-vec-magenta/5 px-3 py-2 text-xs text-vec-magenta"
           >
             {error}
           </p>
         ) : null}
 
-        <section className="grid gap-4 md:grid-cols-2">
+        {/* Character list */}
+        <div className="flex flex-col gap-1">
           {characters.map((character) => {
             const selected = selectedId === character.id;
+            const colorClass = CLASS_COLORS[character.class] ?? "text-text";
+            const borderClass =
+              CLASS_BORDER_COLORS[character.class] ?? "border-border";
             const canDelete = characters.length > 1;
+
             return (
-              <article
+              <button
                 key={character.id}
-                className={`rounded-lg border p-4 text-left transition ${
+                type="button"
+                onClick={() => setSelectedId(character.id)}
+                className={`flex items-center justify-between border p-3 text-left transition-colors duration-100 ${
                   selected
-                    ? "border-amber bg-surface"
-                    : "border-border bg-deep hover:border-amber/40"
+                    ? `${borderClass} bg-surface`
+                    : "border-border bg-void/90 hover:border-border-bright"
                 }`}
               >
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <p className="font-display text-xl text-text-bright">
+                <div className="flex items-center gap-3 min-w-0">
+                  <span
+                    className={`font-display text-sm ${colorClass} ${
+                      selected ? "" : "opacity-60"
+                    }`}
+                  >
+                    {character.class === "knight" ? "/\\" : "**"}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-sm text-text-bright truncate">
                       {character.nickname}
                     </p>
-                    <p className="text-sm capitalize text-muted">
-                      {character.class}
-                    </p>
-                    <p className="mt-1 inline-flex rounded border border-cyan/35 bg-cyan/10 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.14em] text-cyan">
-                      Lv. {character.level}
+                    <p className="text-[10px] text-muted">
+                      <span className="capitalize">{character.class}</span>
+                      {" Lv."}
+                      {character.level}
                     </p>
                   </div>
-                  <div className="flex items-center gap-2">
-                    {character.isLastUsed ? (
-                      <span className="rounded border border-cyan/40 bg-cyan/10 px-2 py-1 text-[10px] font-mono uppercase tracking-[0.14em] text-cyan">
-                        Last Used
-                      </span>
-                    ) : null}
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  {selected ? (
+                    <span className="text-[10px] uppercase tracking-[0.12em] text-vec-green">
+                      Selected
+                    </span>
+                  ) : null}
+                  {canDelete ? (
                     <button
                       type="button"
-                      disabled={!canDelete}
                       onClick={(event) => {
                         event.stopPropagation();
                         setDeleteState({
@@ -152,65 +175,43 @@ export function PlayPage() {
                           nickname: character.nickname,
                         });
                       }}
-                      className="rounded border border-danger/60 px-2.5 py-1 text-[11px] font-mono uppercase tracking-[0.12em] text-danger hover:bg-danger/10 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="text-[10px] text-vec-magenta/50 hover:text-vec-magenta transition-colors duration-100 px-1"
                     >
-                      Delete
+                      X
                     </button>
-                  </div>
+                  ) : null}
                 </div>
-                <div className="mt-3 flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedId(character.id)}
-                    className={`rounded px-3 py-1.5 text-xs font-mono uppercase tracking-[0.12em] ${
-                      selected
-                        ? "bg-amber text-void"
-                        : "border border-border text-text hover:border-amber/60"
-                    }`}
-                  >
-                    {selected ? "Selected" : "Select"}
-                  </button>
-                </div>
-              </article>
+              </button>
             );
           })}
-        </section>
+        </div>
 
-        <footer className="rounded-lg border border-border bg-abyss/75 p-4">
-          <p className="text-sm text-muted">
-            Selected:{" "}
-            <span className="font-display text-base text-text-bright">
-              {selectedCharacter?.nickname ?? "None"}
-            </span>
-          </p>
-          <button
-            type="button"
-            disabled={!selectedCharacter}
-            onClick={() => {
-              if (!selectedCharacter) {
-                return;
-              }
-              navigate(
-                `/world?characterId=${encodeURIComponent(selectedCharacter.id)}`,
-              );
-            }}
-            className="mt-3 rounded bg-amber px-4 py-2 font-display text-sm text-void hover:bg-amber-glow disabled:cursor-not-allowed disabled:opacity-70"
-          >
-            Enter World
-          </button>
-        </footer>
+        {/* Play button */}
+        <button
+          type="button"
+          disabled={!selectedCharacter}
+          onClick={() => {
+            if (!selectedCharacter) {
+              return;
+            }
+            navigate(
+              `/world?characterId=${encodeURIComponent(selectedCharacter.id)}`,
+            );
+          }}
+          className="w-full border border-vec-green bg-vec-green/10 px-4 py-3 font-display text-sm text-vec-green transition-all duration-150 hover:bg-vec-green/20 glow-green disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
+        >
+          Enter World
+        </button>
       </div>
 
+      {/* Delete modal */}
       {deleteState ? (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-void/90 p-4">
-          <div className="w-full max-w-md rounded-lg border border-border bg-abyss p-5">
-            <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-danger">
-              Confirm Delete
-            </p>
-            <h2 className="mt-2 font-display text-xl text-text-bright">
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-void/95 p-4">
+          <div className="w-full max-w-sm border border-vec-magenta/40 bg-void p-5">
+            <p className="font-display text-sm text-vec-magenta mb-2">
               Delete {deleteState.nickname}?
-            </h2>
-            <p className="mt-2 text-sm text-muted">
+            </p>
+            <p className="text-xs text-muted mb-3">
               Type{" "}
               <span className="text-text-bright">{deleteState.nickname}</span>{" "}
               to confirm.
@@ -218,12 +219,12 @@ export function PlayPage() {
             <input
               value={deleteInput}
               onChange={(event) => setDeleteInput(event.target.value)}
-              className="mt-3 w-full rounded border border-border bg-void px-3 py-2 text-sm text-text-bright outline-none focus:border-danger"
+              className="w-full border border-border bg-deep px-3 py-2 text-sm text-text-bright outline-none focus:border-vec-magenta"
             />
-            <div className="mt-4 flex justify-end gap-2">
+            <div className="mt-3 flex justify-end gap-2">
               <button
                 type="button"
-                className="rounded border border-border px-3 py-2 text-sm hover:border-amber/60"
+                className="border border-border px-3 py-1.5 text-xs text-muted hover:border-border-bright transition-colors duration-100"
                 onClick={() => {
                   setDeleteState(null);
                   setDeleteInput("");
@@ -238,7 +239,7 @@ export function PlayPage() {
                   deleteInput !== deleteState.nickname ||
                   !auth.token
                 }
-                className="rounded bg-danger px-3 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-60"
+                className="border border-vec-magenta bg-vec-magenta/10 px-3 py-1.5 text-xs text-vec-magenta disabled:cursor-not-allowed disabled:opacity-40"
                 onClick={async () => {
                   if (!auth.token) {
                     return;
@@ -266,7 +267,7 @@ export function PlayPage() {
                       fallback: "Delete failed.",
                       codeMessages: {
                         CHARACTER_LAST_DELETE_FORBIDDEN:
-                          "You must keep at least one character.",
+                          "Must keep at least one character.",
                       },
                     });
                     setError(message);
@@ -275,7 +276,7 @@ export function PlayPage() {
                   }
                 }}
               >
-                {isDeleting ? "Deleting..." : "Confirm Delete"}
+                {isDeleting ? "Deleting..." : "Confirm"}
               </button>
             </div>
           </div>
