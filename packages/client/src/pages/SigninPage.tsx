@@ -21,14 +21,10 @@ export function SigninPage() {
 
   return (
     <AuthLayout
-      title="Reconnect to the world"
-      subtitle="Sign in to continue your character, session, and progress."
+      title="Sign In"
+      subtitle="Enter your credentials."
       footer={
-        <AuthSwitchLink
-          prompt="Need an account?"
-          cta="Create one"
-          to="/signup"
-        />
+        <AuthSwitchLink prompt="No account?" cta="Create one" to="/signup" />
       }
     >
       <AuthCredentialsForm

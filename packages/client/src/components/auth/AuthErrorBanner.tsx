@@ -10,7 +10,7 @@ export function AuthErrorBanner({ message }: AuthErrorBannerProps) {
   return (
     <div
       role="alert"
-      className="rounded-md border border-danger/40 bg-danger/10 px-4 py-2.5 text-sm text-danger"
+      className="border border-vec-magenta/40 bg-vec-magenta/5 px-3 py-2 text-xs text-vec-magenta"
     >
       {message}
     </div>

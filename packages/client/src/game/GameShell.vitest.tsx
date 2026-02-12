@@ -180,7 +180,7 @@ describe("GameShell inventory UI", () => {
     const bagSlotTwo = screen.getByRole("button", {
       name: /Bag Slot 2/i,
     });
-    const groundDropZone = screen.getByText(/Drag an item here to drop it/i);
+    const groundDropZone = screen.getByText(/Drop to discard/i);
 
     const moveTransfer = createDragDataTransfer();
     fireEvent.dragStart(bagSlotOne, { dataTransfer: moveTransfer });

@@ -11,11 +11,11 @@ export function SignupPage() {
 
   return (
     <AuthLayout
-      title="Create your identity"
-      subtitle="Claim your account now and enter the persistent world."
+      title="New Account"
+      subtitle="Create your account to begin."
       footer={
         <AuthSwitchLink
-          prompt="Already registered?"
+          prompt="Already have an account?"
           cta="Sign in"
           to="/signin"
         />
@@ -23,7 +23,7 @@ export function SignupPage() {
     >
       <AuthCredentialsForm
         submitLabel="Create Account"
-        loadingLabel="Creating account..."
+        loadingLabel="Creating..."
         onSubmit={async (credentials) => {
           await auth.signup(credentials);
           navigate("/characters/new", { replace: true });

@@ -12,7 +12,7 @@ export function AuthSwitchLink({ prompt, cta, to }: AuthSwitchLinkProps) {
       {prompt}{" "}
       <Link
         to={to}
-        className="text-cyan hover:text-cyan-glow transition-colors duration-200"
+        className="text-vec-cyan hover:text-vec-cyan text-glow-cyan transition-colors duration-150"
       >
         {cta}
       </Link>

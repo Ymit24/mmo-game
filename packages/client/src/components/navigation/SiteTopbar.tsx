@@ -42,23 +42,21 @@ function UserMenu({ items }: { items: MenuItem[] }) {
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}
-        className="flex items-center gap-2 rounded-full border border-border bg-deep/85 px-2 py-1.5 hover:border-amber/60"
+        className="flex items-center gap-2 border border-border px-2 py-1 text-xs text-muted hover:border-vec-green/40 hover:text-vec-green transition-colors duration-150"
       >
-        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-amber font-mono text-xs font-bold text-void">
-          P
-        </span>
-        <span className="text-xs text-text-bright">Profile</span>
+        <span className="font-display text-[10px] text-vec-green">P</span>
+        <span>Menu</span>
       </button>
 
       {open ? (
-        <div className="absolute right-0 mt-2 w-44 rounded-lg border border-border bg-abyss p-1 shadow-xl">
+        <div className="absolute right-0 mt-1 w-36 border border-border bg-surface p-1 shadow-lg">
           {items.map((item) =>
             item.to ? (
               <Link
                 key={item.label}
                 to={item.to}
                 onClick={() => setOpen(false)}
-                className="block rounded px-3 py-2 text-sm text-text hover:bg-deep"
+                className="block px-3 py-1.5 text-xs text-text hover:bg-deep hover:text-vec-green transition-colors duration-100"
               >
                 {item.label}
               </Link>
@@ -70,7 +68,7 @@ function UserMenu({ items }: { items: MenuItem[] }) {
                   setOpen(false);
                   item.onClick?.();
                 }}
-                className="block w-full rounded px-3 py-2 text-left text-sm text-muted hover:bg-deep hover:text-text"
+                className="block w-full px-3 py-1.5 text-left text-xs text-muted hover:bg-deep hover:text-vec-green transition-colors duration-100"
               >
                 {item.label}
               </button>
@@ -88,50 +86,30 @@ export function SiteTopbar({ mode }: SiteTopbarProps) {
 
   const menuItems: MenuItem[] = [
     { label: "Home", to: "/" },
-    { label: "Character Hub", to: "/play" },
+    { label: "Characters", to: "/play" },
     { label: "Sign out", onClick: auth.signout },
   ];
 
   return (
-    <nav className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 py-4 md:px-10">
-      <div className="flex items-center gap-3">
-        <Link
-          to="/"
-          className="flex h-8 w-8 items-center justify-center rounded border border-amber/40 bg-amber/10"
-        >
-          <span className="font-display text-sm font-bold leading-none text-amber">
-            M
-          </span>
-        </Link>
-        <span className="font-display text-sm font-semibold uppercase tracking-wide text-text-bright">
-          MMO Game
+    <nav className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between border-b border-border/50 bg-void/90 px-4 py-2 md:px-6">
+      <Link
+        to="/"
+        className="flex items-center gap-2 text-vec-green hover:text-vec-green text-glow-green transition-colors duration-150"
+      >
+        <span className="font-display text-xs md:text-sm tracking-wider">
+          RoV
         </span>
-      </div>
+      </Link>
 
-      <div className="flex items-center gap-6 text-sm">
-        {mode === "landing" ? (
-          <>
-            <a
-              href="#about"
-              className="text-muted transition-colors duration-200 hover:text-text-bright"
-            >
-              About
-            </a>
-            <a
-              href="#features"
-              className="text-muted transition-colors duration-200 hover:text-text-bright"
-            >
-              How it works
-            </a>
-          </>
-        ) : (
+      <div className="flex items-center gap-4 text-xs">
+        {mode === "characterHub" ? (
           <Link
             to="/play"
-            className="text-muted transition-colors duration-200 hover:text-text-bright"
+            className="text-muted hover:text-vec-green transition-colors duration-150"
           >
-            Character Hub
+            Characters
           </Link>
-        )}
+        ) : null}
 
         {auth.isAuthenticated ? (
           <UserMenu items={menuItems} />
@@ -139,9 +117,9 @@ export function SiteTopbar({ mode }: SiteTopbarProps) {
           <button
             type="button"
             onClick={() => navigate("/signin")}
-            className="font-display font-medium text-amber transition-colors duration-200 hover:text-amber-glow"
+            className="text-vec-green/70 hover:text-vec-green transition-colors duration-150"
           >
-            Log in
+            Sign In
           </button>
         )}
       </div>

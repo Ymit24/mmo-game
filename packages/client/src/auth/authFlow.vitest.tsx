@@ -41,7 +41,7 @@ describe("auth flow", () => {
     renderApp("/play");
 
     expect(
-      await screen.findByRole("heading", { name: "Reconnect to the world" }),
+      await screen.findByRole("heading", { name: "Sign In" }),
     ).toBeInTheDocument();
   });
 
@@ -110,7 +110,7 @@ describe("auth flow", () => {
 
     expect(
       await screen.findByRole("heading", {
-        name: "Select and Manage Characters",
+        name: "Characters",
       }),
     ).toBeInTheDocument();
 
@@ -150,7 +150,7 @@ describe("auth flow", () => {
     renderApp("/play");
 
     expect(
-      await screen.findByRole("heading", { name: "Reconnect to the world" }),
+      await screen.findByRole("heading", { name: "Sign In" }),
     ).toBeInTheDocument();
     expect(localStorage.getItem(AUTH_SESSION_STORAGE_KEY)).toBeNull();
   });

@@ -13,7 +13,7 @@ export function AuthSubmitButton({
     <button
       type="submit"
       disabled={loading}
-      className="w-full rounded-md bg-amber px-4 py-3 font-display font-semibold text-void transition-all duration-200 hover:bg-amber-glow hover:scale-[1.01] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-65"
+      className="w-full border border-vec-green bg-vec-green/10 px-4 py-2.5 font-display text-xs text-vec-green transition-all duration-150 hover:bg-vec-green/20 hover:glow-green active:bg-vec-green/30 disabled:cursor-not-allowed disabled:opacity-50"
     >
       {loading ? loadingLabel : label}
     </button>

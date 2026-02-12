@@ -108,7 +108,7 @@ function applyPredictedInput(
 function hexToNumber(colorHex: string): number {
   const parsed = Number.parseInt(colorHex.replace("#", ""), 16);
   if (Number.isNaN(parsed)) {
-    return 0xfbbf24;
+    return 0x00ff41;
   }
   return parsed;
 }
@@ -290,10 +290,10 @@ class HubScene extends Phaser.Scene {
   ): Phaser.GameObjects.Text {
     return this.add
       .text(Math.round(x), Math.round(y - PLAYER_LABEL_OFFSET_Y), nickname, {
-        fontFamily: "JetBrains Mono",
+        fontFamily: "Share Tech Mono",
         fontSize: "12px",
         color: colorHex,
-        stroke: "#05070b",
+        stroke: "#000000",
         strokeThickness: 1,
       })
       .setOrigin(0.5, 0.5);
@@ -389,9 +389,9 @@ class HubScene extends Phaser.Scene {
 
     const background = this.add.graphics();
     background.setDepth(-20);
-    background.fillStyle(hexToNumber(map.background.color), 1);
+    background.fillStyle(0x000000, 1);
     background.fillRect(0, 0, map.width, map.height);
-    background.lineStyle(1, 0x2a4236, 0.3);
+    background.lineStyle(1, 0x00ff41, 0.12);
     for (let x = 0; x <= map.width; x += map.background.gridSize) {
       background.lineBetween(x, 0, x, map.height);
     }
@@ -402,11 +402,13 @@ class HubScene extends Phaser.Scene {
 
     const overlay = this.add.graphics();
     overlay.setDepth(-10);
-    overlay.fillStyle(0x1f3340, 0.5);
     for (const shape of map.collisions) {
+      overlay.fillStyle(0x00ff41, 0.03);
       overlay.fillRect(shape.x, shape.y, shape.width, shape.height);
+      overlay.lineStyle(1, 0x00ff41, 0.3);
+      overlay.strokeRect(shape.x, shape.y, shape.width, shape.height);
     }
-    overlay.lineStyle(2, 0xfbbf24, 0.35);
+    overlay.lineStyle(2, 0xffd700, 0.25);
     for (const region of map.regions) {
       overlay.strokeRect(
         region.shape.x,
@@ -416,8 +418,8 @@ class HubScene extends Phaser.Scene {
       );
     }
 
-    overlay.fillStyle(0x22d3ee, 0.28);
-    overlay.lineStyle(2, 0x67e8f9, 0.85);
+    overlay.fillStyle(0x00e5ff, 0.18);
+    overlay.lineStyle(2, 0x00e5ff, 0.85);
     for (const portal of map.portals) {
       overlay.fillRect(
         portal.shape.x,
@@ -577,8 +579,9 @@ class HubScene extends Phaser.Scene {
             PLAYER_COLLIDER_SIZE.width,
             PLAYER_COLLIDER_SIZE.height,
             hexToNumber(message.colorHex),
-            1,
+            0.08,
           );
+          sprite.setStrokeStyle(2, hexToNumber(message.colorHex), 0.9);
           const label = this.createPlayerLabel(
             message.spawn.x,
             message.spawn.y,
@@ -634,8 +637,9 @@ class HubScene extends Phaser.Scene {
           28,
           28,
           hexToNumber(message.player.colorHex),
-          0.95,
+          0.08,
         );
+        sprite.setStrokeStyle(1, hexToNumber(message.player.colorHex), 0.85);
         const label = this.createPlayerLabel(
           message.player.position.x,
           message.player.position.y,
@@ -899,8 +903,9 @@ class HubScene extends Phaser.Scene {
           28,
           28,
           hexToNumber(player.colorHex),
-          0.95,
+          0.08,
         );
+        sprite.setStrokeStyle(1, hexToNumber(player.colorHex), 0.85);
         const label = this.createPlayerLabel(
           player.position.x,
           player.position.y,
@@ -1023,18 +1028,19 @@ class HubScene extends Phaser.Scene {
       enemy.width,
       enemy.height,
       hexToNumber(enemy.colorHex),
-      0.95,
+      0.06,
     );
+    body.setStrokeStyle(1, hexToNumber(enemy.colorHex), 0.85);
     const label = this.add
       .text(
         Math.round(enemy.position.x),
         Math.round(enemy.position.y - enemy.height / 2 - ENEMY_LABEL_OFFSET_Y),
         enemy.name,
         {
-          fontFamily: "JetBrains Mono",
+          fontFamily: "Share Tech Mono",
           fontSize: "10px",
-          color: "#f8fafc",
-          stroke: "#05070b",
+          color: "#d8dce8",
+          stroke: "#000000",
           strokeThickness: 1,
         },
       )
@@ -1044,16 +1050,17 @@ class HubScene extends Phaser.Scene {
       enemy.position.y - enemy.height / 2 - ENEMY_HEALTH_BAR_OFFSET_Y,
       Math.max(48, enemy.width),
       6,
-      0x111827,
+      0x000000,
       0.95,
     );
+    healthBarBackground.setStrokeStyle(1, 0x00ff41, 0.3);
     const healthBarFill = this.add
       .rectangle(
         enemy.position.x,
         enemy.position.y - enemy.height / 2 - ENEMY_HEALTH_BAR_OFFSET_Y,
         Math.max(48, enemy.width),
         4,
-        0x22c55e,
+        0x00ff41,
         0.95,
       )
       .setOrigin(0, 0.5);
@@ -1065,10 +1072,10 @@ class HubScene extends Phaser.Scene {
         ),
         `${Math.round(enemy.currentHealth)}/${Math.round(enemy.maxHealth)}`,
         {
-          fontFamily: "JetBrains Mono",
+          fontFamily: "Share Tech Mono",
           fontSize: "10px",
-          color: "#d1d5db",
-          stroke: "#05070b",
+          color: "#00ff41",
+          stroke: "#000000",
           strokeThickness: 1,
         },
       )
@@ -1090,7 +1097,8 @@ class HubScene extends Phaser.Scene {
     actor.body
       .setPosition(enemy.position.x, enemy.position.y)
       .setSize(enemy.width, enemy.height)
-      .setFillStyle(hexToNumber(enemy.colorHex), 0.95);
+      .setFillStyle(hexToNumber(enemy.colorHex), 0.06);
+    actor.body.setStrokeStyle(1, hexToNumber(enemy.colorHex), 0.85);
 
     const barWidth = Math.max(48, enemy.width);
     const labelY = enemy.position.y - enemy.height / 2 - ENEMY_LABEL_OFFSET_Y;
@@ -1114,7 +1122,7 @@ class HubScene extends Phaser.Scene {
     actor.healthBarFill
       .setPosition(barLeft, barY)
       .setSize(Math.max(2, barWidth * healthRatio), 4)
-      .setFillStyle(healthRatio > 0.35 ? 0x22c55e : 0xef4444, 0.95);
+      .setFillStyle(healthRatio > 0.35 ? 0x00ff41 : 0xff0066, 0.95);
     actor.healthText
       .setText(
         `${Math.round(enemy.currentHealth)}/${Math.round(enemy.maxHealth)}`,
@@ -1137,42 +1145,65 @@ class HubScene extends Phaser.Scene {
     range: number,
   ): void {
     if (attackStyle === "melee") {
-      const swingLength = Phaser.Math.Clamp(range * 0.88, 38, 96);
-      const swingWidth = 10;
       const baseRotation = Math.atan2(direction.y, direction.x);
-      const swingSign = Date.now() % 2 === 0 ? 1 : -1;
-      const startRotation = baseRotation - swingSign * Phaser.Math.DegToRad(50);
-      const endRotation = baseRotation + swingSign * Phaser.Math.DegToRad(26);
-      const handleOffset = 14;
-      const handleX = origin.x + direction.x * handleOffset;
-      const handleY = origin.y + direction.y * handleOffset;
-      const sweep = this.add
-        .rectangle(handleX, handleY, swingLength, swingWidth, 0xfbbf24, 0.38)
-        .setOrigin(0.12, 0.5)
-        .setRotation(startRotation)
-        .setStrokeStyle(2, 0xfef3c7, 0.82);
-      const bladeCore = this.add
-        .rectangle(
-          handleX,
-          handleY,
-          swingLength * 0.86,
-          Math.max(4, swingWidth * 0.48),
-          0xfffbeb,
-          0.5,
-        )
-        .setOrigin(0.12, 0.5)
-        .setRotation(startRotation);
+      const sweepAngle = Phaser.Math.DegToRad(60);
+      const startAngle = baseRotation - sweepAngle;
+      const endAngle = baseRotation + sweepAngle;
+      const swingRadius = Phaser.Math.Clamp(range * 0.85, 40, 90);
+      const handleOffset = 10;
+      const centerX = origin.x + direction.x * handleOffset;
+      const centerY = origin.y + direction.y * handleOffset;
+
+      const arcGraphics = this.add.graphics();
+
+      const drawCrescent = (currentAngle: number, alpha: number) => {
+        arcGraphics.clear();
+
+        const innerR = swingRadius * 0.65;
+        const outerR = swingRadius;
+
+        const arcStart = currentAngle - sweepAngle * 0.7;
+        const arcEnd = currentAngle + sweepAngle * 0.7;
+
+        arcGraphics.fillStyle(0x00ff41, alpha * 0.35);
+        arcGraphics.beginPath();
+        arcGraphics.arc(centerX, centerY, outerR, arcStart, arcEnd);
+        arcGraphics.arc(centerX, centerY, innerR, arcEnd, arcStart, true);
+        arcGraphics.closePath();
+        arcGraphics.fillPath();
+
+        arcGraphics.lineStyle(2, 0xffd700, alpha * 0.95);
+        arcGraphics.beginPath();
+        arcGraphics.arc(centerX, centerY, outerR, arcStart, arcEnd);
+        arcGraphics.strokePath();
+
+        arcGraphics.lineStyle(1, 0xffffff, alpha * 0.7);
+        arcGraphics.beginPath();
+        arcGraphics.arc(
+          centerX,
+          centerY,
+          innerR + (outerR - innerR) * 0.5,
+          arcStart + 0.1,
+          arcEnd - 0.1,
+        );
+        arcGraphics.strokePath();
+      };
+
+      drawCrescent(startAngle, 1);
+
       this.tweens.add({
-        targets: [sweep, bladeCore],
-        rotation: endRotation,
-        alpha: 0,
-        scaleX: 1.04,
-        scaleY: 1.2,
-        duration: 170,
-        ease: "Cubic.Out",
+        targets: { angle: startAngle },
+        angle: endAngle,
+        duration: 160,
+        ease: "Sine.Out",
+        onUpdate: (tween) => {
+          const angle = tween.getValue() as number;
+          const progress = (angle - startAngle) / (endAngle - startAngle);
+          const alpha = 1 - progress * 0.9;
+          drawCrescent(angle, alpha);
+        },
         onComplete: () => {
-          sweep.destroy();
-          bladeCore.destroy();
+          arcGraphics.destroy();
         },
       });
       return;
@@ -1182,7 +1213,7 @@ class HubScene extends Phaser.Scene {
       origin.x + direction.x * 12,
       origin.y + direction.y * 12,
       8,
-      0x67e8f9,
+      0x00e5ff,
       0.45,
     );
     this.tweens.add({
@@ -1203,10 +1234,10 @@ class HubScene extends Phaser.Scene {
     const y = anchor?.y ?? this.predictedPosition.y;
     const text = this.add
       .text(Math.round(x), Math.round(y - 44), "SAFE ZONE", {
-        fontFamily: "Chakra Petch",
+        fontFamily: "Share Tech Mono",
         fontSize: "12px",
-        color: "#67e8f9",
-        stroke: "#02101a",
+        color: "#00e5ff",
+        stroke: "#000000",
         strokeThickness: 2,
       })
       .setOrigin(0.5, 0.5);
@@ -1250,9 +1281,9 @@ class HubScene extends Phaser.Scene {
       }
     > = {
       damage_enemy: {
-        color: "#fde68a",
-        glowColor: "#f59e0b",
-        stroke: "#261500",
+        color: "#ffd700",
+        glowColor: "#ffd700",
+        stroke: "#000000",
         fontSize: "24px",
         driftY: 98,
         duration: 1_260,
@@ -1261,9 +1292,9 @@ class HubScene extends Phaser.Scene {
         shake: 0.0012,
       },
       damage_player: {
-        color: "#fecdd3",
-        glowColor: "#fb7185",
-        stroke: "#3f0a18",
+        color: "#ff0066",
+        glowColor: "#ff0066",
+        stroke: "#000000",
         fontSize: "24px",
         driftY: 96,
         duration: 1_300,
@@ -1272,9 +1303,9 @@ class HubScene extends Phaser.Scene {
         shake: 0.0014,
       },
       xp_gain: {
-        color: "#ccfbf1",
-        glowColor: "#22d3ee",
-        stroke: "#05303c",
+        color: "#00e5ff",
+        glowColor: "#00e5ff",
+        stroke: "#000000",
         fontSize: "26px",
         driftY: 120,
         duration: 1_520,
@@ -1283,9 +1314,9 @@ class HubScene extends Phaser.Scene {
         shake: 0.0016,
       },
       level_up: {
-        color: "#fff7cf",
-        glowColor: "#fbbf24",
-        stroke: "#4a2f00",
+        color: "#ffd700",
+        glowColor: "#ffd700",
+        stroke: "#000000",
         fontSize: "38px",
         driftY: 160,
         duration: 2_150,
@@ -1298,7 +1329,7 @@ class HubScene extends Phaser.Scene {
     const style = styleByVariant[variant];
     const glowText = this.add
       .text(startX, startY, text, {
-        fontFamily: "Chakra Petch",
+        fontFamily: "Silkscreen",
         fontSize: style.fontSize,
         color: style.glowColor,
         stroke: style.glowColor,
@@ -1311,7 +1342,7 @@ class HubScene extends Phaser.Scene {
       .setScale(0.62);
     const floatingText = this.add
       .text(startX, startY, text, {
-        fontFamily: "Chakra Petch",
+        fontFamily: "Silkscreen",
         fontSize: style.fontSize,
         color: style.color,
         stroke: style.stroke,
@@ -1532,7 +1563,7 @@ export function mountGameRuntime({
   const game = new Phaser.Game({
     type: Phaser.AUTO,
     parent: container,
-    backgroundColor: "#05070b",
+    backgroundColor: "#000000",
     antialias: false,
     pixelArt: true,
     scale: {

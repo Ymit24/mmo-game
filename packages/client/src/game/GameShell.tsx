@@ -7,6 +7,7 @@ import { type DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthContext";
+import { ItemTooltip } from "./ItemTooltip";
 import { type GameBridgeState, createGameBridge } from "./bridge";
 import { resolveItemIconUrl } from "./itemIconMap";
 import { mountGameRuntime } from "./phaser/runtime";
@@ -93,6 +94,10 @@ export function GameShell({ characterId }: GameShellProps) {
   const [isDraggingInventoryItem, setIsDraggingInventoryItem] =
     useState<boolean>(false);
   const [hoveredSlotKey, setHoveredSlotKey] = useState<string | null>(null);
+  const [hoveredSlotData, setHoveredSlotData] = useState<{
+    slot: InventorySlotRef;
+    rect: DOMRect;
+  } | null>(null);
   const dragInProgressRef = useRef<boolean>(false);
   const dropHighlightedSlotKey = isDraggingInventoryItem
     ? activeDropSlotKey
@@ -241,115 +246,124 @@ export function GameShell({ characterId }: GameShellProps) {
     bridge.requestInventoryDrop({ from });
   }
 
-  function onSlotMouseEnter(slot: InventorySlotRef): void {
+  function onSlotMouseEnter(
+    event: React.MouseEvent<HTMLElement>,
+    slot: InventorySlotRef,
+  ): void {
     if (isDraggingInventoryItem) {
       return;
     }
     setHoveredSlotKey(slotRefKey(slot));
+    const rect = event.currentTarget.getBoundingClientRect();
+    setHoveredSlotData({ slot, rect });
   }
 
   function onSlotMouseLeave(slot: InventorySlotRef): void {
     const key = slotRefKey(slot);
     setHoveredSlotKey((current) => (current === key ? null : current));
+    setHoveredSlotData((current) =>
+      current && slotRefKey(current.slot) === key ? null : current,
+    );
   }
 
   return (
-    <div className="relative h-dvh w-full overflow-hidden bg-void text-text">
-      <div ref={containerRef} className="absolute inset-0" />
+    <div className="relative h-dvh w-full overflow-hidden bg-void text-text flex flex-col">
+      {/* Main content area */}
+      <div className="flex flex-1 min-h-0">
+        {/* Phaser canvas container - flush with top of screen */}
+        <div
+          ref={containerRef}
+          className="flex-1 relative min-w-0"
+          onDragOver={(event) => event.preventDefault()}
+          onDrop={onGroundDrop}
+        />
 
-      {showConnectionModal ? (
-        <div className="absolute inset-0 z-30 flex items-center justify-center bg-void/90 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-xl border border-border bg-abyss/95 p-5 shadow-xl">
-            <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-cyan">
-              Connection
-            </p>
-            <h2 className="mt-2 text-lg text-text-bright">
-              {uiState.modal?.kind === "conflict"
-                ? "Session Already Active"
-                : uiState.modal?.kind === "kicked"
-                  ? "Session Replaced"
-                  : "Joining World"}
-            </h2>
-            <p className="mt-2 text-sm text-muted">
-              {uiState.modal?.message ??
-                "Connecting to the realtime world and syncing player state..."}
-            </p>
-            <div className="mt-4 flex flex-wrap gap-2">
-              {uiState.modal?.kind === "conflict" ? (
-                <button
-                  type="button"
-                  onClick={() => bridge.requestTakeover()}
-                  className="rounded bg-amber px-3 py-1.5 text-sm font-display text-void hover:bg-amber-glow"
-                >
-                  Disconnect Other Session
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={reconnect}
-                  className="rounded bg-amber px-3 py-1.5 text-sm font-display text-void hover:bg-amber-glow"
-                >
-                  Reconnect
-                </button>
-              )}
+        {/* Right sidebar (RotMG-style) */}
+        {isReady ? (
+          <aside className="w-48 md:w-56 shrink-0 flex flex-col border-l border-border/40 bg-void/85 z-20">
+            {/* World info header */}
+            <div className="flex items-center justify-between border-b border-border/40 px-2 py-1.5 shrink-0">
+              <div className="flex items-center gap-2 text-[10px]">
+                <span className="text-muted">{uiState.worldId ?? "---"}</span>
+                <span className="text-muted">
+                  {uiState.players.length} online
+                </span>
+              </div>
               <button
                 type="button"
                 onClick={() => navigate("/play", { replace: true })}
-                className="rounded border border-border px-3 py-1.5 text-sm text-text hover:border-amber/60"
+                className="border border-border px-1.5 py-0.5 text-[10px] text-muted hover:border-vec-magenta/40 hover:text-vec-magenta transition-colors duration-100"
               >
-                Back to Characters
+                Leave
               </button>
             </div>
-          </div>
-        </div>
-      ) : null}
 
-      {uiState.transitionMessage ? (
-        <div className="absolute inset-0 z-40 flex items-center justify-center bg-void p-4">
-          <div className="rounded-lg border border-cyan/40 bg-abyss/90 px-5 py-3 shadow-xl shadow-cyan/10">
-            <p className="font-mono text-xs uppercase tracking-[0.18em] text-cyan">
-              {uiState.transitionMessage}
-            </p>
-          </div>
-        </div>
-      ) : null}
+            {/* Stats: Level + HP + XP */}
+            <div className="border-b border-border/40 p-2">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="font-display text-xs text-vec-green text-glow-green">
+                  Lv.{localLevel}
+                </span>
+                {uiState.lastCombatDeniedReason === "safe_zone" ? (
+                  <span className="text-[8px] text-vec-cyan border border-vec-cyan/30 px-1 py-0.5 leading-none">
+                    SAFE
+                  </span>
+                ) : null}
+              </div>
 
-      {isReady ? (
-        <div className="pointer-events-none absolute inset-0 z-20 flex flex-col justify-between p-4 md:p-6">
-          <header className="pointer-events-auto flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/80 bg-abyss/85 p-3 backdrop-blur-sm">
-            <div>
-              <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-cyan">
-                Live Session
-              </p>
-              <p className="text-sm text-text-bright">Authenticated Session</p>
-            </div>
-
-            <div className="flex items-center gap-2 text-xs">
-              <span className="rounded border border-border px-2 py-1 font-mono uppercase tracking-[0.15em] text-muted">
-                {uiState.connectionStatus}
-              </span>
-              <span className="rounded border border-border px-2 py-1 font-mono uppercase tracking-[0.15em] text-muted">
-                {uiState.worldId ?? "no-world"}
-              </span>
-              <span className="rounded border border-border px-2 py-1 font-mono uppercase tracking-[0.15em] text-muted">
-                players {uiState.players.length}
-              </span>
-              <button
-                type="button"
-                onClick={() => navigate("/play", { replace: true })}
-                className="rounded bg-amber px-3 py-1 font-display text-void hover:bg-amber-glow"
+              {/* HP bar */}
+              <div
+                className={`mb-1.5 ${isLowHealth ? "hud-health-shell-danger" : ""}`}
               >
-                Disconnect
-              </button>
-            </div>
-          </header>
+                <div className="flex items-center justify-between mb-0.5">
+                  <span className="text-[8px] text-vec-green/70 uppercase">
+                    HP
+                  </span>
+                  <span
+                    className={`text-[8px] ${isLowHealth ? "text-vec-magenta" : "text-muted"}`}
+                  >
+                    {Math.round(localHealthCurrent)}/
+                    {Math.round(localHealthMax)}
+                  </span>
+                </div>
+                <div className="hud-health-track h-2.5">
+                  <div
+                    className={`hud-health-fill h-full ${
+                      isLowHealth ? "hud-health-fill-danger" : ""
+                    }`}
+                    style={{
+                      width: `${Math.max(2, healthRatio * 100)}%`,
+                    }}
+                  />
+                </div>
+              </div>
 
-          <div className="grid pointer-events-none gap-4 md:grid-cols-[1fr_320px]">
-            <aside className="pointer-events-auto rounded-lg border border-border/80 bg-abyss/85 p-3 backdrop-blur-sm md:max-w-sm">
-              <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.2em] text-cyan">
-                Minimap
-              </p>
-              <div className="relative h-36 w-full overflow-hidden rounded border border-border bg-deep">
+              {/* XP bar */}
+              <div>
+                <div className="flex items-center justify-between mb-0.5">
+                  <span className="text-[8px] text-vec-cyan/70 uppercase">
+                    XP
+                  </span>
+                  <span className="text-[8px] text-muted">
+                    {xpToNextLevel === null
+                      ? "MAX"
+                      : `${Math.round(localXp)}/${Math.round(xpToNextLevel)}`}
+                  </span>
+                </div>
+                <div className="hud-xp-track h-1.5">
+                  <div
+                    className="hud-xp-fill h-full"
+                    style={{
+                      width: `${Math.max(2, xpRatio * 100)}%`,
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Minimap */}
+            <div className="border-b border-border/40 p-2">
+              <div className="relative aspect-square w-full overflow-hidden border border-border bg-void">
                 {uiState.players.map((player) => {
                   const x = (player.x / uiState.mapSize.width) * 100;
                   const y = (player.y / uiState.mapSize.height) * 100;
@@ -357,8 +371,8 @@ export function GameShell({ characterId }: GameShellProps) {
                   return (
                     <span
                       key={player.id}
-                      className={`absolute h-2 w-2 -translate-x-1 -translate-y-1 rounded-full ${
-                        player.isLocal ? "bg-amber" : "bg-cyan"
+                      className={`absolute h-1.5 w-1.5 -translate-x-0.5 -translate-y-0.5 ${
+                        player.isLocal ? "bg-vec-gold" : "bg-vec-green"
                       }`}
                       style={{ left: `${x}%`, top: `${y}%` }}
                     />
@@ -371,7 +385,7 @@ export function GameShell({ characterId }: GameShellProps) {
                   return (
                     <span
                       key={enemy.id}
-                      className="absolute h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-sm border border-rose-100/40 bg-rose-400/90"
+                      className="absolute h-1 w-1 -translate-x-0.5 -translate-y-0.5 bg-vec-magenta"
                       style={{ left: `${x}%`, top: `${y}%` }}
                     />
                   );
@@ -383,30 +397,17 @@ export function GameShell({ characterId }: GameShellProps) {
                   return (
                     <span
                       key={projectile.id}
-                      className="absolute h-1 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-cyan-glow/90 shadow-[0_0_8px_rgba(103,232,249,0.7)]"
+                      className="absolute h-0.5 w-0.5 bg-vec-cyan"
                       style={{ left: `${x}%`, top: `${y}%` }}
                     />
                   );
                 })}
               </div>
-              <p className="mt-2 text-xs text-muted">
-                Enemies tracked: {uiState.enemies.length} | Cursor world:{" "}
-                {Math.round(uiState.pointerWorld.x)},{" "}
-                {Math.round(uiState.pointerWorld.y)}
-              </p>
-            </aside>
+            </div>
 
-            <aside className="pointer-events-auto rounded-lg border border-border/80 bg-abyss/85 p-3 backdrop-blur-sm">
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-cyan">
-                  Inventory
-                </p>
-                <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted">
-                  9 slots
-                </span>
-              </div>
-
-              <div className="mb-3 grid grid-cols-2 gap-2">
+            {/* Equipment slots */}
+            <div className="border-b border-border/40 p-2">
+              <div className="grid grid-cols-2 gap-1">
                 {(["weapon", "armor"] as const).map((equipSlot) => {
                   const slotRef: InventorySlotRef = {
                     kind: "equip",
@@ -422,70 +423,63 @@ export function GameShell({ characterId }: GameShellProps) {
                     : null;
 
                   return (
-                    <div key={equipSlot}>
-                      <p className="mb-1 font-mono text-[10px] uppercase tracking-[0.14em] text-muted">
-                        {equipSlot}
-                      </p>
-                      <button
-                        type="button"
-                        aria-label={`${slotRefLabel(slotRef)} Slot${definition ? `: ${definition.name}` : ""}`}
-                        draggable={!!instance}
-                        onDragStart={(event) => {
-                          if (!instance) {
-                            return;
-                          }
-                          onSlotDragStart(event, slotRef);
-                        }}
-                        onDragEnd={onSlotDragEnd}
-                        onDragOver={(event) => onSlotDragOver(event, slotRef)}
-                        onDragLeave={() => onSlotDragLeave(slotRef)}
-                        onDrop={(event) => onSlotDrop(event, slotRef)}
-                        onMouseEnter={() => onSlotMouseEnter(slotRef)}
-                        onMouseLeave={() => onSlotMouseLeave(slotRef)}
-                        className={`flex h-20 w-full items-center gap-2 rounded border bg-deep/80 px-2 text-left ${
-                          dropHighlightedSlotKey === key
-                            ? "border-amber/80"
-                            : hoveredSlotKey === key
-                              ? "border-amber/60"
-                              : isDraggingInventoryItem
-                                ? "border-border"
-                                : "border-border"
-                        }`}
-                      >
-                        {instance && definition ? (
-                          <>
-                            {iconUrl ? (
-                              <img
-                                src={iconUrl}
-                                alt={definition.name}
-                                className="h-10 w-10 rounded border border-border/70 bg-void/60 p-1"
-                              />
-                            ) : (
-                              <span className="flex h-10 w-10 items-center justify-center rounded border border-border/70 bg-void/60 font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
-                                icon
-                              </span>
-                            )}
-                            <span className="min-w-0">
-                              <span className="block truncate text-xs text-text-bright">
-                                {definition.name}
-                              </span>
-                              <span className="block text-[10px] uppercase tracking-[0.12em] text-muted">
-                                {definition.type}
-                              </span>
+                    <button
+                      key={equipSlot}
+                      type="button"
+                      aria-label={`${slotRefLabel(slotRef)} Slot${definition ? `: ${definition.name}` : ""}`}
+                      draggable={!!instance}
+                      onDragStart={(event) => {
+                        if (!instance) {
+                          return;
+                        }
+                        onSlotDragStart(event, slotRef);
+                      }}
+                      onDragEnd={onSlotDragEnd}
+                      onDragOver={(event) => onSlotDragOver(event, slotRef)}
+                      onDragLeave={() => onSlotDragLeave(slotRef)}
+                      onDrop={(event) => onSlotDrop(event, slotRef)}
+                      onMouseEnter={(event) => onSlotMouseEnter(event, slotRef)}
+                      onMouseLeave={() => onSlotMouseLeave(slotRef)}
+                      className={`flex flex-col items-center justify-center border p-1.5 aspect-square ${
+                        dropHighlightedSlotKey === key
+                          ? "border-vec-gold bg-vec-gold/10"
+                          : hoveredSlotKey === key
+                            ? "border-vec-green/60"
+                            : "border-border bg-deep"
+                      }`}
+                    >
+                      {instance && definition ? (
+                        <>
+                          {iconUrl ? (
+                            <img
+                              src={iconUrl}
+                              alt={definition.name}
+                              className="h-8 w-8 p-0.5"
+                              style={{ imageRendering: "pixelated" }}
+                            />
+                          ) : (
+                            <span className="text-[9px] text-muted">
+                              {definition.type}
                             </span>
-                          </>
-                        ) : (
-                          <span className="w-full text-center font-mono text-[10px] uppercase tracking-[0.14em] text-muted">
-                            Empty {equipSlot}
+                          )}
+                          <span className="mt-0.5 text-[8px] text-text-bright truncate w-full text-center">
+                            {definition.name}
                           </span>
-                        )}
-                      </button>
-                    </div>
+                        </>
+                      ) : (
+                        <span className="text-[8px] text-muted/40 uppercase">
+                          {equipSlot}
+                        </span>
+                      )}
+                    </button>
                   );
                 })}
               </div>
+            </div>
 
-              <div className="grid grid-cols-3 gap-2">
+            {/* Bag slots */}
+            <div className="flex-1 overflow-y-auto p-2">
+              <div className="grid grid-cols-3 gap-1">
                 {bagSlots.map((instance, index) => {
                   const slotRef: InventorySlotRef = {
                     kind: "bag",
@@ -515,16 +509,14 @@ export function GameShell({ characterId }: GameShellProps) {
                       onDragOver={(event) => onSlotDragOver(event, slotRef)}
                       onDragLeave={() => onSlotDragLeave(slotRef)}
                       onDrop={(event) => onSlotDrop(event, slotRef)}
-                      onMouseEnter={() => onSlotMouseEnter(slotRef)}
+                      onMouseEnter={(event) => onSlotMouseEnter(event, slotRef)}
                       onMouseLeave={() => onSlotMouseLeave(slotRef)}
-                      className={`flex h-24 flex-col items-center justify-center rounded border bg-deep px-2 text-center ${
+                      className={`flex flex-col items-center justify-center border aspect-square p-1 ${
                         dropHighlightedSlotKey === key
-                          ? "border-amber/80"
+                          ? "border-vec-gold bg-vec-gold/10"
                           : hoveredSlotKey === key
-                            ? "border-amber/60"
-                            : isDraggingInventoryItem
-                              ? "border-border"
-                              : "border-border"
+                            ? "border-vec-green/60"
+                            : "border-border bg-deep"
                       }`}
                     >
                       {instance && definition ? (
@@ -533,19 +525,20 @@ export function GameShell({ characterId }: GameShellProps) {
                             <img
                               src={iconUrl}
                               alt={definition.name}
-                              className="h-9 w-9 rounded border border-border/70 bg-void/60 p-1"
+                              className="h-7 w-7 p-0.5"
+                              style={{ imageRendering: "pixelated" }}
                             />
                           ) : (
-                            <span className="flex h-9 w-9 items-center justify-center rounded border border-border/70 bg-void/60 font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
-                              icon
+                            <span className="text-[8px] text-muted">
+                              {definition.type}
                             </span>
                           )}
-                          <span className="mt-1 line-clamp-2 text-[10px] leading-tight text-text-bright">
+                          <span className="mt-0.5 text-[7px] text-text-bright truncate w-full text-center leading-tight">
                             {definition.name}
                           </span>
                         </>
                       ) : (
-                        <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted">
+                        <span className="text-[8px] text-muted/30">
                           {index + 1}
                         </span>
                       )}
@@ -554,94 +547,128 @@ export function GameShell({ characterId }: GameShellProps) {
                 })}
               </div>
 
+              {/* Drop zone */}
               <div
                 onDragOver={(event) => event.preventDefault()}
                 onDrop={onGroundDrop}
-                className="mt-3 rounded border border-dashed border-amber/60 bg-void/40 px-3 py-4 text-center text-xs text-amber"
+                className="mt-2 border border-dashed border-vec-magenta/30 bg-void/40 py-2 text-center text-[9px] text-vec-magenta/50"
               >
-                Drag an item here to drop it on the ground
+                Drop to discard
               </div>
 
               {uiState.inventoryError ? (
-                <p className="mt-2 rounded border border-danger/40 bg-danger/10 px-2 py-1 text-xs text-danger">
+                <p className="mt-1 text-[9px] text-vec-magenta">
                   {uiState.inventoryError}
                 </p>
               ) : null}
-            </aside>
+            </div>
+          </aside>
+        ) : null}
+      </div>
+
+      {/* Connection / modal overlay */}
+      {showConnectionModal ? (
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-void/95 p-4">
+          <div className="w-full max-w-xs border border-vec-green/30 bg-void p-5">
+            <p className="font-display text-sm text-vec-green mb-2">
+              {uiState.modal?.kind === "conflict"
+                ? "Session Conflict"
+                : uiState.modal?.kind === "kicked"
+                  ? "Session Replaced"
+                  : "Connecting..."}
+            </p>
+            <p className="text-xs text-muted mb-4">
+              {uiState.modal?.message ?? "Joining world..."}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {uiState.modal?.kind === "conflict" ? (
+                <button
+                  type="button"
+                  onClick={() => bridge.requestTakeover()}
+                  className="border border-vec-green bg-vec-green/10 px-3 py-1.5 text-xs font-display text-vec-green hover:bg-vec-green/20"
+                >
+                  Take Over
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={reconnect}
+                  className="border border-vec-green bg-vec-green/10 px-3 py-1.5 text-xs font-display text-vec-green hover:bg-vec-green/20"
+                >
+                  Reconnect
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => navigate("/play", { replace: true })}
+                className="border border-border px-3 py-1.5 text-xs text-muted hover:border-border-bright"
+              >
+                Back
+              </button>
+            </div>
           </div>
-
-          <footer className="pointer-events-auto flex items-end justify-between gap-4">
-            <section
-              className={`hud-health-shell w-full max-w-[460px] rounded-xl border border-border/80 px-4 py-3 ${
-                isLowHealth ? "hud-health-shell-danger" : ""
-              }`}
-            >
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-cyan">
-                    Aegis Core
-                  </p>
-                  <p className="text-xs text-muted">
-                    {Math.round(localHealthCurrent)} /{" "}
-                    {Math.round(localHealthMax)} vitality
-                  </p>
-                </div>
-                <div className="rounded border border-border/70 bg-void/60 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.15em] text-amber">
-                  {Math.round(healthRatio * 100)}%
-                </div>
-                <div className="rounded border border-cyan/40 bg-cyan/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.15em] text-cyan">
-                  Lv. {localLevel}
-                </div>
-              </div>
-
-              <div className="mt-3">
-                <div className="hud-health-track relative h-4 overflow-hidden rounded-sm border border-border/70 bg-void/80">
-                  <div
-                    className={`hud-health-fill h-full rounded-sm ${
-                      isLowHealth ? "hud-health-fill-danger" : ""
-                    }`}
-                    style={{
-                      width: `${Math.max(4, healthRatio * 100)}%`,
-                    }}
-                  />
-                </div>
-              </div>
-
-              <div className="mt-3">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-cyan-glow">
-                    Experience
-                  </p>
-                  <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted">
-                    {xpToNextLevel === null
-                      ? "MAX LEVEL"
-                      : `${Math.round(localXp)} / ${Math.round(xpToNextLevel)}`}
-                  </p>
-                </div>
-                <div className="hud-xp-track relative mt-2 h-3 overflow-hidden rounded-sm border border-cyan/35 bg-void/80">
-                  <div
-                    className="hud-xp-fill h-full rounded-sm"
-                    style={{
-                      width: `${Math.max(4, xpRatio * 100)}%`,
-                    }}
-                  />
-                </div>
-              </div>
-
-              <div className="mt-3 flex flex-wrap items-center gap-2 text-[10px] font-mono uppercase tracking-[0.12em] text-muted">
-                <span className="rounded border border-border/70 bg-void/50 px-2 py-1">
-                  attack: click / space
-                </span>
-                {uiState.lastCombatDeniedReason === "safe_zone" ? (
-                  <span className="rounded border border-cyan/50 bg-cyan/10 px-2 py-1 text-cyan">
-                    safe zone active
-                  </span>
-                ) : null}
-              </div>
-            </section>
-          </footer>
         </div>
       ) : null}
+
+      {/* Transition message */}
+      {uiState.transitionMessage ? (
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-void">
+          <p className="font-display text-xs text-vec-green animate-flicker">
+            {uiState.transitionMessage}
+          </p>
+        </div>
+      ) : null}
+
+      {/* Item Tooltip */}
+      {(() => {
+        if (!hoveredSlotData || !uiState.inventory) return null;
+
+        const { slot, rect } = hoveredSlotData;
+        let item: (typeof bagSlots)[number] | undefined = undefined;
+        let slotType: "bag" | EquipSlot = "bag";
+
+        if (slot.kind === "bag") {
+          item = bagSlots[slot.index];
+        } else {
+          item = equipSlots[slot.slot];
+          slotType = slot.slot;
+        }
+
+        if (!item) return null;
+
+        const definition = uiState.inventory.definitions[item.itemDefinitionId];
+        if (!definition) return null;
+
+        // Get equipped weapon for comparison (only when hovering a bag item)
+        const equippedWeapon =
+          slot.kind === "bag" ? uiState.inventory.equipSlots.weapon : undefined;
+        const equippedWeaponDefinition =
+          equippedWeapon && slot.kind === "bag"
+            ? uiState.inventory.definitions[equippedWeapon.itemDefinitionId]
+            : undefined;
+
+        // Calculate position: to the left of the slot, vertically centered
+        const tooltipX = rect.left - 10;
+        const tooltipY = rect.top + rect.height / 2;
+
+        return (
+          <div
+            className="fixed z-50"
+            style={{
+              right: `${window.innerWidth - tooltipX}px`,
+              top: `${tooltipY}px`,
+              transform: "translateY(-50%)",
+            }}
+          >
+            <ItemTooltip
+              item={item}
+              definition={definition}
+              equippedWeaponDefinition={equippedWeaponDefinition}
+              slotType={slotType}
+            />
+          </div>
+        );
+      })()}
     </div>
   );
 }

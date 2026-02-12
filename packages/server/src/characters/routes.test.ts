@@ -368,6 +368,12 @@ describe("character routes", () => {
         slot_index: 1,
       },
       {
+        nickname: "StarterKnight",
+        item_definition_id: "dragonbone_blade",
+        slot_kind: "bag",
+        slot_index: 2,
+      },
+      {
         nickname: "StarterMage",
         item_definition_id: "training_wand",
         slot_kind: "weapon",
@@ -384,6 +390,12 @@ describe("character routes", () => {
         item_definition_id: "stormweave_rod",
         slot_kind: "bag",
         slot_index: 1,
+      },
+      {
+        nickname: "StarterMage",
+        item_definition_id: "arcane_scepter",
+        slot_kind: "bag",
+        slot_index: 2,
       },
     ]);
   });
