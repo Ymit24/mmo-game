@@ -7,6 +7,7 @@ import { type DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthContext";
+import { ItemTooltip } from "./ItemTooltip";
 import { type GameBridgeState, createGameBridge } from "./bridge";
 import { resolveItemIconUrl } from "./itemIconMap";
 import { mountGameRuntime } from "./phaser/runtime";
@@ -93,6 +94,10 @@ export function GameShell({ characterId }: GameShellProps) {
   const [isDraggingInventoryItem, setIsDraggingInventoryItem] =
     useState<boolean>(false);
   const [hoveredSlotKey, setHoveredSlotKey] = useState<string | null>(null);
+  const [hoveredSlotData, setHoveredSlotData] = useState<{
+    slot: InventorySlotRef;
+    rect: DOMRect;
+  } | null>(null);
   const dragInProgressRef = useRef<boolean>(false);
   const dropHighlightedSlotKey = isDraggingInventoryItem
     ? activeDropSlotKey
@@ -241,16 +246,24 @@ export function GameShell({ characterId }: GameShellProps) {
     bridge.requestInventoryDrop({ from });
   }
 
-  function onSlotMouseEnter(slot: InventorySlotRef): void {
+  function onSlotMouseEnter(
+    event: React.MouseEvent<HTMLElement>,
+    slot: InventorySlotRef,
+  ): void {
     if (isDraggingInventoryItem) {
       return;
     }
     setHoveredSlotKey(slotRefKey(slot));
+    const rect = event.currentTarget.getBoundingClientRect();
+    setHoveredSlotData({ slot, rect });
   }
 
   function onSlotMouseLeave(slot: InventorySlotRef): void {
     const key = slotRefKey(slot);
     setHoveredSlotKey((current) => (current === key ? null : current));
+    setHoveredSlotData((current) =>
+      current && slotRefKey(current.slot) === key ? null : current,
+    );
   }
 
   return (
@@ -425,7 +438,7 @@ export function GameShell({ characterId }: GameShellProps) {
                       onDragOver={(event) => onSlotDragOver(event, slotRef)}
                       onDragLeave={() => onSlotDragLeave(slotRef)}
                       onDrop={(event) => onSlotDrop(event, slotRef)}
-                      onMouseEnter={() => onSlotMouseEnter(slotRef)}
+                      onMouseEnter={(event) => onSlotMouseEnter(event, slotRef)}
                       onMouseLeave={() => onSlotMouseLeave(slotRef)}
                       className={`flex flex-col items-center justify-center border p-1.5 aspect-square ${
                         dropHighlightedSlotKey === key
@@ -496,7 +509,7 @@ export function GameShell({ characterId }: GameShellProps) {
                       onDragOver={(event) => onSlotDragOver(event, slotRef)}
                       onDragLeave={() => onSlotDragLeave(slotRef)}
                       onDrop={(event) => onSlotDrop(event, slotRef)}
-                      onMouseEnter={() => onSlotMouseEnter(slotRef)}
+                      onMouseEnter={(event) => onSlotMouseEnter(event, slotRef)}
                       onMouseLeave={() => onSlotMouseLeave(slotRef)}
                       className={`flex flex-col items-center justify-center border aspect-square p-1 ${
                         dropHighlightedSlotKey === key
@@ -605,6 +618,57 @@ export function GameShell({ characterId }: GameShellProps) {
           </p>
         </div>
       ) : null}
+
+      {/* Item Tooltip */}
+      {(() => {
+        if (!hoveredSlotData || !uiState.inventory) return null;
+
+        const { slot, rect } = hoveredSlotData;
+        let item: (typeof bagSlots)[number] | undefined = undefined;
+        let slotType: "bag" | EquipSlot = "bag";
+
+        if (slot.kind === "bag") {
+          item = bagSlots[slot.index];
+        } else {
+          item = equipSlots[slot.slot];
+          slotType = slot.slot;
+        }
+
+        if (!item) return null;
+
+        const definition = uiState.inventory.definitions[item.itemDefinitionId];
+        if (!definition) return null;
+
+        // Get equipped weapon for comparison (only when hovering a bag item)
+        const equippedWeapon =
+          slot.kind === "bag" ? uiState.inventory.equipSlots.weapon : undefined;
+        const equippedWeaponDefinition =
+          equippedWeapon && slot.kind === "bag"
+            ? uiState.inventory.definitions[equippedWeapon.itemDefinitionId]
+            : undefined;
+
+        // Calculate position: to the left of the slot, vertically centered
+        const tooltipX = rect.left - 10;
+        const tooltipY = rect.top + rect.height / 2;
+
+        return (
+          <div
+            className="fixed z-50"
+            style={{
+              right: `${window.innerWidth - tooltipX}px`,
+              top: `${tooltipY}px`,
+              transform: "translateY(-50%)",
+            }}
+          >
+            <ItemTooltip
+              item={item}
+              definition={definition}
+              equippedWeaponDefinition={equippedWeaponDefinition}
+              slotType={slotType}
+            />
+          </div>
+        );
+      })()}
     </div>
   );
 }
