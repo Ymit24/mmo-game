@@ -1145,42 +1145,65 @@ class HubScene extends Phaser.Scene {
     range: number,
   ): void {
     if (attackStyle === "melee") {
-      const swingLength = Phaser.Math.Clamp(range * 0.88, 38, 96);
-      const swingWidth = 10;
       const baseRotation = Math.atan2(direction.y, direction.x);
-      const swingSign = Date.now() % 2 === 0 ? 1 : -1;
-      const startRotation = baseRotation - swingSign * Phaser.Math.DegToRad(50);
-      const endRotation = baseRotation + swingSign * Phaser.Math.DegToRad(26);
-      const handleOffset = 14;
-      const handleX = origin.x + direction.x * handleOffset;
-      const handleY = origin.y + direction.y * handleOffset;
-      const sweep = this.add
-        .rectangle(handleX, handleY, swingLength, swingWidth, 0x00ff41, 0.38)
-        .setOrigin(0.12, 0.5)
-        .setRotation(startRotation)
-        .setStrokeStyle(2, 0xffd700, 0.82);
-      const bladeCore = this.add
-        .rectangle(
-          handleX,
-          handleY,
-          swingLength * 0.86,
-          Math.max(4, swingWidth * 0.48),
-          0xffd700,
-          0.5,
-        )
-        .setOrigin(0.12, 0.5)
-        .setRotation(startRotation);
+      const sweepAngle = Phaser.Math.DegToRad(60);
+      const startAngle = baseRotation - sweepAngle;
+      const endAngle = baseRotation + sweepAngle;
+      const swingRadius = Phaser.Math.Clamp(range * 0.85, 40, 90);
+      const handleOffset = 10;
+      const centerX = origin.x + direction.x * handleOffset;
+      const centerY = origin.y + direction.y * handleOffset;
+
+      const arcGraphics = this.add.graphics();
+
+      const drawCrescent = (currentAngle: number, alpha: number) => {
+        arcGraphics.clear();
+
+        const innerR = swingRadius * 0.65;
+        const outerR = swingRadius;
+
+        const arcStart = currentAngle - sweepAngle * 0.7;
+        const arcEnd = currentAngle + sweepAngle * 0.7;
+
+        arcGraphics.fillStyle(0x00ff41, alpha * 0.35);
+        arcGraphics.beginPath();
+        arcGraphics.arc(centerX, centerY, outerR, arcStart, arcEnd);
+        arcGraphics.arc(centerX, centerY, innerR, arcEnd, arcStart, true);
+        arcGraphics.closePath();
+        arcGraphics.fillPath();
+
+        arcGraphics.lineStyle(2, 0xffd700, alpha * 0.95);
+        arcGraphics.beginPath();
+        arcGraphics.arc(centerX, centerY, outerR, arcStart, arcEnd);
+        arcGraphics.strokePath();
+
+        arcGraphics.lineStyle(1, 0xffffff, alpha * 0.7);
+        arcGraphics.beginPath();
+        arcGraphics.arc(
+          centerX,
+          centerY,
+          innerR + (outerR - innerR) * 0.5,
+          arcStart + 0.1,
+          arcEnd - 0.1,
+        );
+        arcGraphics.strokePath();
+      };
+
+      drawCrescent(startAngle, 1);
+
       this.tweens.add({
-        targets: [sweep, bladeCore],
-        rotation: endRotation,
-        alpha: 0,
-        scaleX: 1.04,
-        scaleY: 1.2,
-        duration: 170,
-        ease: "Cubic.Out",
+        targets: { angle: startAngle },
+        angle: endAngle,
+        duration: 160,
+        ease: "Sine.Out",
+        onUpdate: (tween) => {
+          const angle = tween.getValue() as number;
+          const progress = (angle - startAngle) / (endAngle - startAngle);
+          const alpha = 1 - progress * 0.9;
+          drawCrescent(angle, alpha);
+        },
         onComplete: () => {
-          sweep.destroy();
-          bladeCore.destroy();
+          arcGraphics.destroy();
         },
       });
       return;

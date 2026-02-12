@@ -255,26 +255,9 @@ export function GameShell({ characterId }: GameShellProps) {
 
   return (
     <div className="relative h-dvh w-full overflow-hidden bg-void text-text flex flex-col">
-      {/* Top bar - minimal world info */}
-      {isReady ? (
-        <header className="flex items-center justify-between border-b border-border/40 bg-void/80 px-3 py-1.5 shrink-0 z-20">
-          <div className="flex items-center gap-3 text-[10px]">
-            <span className="text-muted">{uiState.worldId ?? "---"}</span>
-            <span className="text-muted">{uiState.players.length} online</span>
-          </div>
-          <button
-            type="button"
-            onClick={() => navigate("/play", { replace: true })}
-            className="border border-border px-2 py-0.5 text-[10px] text-muted hover:border-vec-magenta/40 hover:text-vec-magenta transition-colors duration-100"
-          >
-            Leave
-          </button>
-        </header>
-      ) : null}
-
       {/* Main content area */}
       <div className="flex flex-1 min-h-0">
-        {/* Phaser canvas container - does NOT extend under sidebar */}
+        {/* Phaser canvas container - flush with top of screen */}
         <div
           ref={containerRef}
           className="flex-1 relative min-w-0"
@@ -285,6 +268,23 @@ export function GameShell({ characterId }: GameShellProps) {
         {/* Right sidebar (RotMG-style) */}
         {isReady ? (
           <aside className="w-48 md:w-56 shrink-0 flex flex-col border-l border-border/40 bg-void/85 z-20">
+            {/* World info header */}
+            <div className="flex items-center justify-between border-b border-border/40 px-2 py-1.5 shrink-0">
+              <div className="flex items-center gap-2 text-[10px]">
+                <span className="text-muted">{uiState.worldId ?? "---"}</span>
+                <span className="text-muted">
+                  {uiState.players.length} online
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => navigate("/play", { replace: true })}
+                className="border border-border px-1.5 py-0.5 text-[10px] text-muted hover:border-vec-magenta/40 hover:text-vec-magenta transition-colors duration-100"
+              >
+                Leave
+              </button>
+            </div>
+
             {/* Stats: Level + HP + XP */}
             <div className="border-b border-border/40 p-2">
               <div className="flex items-center justify-between mb-1.5">
