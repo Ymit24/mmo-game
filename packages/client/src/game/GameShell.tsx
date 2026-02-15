@@ -297,6 +297,7 @@ export function GameShell({ characterId }: GameShellProps) {
         {/* Phaser canvas container - flush with top of screen */}
         <div
           ref={containerRef}
+          data-testid="game-canvas"
           className="flex-1 relative min-w-0"
           onDragOver={(event) => event.preventDefault()}
           onDrop={onGroundDrop}
@@ -684,14 +685,6 @@ export function GameShell({ characterId }: GameShellProps) {
                     </button>
                   );
                 })}
-              </div>
-
-              <div
-                onDragOver={(event) => event.preventDefault()}
-                onDrop={onGroundDrop}
-                className="mt-2 border border-dashed border-vec-magenta/30 bg-void/40 py-2 text-center text-[9px] text-vec-magenta/60"
-              >
-                Drop from inventory to create loot bag
               </div>
 
               {uiState.inventoryError ? (

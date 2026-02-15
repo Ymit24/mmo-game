@@ -209,9 +209,7 @@ describe("GameShell inventory UI", () => {
     const bagSlotTwo = screen.getByRole("button", {
       name: /Bag Slot 2/i,
     });
-    const groundDropZone = screen.getByText(
-      /Drop from inventory to create loot bag/i,
-    );
+    const gameCanvas = screen.getByTestId("game-canvas");
 
     const moveTransfer = createDragDataTransfer();
     fireEvent.dragStart(bagSlotOne, { dataTransfer: moveTransfer });
@@ -225,8 +223,8 @@ describe("GameShell inventory UI", () => {
 
     const dropTransfer = createDragDataTransfer();
     fireEvent.dragStart(bagSlotOne, { dataTransfer: dropTransfer });
-    fireEvent.dragOver(groundDropZone, { dataTransfer: dropTransfer });
-    fireEvent.drop(groundDropZone, { dataTransfer: dropTransfer });
+    fireEvent.dragOver(gameCanvas, { dataTransfer: dropTransfer });
+    fireEvent.drop(gameCanvas, { dataTransfer: dropTransfer });
 
     expect(dropRequests).toContainEqual({
       from: { kind: "bag", index: 0 },
