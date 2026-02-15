@@ -1,6 +1,8 @@
 import type { Database } from "bun:sqlite";
 import {
+  type ContainerActionErrorCode,
   type InventoryActionErrorCode,
+  type StorageSlotRef,
   applyWeaponModifiersToCombatStats,
   computeLevelScaledCombatStats,
   getCharacterClassColorHex,
@@ -20,9 +22,11 @@ import {
   dropInventoryItem,
   getWeaponModifiersFromInventoryState,
   loadInventoryStateForCharacter,
+  moveBetweenInventoryAndContainer,
   moveInventoryItem,
 } from "../inventory/repository";
 import { findEnemyArchetypeById } from "./enemyArchetypeRepository";
+import { resolveEnemyLootDropDefinitionIds } from "./enemyLootRepository";
 import { WorldManager } from "./world";
 import type { RealtimeSocketData } from "./world";
 
@@ -60,6 +64,60 @@ function sendInventoryActionRejected(
   );
 }
 
+function sendContainerOpenDenied(
+  socket: ServerWebSocket<RealtimeSocketData>,
+  code: ContainerActionErrorCode,
+  message: string,
+): void {
+  socket.send(
+    stringifyServerMessage({
+      type: "container.openDenied",
+      code,
+      message,
+    }),
+  );
+}
+
+function sendContainerActionRejected(
+  socket: ServerWebSocket<RealtimeSocketData>,
+  code: ContainerActionErrorCode,
+  message: string,
+): void {
+  socket.send(
+    stringifyServerMessage({
+      type: "container.actionRejected",
+      code,
+      message,
+    }),
+  );
+}
+
+function getContainerIdFromStorageRef(slot: StorageSlotRef): string | null {
+  if (slot.kind !== "container") {
+    return null;
+  }
+  return slot.containerId;
+}
+
+function mapInventoryErrorToContainerCode(
+  code: InventoryActionErrorCode,
+): ContainerActionErrorCode {
+  switch (code) {
+    case "INVENTORY_SOURCE_EMPTY":
+      return "CONTAINER_SOURCE_EMPTY";
+    case "INVENTORY_SLOT_INVALID":
+      return "CONTAINER_SLOT_INVALID";
+    case "INVENTORY_SLOT_TYPE_MISMATCH":
+      return "CONTAINER_SLOT_TYPE_MISMATCH";
+    case "INVENTORY_CLASS_REQUIREMENT_FAILED":
+      return "CONTAINER_CLASS_REQUIREMENT_FAILED";
+    case "INVENTORY_LEVEL_REQUIREMENT_FAILED":
+      return "CONTAINER_LEVEL_REQUIREMENT_FAILED";
+    default:
+      return "CONTAINER_REQUEST_INVALID";
+  }
+}
+
 export function createRealtimeGateway(
   config: ServerConfig,
   db: Database,
@@ -70,6 +128,8 @@ export function createRealtimeGateway(
     persistCharacterProgression: ({ userId, characterId, level, xp }) => {
       updateCharacterProgressForUser(db, userId, characterId, level, xp);
     },
+    resolveEnemyLootDropDefinitionIds: (enemyArchetypeId, killerClass) =>
+      resolveEnemyLootDropDefinitionIds(db, enemyArchetypeId, killerClass),
   });
   const activeSocketsByAccountKey = new Map<
     string,
@@ -408,16 +468,151 @@ export function createRealtimeGateway(
                 socket,
                 getWeaponModifiersFromInventoryState(result.state),
               );
+              worlds.createPlayerDropLootBag(
+                socket,
+                incoming.payload.position,
+                {
+                  id: result.removedItemInstanceId,
+                  itemDefinitionId: result.removedItemDefinitionId,
+                },
+              );
               socket.send(
                 stringifyServerMessage({
                   type: "inventory.drop.ack",
                   from: result.from,
                   removedItemInstanceId: result.removedItemInstanceId,
+                  removedItemDefinitionId: result.removedItemDefinitionId,
                   state: result.state,
                 }),
               );
             }
             return;
+
+          case "container.open": {
+            const result = worlds.openContainer(socket, incoming.containerId);
+            if (!result.ok) {
+              sendContainerOpenDenied(socket, result.code, result.message);
+              return;
+            }
+            socket.send(
+              stringifyServerMessage({
+                type: "container.opened",
+                state: result.state,
+              }),
+            );
+            return;
+          }
+
+          case "container.close": {
+            const closed = worlds.closeContainer(
+              socket,
+              incoming.containerId,
+              "manual",
+            );
+            if (!closed) {
+              sendContainerActionRejected(
+                socket,
+                "CONTAINER_NOT_OPEN",
+                "This loot bag is not currently open.",
+              );
+            }
+            return;
+          }
+
+          case "container.move": {
+            const { characterId, characterClass, characterLevel } =
+              socket.data.session;
+            if (!characterId || !characterClass || !characterLevel) {
+              sendContainerActionRejected(
+                socket,
+                "CONTAINER_REQUEST_INVALID",
+                "Character session is not initialized.",
+              );
+              return;
+            }
+
+            const openedContainer = worlds.getOpenedContainer(socket);
+            if (!openedContainer) {
+              sendContainerActionRejected(
+                socket,
+                "CONTAINER_NOT_OPEN",
+                "Open a loot bag before moving items.",
+              );
+              return;
+            }
+
+            const fromContainerId = getContainerIdFromStorageRef(
+              incoming.payload.from,
+            );
+            const toContainerId = getContainerIdFromStorageRef(
+              incoming.payload.to,
+            );
+            const messageContainerId = fromContainerId ?? toContainerId;
+            if (
+              messageContainerId &&
+              messageContainerId !== openedContainer.containerId
+            ) {
+              sendContainerActionRejected(
+                socket,
+                "CONTAINER_NOT_OPEN",
+                "Open this loot bag before moving items.",
+              );
+              return;
+            }
+
+            const result = moveBetweenInventoryAndContainer(
+              db,
+              characterId,
+              openedContainer.containerId,
+              openedContainer.slots,
+              incoming.payload.from,
+              incoming.payload.to,
+              {
+                characterClass,
+                characterLevel,
+              },
+            );
+            if (!result.ok) {
+              sendContainerActionRejected(
+                socket,
+                mapInventoryErrorToContainerCode(result.code),
+                result.message,
+              );
+              return;
+            }
+
+            worlds.updatePlayerWeaponModifiers(
+              socket,
+              getWeaponModifiersFromInventoryState(result.inventoryState),
+            );
+            const updateResult = worlds.updateOpenedContainerSlots(
+              socket,
+              openedContainer.containerId,
+              result.containerSlots,
+            );
+            if (!updateResult.ok) {
+              sendContainerActionRejected(
+                socket,
+                updateResult.code,
+                updateResult.message,
+              );
+              return;
+            }
+
+            socket.send(
+              stringifyServerMessage({
+                type: "inventory.state",
+                state: result.inventoryState,
+              }),
+            );
+            socket.send(
+              stringifyServerMessage({
+                type: "container.updated",
+                state: updateResult.state,
+              }),
+            );
+            return;
+          }
 
           default:
             return;

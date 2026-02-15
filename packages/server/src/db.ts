@@ -109,6 +109,8 @@ export function bootstrapDatabase(db: Database): void {
   ensureLevelProgressionTable(db);
   ensureLevelProgressionSeed(db);
   ensureEnemyArchetypeSeeds(db);
+  ensureEnemyLootTables(db);
+  ensureEnemyLootSeed(db);
 }
 
 function ensureUsersLastUsedCharacterColumn(db: Database): void {
@@ -664,4 +666,85 @@ function ensureLevelProgressionSeed(db: Database): void {
       row.damageMultiplier,
     );
   }
+}
+
+function ensureEnemyLootTables(db: Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS enemy_loot_tables (
+      enemy_archetype_id TEXT PRIMARY KEY REFERENCES enemy_archetypes(id) ON DELETE CASCADE,
+      drop_chance REAL NOT NULL CHECK (drop_chance >= 0 AND drop_chance <= 1),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS enemy_loot_table_entries (
+      id TEXT PRIMARY KEY,
+      enemy_archetype_id TEXT NOT NULL REFERENCES enemy_loot_tables(enemy_archetype_id) ON DELETE CASCADE,
+      item_definition_id TEXT NOT NULL REFERENCES item_definitions(id),
+      weight REAL NOT NULL CHECK (weight > 0),
+      class_affinity TEXT CHECK (class_affinity IS NULL OR class_affinity IN ('knight', 'mage')),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_enemy_loot_entries_archetype
+    ON enemy_loot_table_entries (enemy_archetype_id);
+  `);
+}
+
+function ensureEnemyLootSeed(db: Database): void {
+  const timestamp = new Date().toISOString();
+
+  db.query(
+    `INSERT OR IGNORE INTO enemy_loot_tables (
+      enemy_archetype_id,
+      drop_chance,
+      created_at,
+      updated_at
+    ) VALUES (?1, ?2, ?3, ?4)`,
+  ).run("slime_scout", 0.3, timestamp, timestamp);
+
+  db.query(
+    `INSERT OR IGNORE INTO enemy_loot_table_entries (
+      id,
+      enemy_archetype_id,
+      item_definition_id,
+      weight,
+      class_affinity,
+      created_at,
+      updated_at
+    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+  ).run(
+    "seed-slime-scout-iron-broadsword",
+    "slime_scout",
+    "iron_broadsword",
+    1,
+    "knight",
+    timestamp,
+    timestamp,
+  );
+
+  db.query(
+    `INSERT OR IGNORE INTO enemy_loot_table_entries (
+      id,
+      enemy_archetype_id,
+      item_definition_id,
+      weight,
+      class_affinity,
+      created_at,
+      updated_at
+    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+  ).run(
+    "seed-slime-scout-adept-focus-wand",
+    "slime_scout",
+    "adept_focus_wand",
+    1,
+    "mage",
+    timestamp,
+    timestamp,
+  );
 }

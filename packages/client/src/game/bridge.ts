@@ -1,6 +1,8 @@
 import type {
+  InventoryItemInstance,
   InventorySlotRef,
   InventoryStatePayload,
+  StorageSlotRef,
   Vector2,
 } from "@mmo/shared";
 
@@ -28,6 +30,16 @@ export interface OverlayProjectile {
   y: number;
 }
 
+export interface OverlayLootBag {
+  id: string;
+  x: number;
+  y: number;
+  itemCount: number;
+  ownerCharacterId: string | null;
+  ownerLockedUntilEpochMs: number | null;
+  openedByCharacterId: string | null;
+}
+
 export interface InventoryMoveRequest {
   from: InventorySlotRef;
   to: InventorySlotRef;
@@ -35,6 +47,20 @@ export interface InventoryMoveRequest {
 
 export interface InventoryDropRequest {
   from: InventorySlotRef;
+}
+
+export interface ContainerMoveRequest {
+  from: StorageSlotRef;
+  to: StorageSlotRef;
+}
+
+export interface OpenContainerState {
+  containerId: string;
+  slots: Array<InventoryItemInstance | null>;
+  slotCount: number;
+  openedByCharacterId: string | null;
+  ownerCharacterId: string | null;
+  ownerLockedUntilEpochMs: number | null;
 }
 
 export type GameModalKind = "conflict" | "kicked" | "error";
@@ -60,6 +86,8 @@ export interface GameBridgeState {
   players: OverlayPlayer[];
   enemies: OverlayEnemy[];
   projectiles: OverlayProjectile[];
+  lootBags: OverlayLootBag[];
+  openContainer: OpenContainerState | null;
   localHealthCurrent: number | null;
   localHealthMax: number | null;
   localLevel: number | null;
@@ -68,12 +96,14 @@ export interface GameBridgeState {
   lastCombatDeniedReason: "safe_zone" | "cooldown" | "dead" | null;
   inventory: InventoryStatePayload | null;
   inventoryError: string | null;
+  containerError: string | null;
   lastMessage: string | null;
 }
 
 type StateListener = (state: GameBridgeState) => void;
 type InventoryMoveListener = (request: InventoryMoveRequest) => void;
 type InventoryDropListener = (request: InventoryDropRequest) => void;
+type ContainerMoveListener = (request: ContainerMoveRequest) => void;
 type TakeoverListener = () => void;
 
 const DEFAULT_STATE: GameBridgeState = {
@@ -92,6 +122,8 @@ const DEFAULT_STATE: GameBridgeState = {
   players: [],
   enemies: [],
   projectiles: [],
+  lootBags: [],
+  openContainer: null,
   localHealthCurrent: null,
   localHealthMax: null,
   localLevel: null,
@@ -100,6 +132,7 @@ const DEFAULT_STATE: GameBridgeState = {
   lastCombatDeniedReason: null,
   inventory: null,
   inventoryError: null,
+  containerError: null,
   lastMessage: null,
 };
 
@@ -108,6 +141,7 @@ export class GameBridge {
   private stateListeners = new Set<StateListener>();
   private inventoryMoveListeners = new Set<InventoryMoveListener>();
   private inventoryDropListeners = new Set<InventoryDropListener>();
+  private containerMoveListeners = new Set<ContainerMoveListener>();
   private takeoverListeners = new Set<TakeoverListener>();
 
   constructor(initialState: Partial<GameBridgeState> = {}) {
@@ -162,6 +196,19 @@ export class GameBridge {
 
   requestInventoryDrop(request: InventoryDropRequest): void {
     for (const listener of this.inventoryDropListeners) {
+      listener(request);
+    }
+  }
+
+  onContainerMoveRequest(listener: ContainerMoveListener): () => void {
+    this.containerMoveListeners.add(listener);
+    return () => {
+      this.containerMoveListeners.delete(listener);
+    };
+  }
+
+  requestContainerMove(request: ContainerMoveRequest): void {
+    for (const listener of this.containerMoveListeners) {
       listener(request);
     }
   }

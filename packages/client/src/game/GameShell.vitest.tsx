@@ -19,10 +19,21 @@ const dropRequests: Array<{
     | { kind: "bag"; index: number }
     | { kind: "equip"; slot: "weapon" | "armor" };
 }> = [];
+const containerMoveRequests: Array<{
+  from:
+    | { kind: "bag"; index: number }
+    | { kind: "equip"; slot: "weapon" | "armor" }
+    | { kind: "container"; containerId: string; index: number };
+  to:
+    | { kind: "bag"; index: number }
+    | { kind: "equip"; slot: "weapon" | "armor" }
+    | { kind: "container"; containerId: string; index: number };
+}> = [];
 
 interface RuntimeMockBridge {
   onInventoryMoveRequest: (listener: (request: unknown) => void) => void;
   onInventoryDropRequest: (listener: (request: unknown) => void) => void;
+  onContainerMoveRequest: (listener: (request: unknown) => void) => void;
   updateState: (state: Record<string, unknown>) => void;
 }
 
@@ -74,6 +85,20 @@ vi.mock("./phaser/runtime", () => ({
         },
       );
     });
+    bridge.onContainerMoveRequest((request: unknown) => {
+      containerMoveRequests.push(
+        request as {
+          from:
+            | { kind: "bag"; index: number }
+            | { kind: "equip"; slot: "weapon" | "armor" }
+            | { kind: "container"; containerId: string; index: number };
+          to:
+            | { kind: "bag"; index: number }
+            | { kind: "equip"; slot: "weapon" | "armor" }
+            | { kind: "container"; containerId: string; index: number };
+        },
+      );
+    });
     bridge.updateState({
       connectionStatus: "connected",
       isInWorld: true,
@@ -118,6 +143,9 @@ vi.mock("./phaser/runtime", () => ({
       players: [],
       enemies: [],
       projectiles: [],
+      lootBags: [],
+      openContainer: null,
+      containerError: null,
       localHealthCurrent: 100,
       localHealthMax: 100,
       localLevel: 1,
@@ -132,6 +160,7 @@ describe("GameShell inventory UI", () => {
   beforeEach(() => {
     moveRequests.length = 0;
     dropRequests.length = 0;
+    containerMoveRequests.length = 0;
     saveSession({
       token: "token",
       user: {
@@ -180,7 +209,9 @@ describe("GameShell inventory UI", () => {
     const bagSlotTwo = screen.getByRole("button", {
       name: /Bag Slot 2/i,
     });
-    const groundDropZone = screen.getByText(/Drop to discard/i);
+    const groundDropZone = screen.getByText(
+      /Drop from inventory to create loot bag/i,
+    );
 
     const moveTransfer = createDragDataTransfer();
     fireEvent.dragStart(bagSlotOne, { dataTransfer: moveTransfer });

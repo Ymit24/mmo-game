@@ -1,10 +1,14 @@
 import { type CharacterClass, isCharacterClass } from "../characters";
 import type { EnemyBehaviorState, EnemySnapshot } from "../enemies";
 import {
+  type ContainerActionErrorCode,
   type InventoryActionErrorCode,
+  type InventoryItemInstance,
   type InventorySlotRef,
   type InventoryStatePayload,
+  type StorageSlotRef,
   isInventorySlotRef,
+  isStorageSlotRef,
 } from "../items";
 
 export interface Vector2 {
@@ -46,6 +50,7 @@ export interface WorldSnapshotPayload {
   players: PlayerSnapshot[];
   enemies: EnemySnapshot[];
   projectiles: ProjectileSnapshot[];
+  lootBags: LootBagSnapshot[];
 }
 
 export interface InventoryMovePayload {
@@ -56,6 +61,31 @@ export interface InventoryMovePayload {
 export interface InventoryDropPayload {
   from: InventorySlotRef;
   position: Vector2;
+}
+
+export interface ContainerMovePayload {
+  from: StorageSlotRef;
+  to: StorageSlotRef;
+}
+
+export interface LootBagSnapshot {
+  id: string;
+  position: Vector2;
+  itemCount: number;
+  slotCount: number;
+  openedByCharacterId: string | null;
+  ownerCharacterId: string | null;
+  ownerLockedUntilEpochMs: number | null;
+  expiresAtEpochMs: number;
+}
+
+export interface ContainerStatePayload {
+  containerId: string;
+  slots: Array<InventoryItemInstance | null>;
+  slotCount: number;
+  openedByCharacterId: string | null;
+  ownerCharacterId: string | null;
+  ownerLockedUntilEpochMs: number | null;
 }
 
 export type CombatFloatingTextVariant =
@@ -92,6 +122,18 @@ export type ClientToServerMessage =
   | {
       type: "inventory.drop";
       payload: InventoryDropPayload;
+    }
+  | {
+      type: "container.open";
+      containerId: string;
+    }
+  | {
+      type: "container.close";
+      containerId: string;
+    }
+  | {
+      type: "container.move";
+      payload: ContainerMovePayload;
     };
 
 export type ServerToClientMessage =
@@ -192,11 +234,35 @@ export type ServerToClientMessage =
       type: "inventory.drop.ack";
       from: InventorySlotRef;
       removedItemInstanceId: string;
+      removedItemDefinitionId: string;
       state: InventoryStatePayload;
     }
   | {
       type: "inventory.actionRejected";
       code: InventoryActionErrorCode;
+      message: string;
+    }
+  | {
+      type: "container.opened";
+      state: ContainerStatePayload;
+    }
+  | {
+      type: "container.updated";
+      state: ContainerStatePayload;
+    }
+  | {
+      type: "container.closed";
+      containerId: string;
+      reason: "manual" | "out_of_range" | "despawned" | "disconnect";
+    }
+  | {
+      type: "container.openDenied";
+      code: ContainerActionErrorCode;
+      message: string;
+    }
+  | {
+      type: "container.actionRejected";
+      code: ContainerActionErrorCode;
       message: string;
     }
   | {
@@ -321,6 +387,33 @@ function isEnemySnapshot(value: unknown): value is EnemySnapshot {
   );
 }
 
+function isLootBagSnapshot(value: unknown): value is LootBagSnapshot {
+  if (!isObject(value)) {
+    return false;
+  }
+  const itemCount = value.itemCount;
+  const slotCount = value.slotCount;
+
+  return (
+    typeof value.id === "string" &&
+    value.id.length > 0 &&
+    isVector2(value.position) &&
+    typeof itemCount === "number" &&
+    Number.isSafeInteger(itemCount) &&
+    itemCount >= 0 &&
+    typeof slotCount === "number" &&
+    Number.isSafeInteger(slotCount) &&
+    slotCount > 0 &&
+    (value.openedByCharacterId === null ||
+      typeof value.openedByCharacterId === "string") &&
+    (value.ownerCharacterId === null ||
+      typeof value.ownerCharacterId === "string") &&
+    (value.ownerLockedUntilEpochMs === null ||
+      Number.isFinite(value.ownerLockedUntilEpochMs)) &&
+    Number.isFinite(value.expiresAtEpochMs)
+  );
+}
+
 export function isWorldSnapshotPayload(
   value: unknown,
 ): value is WorldSnapshotPayload {
@@ -337,7 +430,9 @@ export function isWorldSnapshotPayload(
     Array.isArray(value.enemies) &&
     value.enemies.every((enemy) => isEnemySnapshot(enemy)) &&
     Array.isArray(value.projectiles) &&
-    value.projectiles.every((projectile) => isProjectileSnapshot(projectile))
+    value.projectiles.every((projectile) => isProjectileSnapshot(projectile)) &&
+    Array.isArray(value.lootBags) &&
+    value.lootBags.every((lootBag) => isLootBagSnapshot(lootBag))
   );
 }
 
@@ -453,6 +548,48 @@ export function parseClientMessage(raw: string): ClientToServerMessage | null {
         payload: {
           from: payload.from,
           position: payload.position,
+        },
+      };
+    }
+
+    case "container.open":
+      if (
+        typeof parsed.containerId !== "string" ||
+        parsed.containerId.length === 0
+      ) {
+        return null;
+      }
+      return {
+        type: "container.open",
+        containerId: parsed.containerId,
+      };
+
+    case "container.close":
+      if (
+        typeof parsed.containerId !== "string" ||
+        parsed.containerId.length === 0
+      ) {
+        return null;
+      }
+      return {
+        type: "container.close",
+        containerId: parsed.containerId,
+      };
+
+    case "container.move": {
+      const payload = parsed.payload;
+      if (
+        !isObject(payload) ||
+        !isStorageSlotRef(payload.from) ||
+        !isStorageSlotRef(payload.to)
+      ) {
+        return null;
+      }
+      return {
+        type: "container.move",
+        payload: {
+          from: payload.from,
+          to: payload.to,
         },
       };
     }

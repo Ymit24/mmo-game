@@ -4,6 +4,7 @@ import {
   type CombatFloatingTextVariant,
   DEFAULT_WORLD_ID,
   type EnemySnapshot,
+  type LootBagSnapshot,
   PLAYER_COLLIDER_SIZE,
   PLAYER_MOVE_SPEED,
   type PlayerInputState,
@@ -23,6 +24,7 @@ import { API_BASE_URL } from "../../config/env";
 import type {
   GameBridge,
   OverlayEnemy,
+  OverlayLootBag,
   OverlayPlayer,
   OverlayProjectile,
 } from "../bridge";
@@ -63,10 +65,20 @@ interface ProjectileActor {
   colorHex: string;
 }
 
+interface LootBagActor {
+  body: Phaser.GameObjects.Rectangle;
+  label: Phaser.GameObjects.Text;
+  itemCount: number;
+  ownerCharacterId: string | null;
+  ownerLockedUntilEpochMs: number | null;
+  openedByCharacterId: string | null;
+}
+
 const PLAYER_LABEL_OFFSET_Y = 30;
 const ENEMY_LABEL_OFFSET_Y = 34;
 const ENEMY_HEALTH_TEXT_OFFSET_Y = 22;
 const ENEMY_HEALTH_BAR_OFFSET_Y = 12;
+const LOOT_BAG_INTERACT_RADIUS = 90;
 
 function toWsUrl(apiBaseUrl: string): string {
   const wsPath = `${apiBaseUrl}/ws`;
@@ -129,6 +141,7 @@ class HubScene extends Phaser.Scene {
   private remotePlayers = new Map<string, PlayerActor>();
   private enemyActors = new Map<string, EnemyActor>();
   private projectileActors = new Map<string, ProjectileActor>();
+  private lootBagActors = new Map<string, LootBagActor>();
   private enemyPredictionColliders: CollisionShape[] = [];
 
   private pointerWorld = new Phaser.Math.Vector2();
@@ -151,9 +164,11 @@ class HubScene extends Phaser.Scene {
   };
   private arrowKeys: Phaser.Types.Input.Keyboard.CursorKeys | null = null;
   private attackKey: Phaser.Input.Keyboard.Key | null = null;
+  private interactKey: Phaser.Input.Keyboard.Key | null = null;
 
   private unsubscribeInventoryMoveRequest: (() => void) | null = null;
   private unsubscribeInventoryDropRequest: (() => void) | null = null;
+  private unsubscribeContainerMoveRequest: (() => void) | null = null;
   private unsubscribeTakeoverRequest: (() => void) | null = null;
 
   constructor(token: string, characterId: string, bridge: GameBridge) {
@@ -188,6 +203,8 @@ class HubScene extends Phaser.Scene {
     this.arrowKeys = this.input.keyboard?.createCursorKeys() ?? null;
     this.attackKey =
       this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE) ?? null;
+    this.interactKey =
+      this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.E) ?? null;
 
     this.input.on("pointermove", (pointer: Phaser.Input.Pointer) => {
       this.pointerWorld.set(pointer.worldX, pointer.worldY);
@@ -207,6 +224,9 @@ class HubScene extends Phaser.Scene {
     });
     this.attackKey?.on("down", () => {
       this.tryAttack();
+    });
+    this.interactKey?.on("down", () => {
+      this.tryInteract();
     });
 
     this.unsubscribeInventoryMoveRequest = this.bridge.onInventoryMoveRequest(
@@ -240,6 +260,20 @@ class HubScene extends Phaser.Scene {
         });
       },
     );
+    this.unsubscribeContainerMoveRequest = this.bridge.onContainerMoveRequest(
+      ({ from, to }) => {
+        if (!this.bridge.getState().isInWorld) {
+          return;
+        }
+        this.sendMessage({
+          type: "container.move",
+          payload: {
+            from,
+            to,
+          },
+        });
+      },
+    );
     this.unsubscribeTakeoverRequest = this.bridge.onTakeoverRequest(() => {
       this.authenticate(true);
     });
@@ -255,6 +289,8 @@ class HubScene extends Phaser.Scene {
         y: this.pointerWorld.y,
       },
       projectiles: [],
+      lootBags: [],
+      openContainer: null,
       localHealthCurrent: null,
       localHealthMax: null,
       localLevel: null,
@@ -262,6 +298,7 @@ class HubScene extends Phaser.Scene {
       localXpToNextLevel: null,
       lastCombatDeniedReason: null,
       inventoryError: null,
+      containerError: null,
     });
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
@@ -269,10 +306,14 @@ class HubScene extends Phaser.Scene {
       this.unsubscribeInventoryMoveRequest = null;
       this.unsubscribeInventoryDropRequest?.();
       this.unsubscribeInventoryDropRequest = null;
+      this.unsubscribeContainerMoveRequest?.();
+      this.unsubscribeContainerMoveRequest = null;
       this.unsubscribeTakeoverRequest?.();
       this.unsubscribeTakeoverRequest = null;
       this.attackKey?.off("down");
       this.attackKey = null;
+      this.interactKey?.off("down");
+      this.interactKey = null;
       if (this.socket) {
         this.socket.close();
         this.socket = null;
@@ -382,6 +423,30 @@ class HubScene extends Phaser.Scene {
     });
   }
 
+  private tryInteract(): void {
+    if (this.inputLocked || !this.localCharacterId) {
+      return;
+    }
+    const openContainer = this.bridge.getState().openContainer;
+    if (openContainer) {
+      this.sendMessage({
+        type: "container.close",
+        containerId: openContainer.containerId,
+      });
+      return;
+    }
+
+    const nearest = this.findNearestLootBagActor();
+    if (!nearest) {
+      return;
+    }
+
+    this.sendMessage({
+      type: "container.open",
+      containerId: nearest.id,
+    });
+  }
+
   private applyWorldMap(map: WorldMap): void {
     this.currentMap = map;
     this.mapBackgroundGraphics?.destroy();
@@ -480,6 +545,9 @@ class HubScene extends Phaser.Scene {
         worldId: null,
         inventory: null,
         inventoryError: null,
+        containerError: null,
+        openContainer: null,
+        lootBags: [],
         lastMessage:
           current.modal?.message ??
           current.lastMessage ??
@@ -497,6 +565,9 @@ class HubScene extends Phaser.Scene {
         worldId: null,
         inventory: null,
         inventoryError: null,
+        containerError: null,
+        openContainer: null,
+        lootBags: [],
         lastMessage:
           current.modal?.message ??
           current.lastMessage ??
@@ -532,6 +603,9 @@ class HubScene extends Phaser.Scene {
           worldId: null,
           inventory: null,
           inventoryError: null,
+          containerError: null,
+          openContainer: null,
+          lootBags: [],
           lastMessage: message.error,
         });
         this.socket?.close();
@@ -554,6 +628,7 @@ class HubScene extends Phaser.Scene {
         this.enemyPredictionColliders = [];
         this.clearEnemyActors();
         this.clearProjectileActors();
+        this.clearLootBagActors();
         this.bridge.updateState({
           isInWorld: true,
           transitionMessage: null,
@@ -569,6 +644,9 @@ class HubScene extends Phaser.Scene {
           localXpToNextLevel: message.xpToNextLevel,
           lastCombatDeniedReason: null,
           inventoryError: null,
+          containerError: null,
+          openContainer: null,
+          lootBags: [],
         });
         this.inputLocked = false;
 
@@ -677,6 +755,7 @@ class HubScene extends Phaser.Scene {
         this.reconcileSnapshotPlayers(message.payload.players);
         this.reconcileSnapshotEnemies(message.payload.enemies);
         this.reconcileSnapshotProjectiles(message.payload.projectiles);
+        this.reconcileSnapshotLootBags(message.payload.lootBags);
         this.enemyPredictionColliders = message.payload.enemies.map((enemy) =>
           centeredBoxToCollisionShape(
             { x: enemy.position.x, y: enemy.position.y },
@@ -788,6 +867,7 @@ class HubScene extends Phaser.Scene {
         this.bridge.updateState({
           inventory: message.state,
           inventoryError: null,
+          containerError: null,
         });
         return;
 
@@ -795,6 +875,7 @@ class HubScene extends Phaser.Scene {
         this.bridge.updateState({
           inventory: message.state,
           inventoryError: null,
+          containerError: null,
           lastMessage: "Inventory updated.",
         });
         return;
@@ -803,7 +884,50 @@ class HubScene extends Phaser.Scene {
         this.bridge.updateState({
           inventory: message.state,
           inventoryError: null,
+          containerError: null,
           lastMessage: "Dropped item.",
+        });
+        return;
+
+      case "container.opened":
+        this.bridge.updateState({
+          openContainer: message.state,
+          containerError: null,
+          lastMessage: "Loot bag opened.",
+        });
+        return;
+
+      case "container.updated":
+        this.bridge.updateState({
+          openContainer: message.state,
+          containerError: null,
+        });
+        return;
+
+      case "container.closed":
+        this.bridge.updateState({
+          openContainer: null,
+          containerError: null,
+          lastMessage:
+            message.reason === "out_of_range"
+              ? "Moved out of range."
+              : message.reason === "despawned"
+                ? "Loot bag disappeared."
+                : "Loot bag closed.",
+        });
+        return;
+
+      case "container.openDenied":
+        this.bridge.updateState({
+          containerError: message.message,
+          lastMessage: message.message,
+        });
+        return;
+
+      case "container.actionRejected":
+        this.bridge.updateState({
+          containerError: message.message,
+          lastMessage: message.message,
         });
         return;
 
@@ -834,8 +958,11 @@ class HubScene extends Phaser.Scene {
           lastMessage: message.reason,
           players: [],
           enemies: [],
+          lootBags: [],
           inventory: null,
           inventoryError: null,
+          containerError: null,
+          openContainer: null,
         });
         this.socket?.close();
         return;
@@ -853,8 +980,11 @@ class HubScene extends Phaser.Scene {
             lastMessage: "Reconnecting to existing session...",
             players: [],
             enemies: [],
+            lootBags: [],
             inventory: null,
             inventoryError: null,
+            containerError: null,
+            openContainer: null,
           });
           setTimeout(() => {
             this.authenticate(false);
@@ -873,8 +1003,11 @@ class HubScene extends Phaser.Scene {
           lastMessage: message.reason,
           players: [],
           enemies: [],
+          lootBags: [],
           inventory: null,
           inventoryError: null,
+          containerError: null,
+          openContainer: null,
         });
         return;
 
@@ -1019,6 +1152,105 @@ class HubScene extends Phaser.Scene {
       actor.trail.destroy();
       this.projectileActors.delete(id);
     }
+  }
+
+  private reconcileSnapshotLootBags(lootBags: LootBagSnapshot[]): void {
+    const snapshotIds = new Set<string>();
+
+    for (const lootBag of lootBags) {
+      snapshotIds.add(lootBag.id);
+      const existing = this.lootBagActors.get(lootBag.id);
+      if (!existing) {
+        this.lootBagActors.set(lootBag.id, this.createLootBagActor(lootBag));
+        continue;
+      }
+      this.updateLootBagActor(existing, lootBag);
+    }
+
+    for (const [id, actor] of this.lootBagActors.entries()) {
+      if (snapshotIds.has(id)) {
+        continue;
+      }
+      this.destroyLootBagActor(actor);
+      this.lootBagActors.delete(id);
+    }
+  }
+
+  private createLootBagActor(lootBag: {
+    position: { x: number; y: number };
+    itemCount: number;
+    ownerCharacterId: string | null;
+    ownerLockedUntilEpochMs: number | null;
+    openedByCharacterId: string | null;
+  }): LootBagActor {
+    const body = this.add.rectangle(
+      lootBag.position.x,
+      lootBag.position.y,
+      20,
+      16,
+      0x8a5a2b,
+      0.75,
+    );
+    body.setStrokeStyle(2, 0xffd27d, 0.9);
+
+    const label = this.add
+      .text(
+        Math.round(lootBag.position.x),
+        Math.round(lootBag.position.y - 22),
+        `${lootBag.itemCount}`,
+        {
+          fontFamily: "Share Tech Mono",
+          fontSize: "10px",
+          color: "#ffd27d",
+          stroke: "#000000",
+          strokeThickness: 2,
+        },
+      )
+      .setOrigin(0.5, 0.5);
+
+    const actor: LootBagActor = {
+      body,
+      label,
+      itemCount: lootBag.itemCount,
+      ownerCharacterId: lootBag.ownerCharacterId,
+      ownerLockedUntilEpochMs: lootBag.ownerLockedUntilEpochMs,
+      openedByCharacterId: lootBag.openedByCharacterId,
+    };
+    this.updateLootBagActor(actor, lootBag);
+    return actor;
+  }
+
+  private updateLootBagActor(
+    actor: LootBagActor,
+    lootBag: {
+      position: { x: number; y: number };
+      itemCount: number;
+      ownerCharacterId: string | null;
+      ownerLockedUntilEpochMs: number | null;
+      openedByCharacterId: string | null;
+    },
+  ): void {
+    actor.itemCount = lootBag.itemCount;
+    actor.ownerCharacterId = lootBag.ownerCharacterId;
+    actor.ownerLockedUntilEpochMs = lootBag.ownerLockedUntilEpochMs;
+    actor.openedByCharacterId = lootBag.openedByCharacterId;
+
+    const isOpen = lootBag.openedByCharacterId !== null;
+    actor.body
+      .setPosition(lootBag.position.x, lootBag.position.y)
+      .setFillStyle(isOpen ? 0x6c4b2d : 0x8a5a2b, 0.82)
+      .setStrokeStyle(2, isOpen ? 0x00e5ff : 0xffd27d, 0.9);
+    actor.label
+      .setText(`${lootBag.itemCount}`)
+      .setPosition(
+        Math.round(lootBag.position.x),
+        Math.round(lootBag.position.y - 22),
+      );
+  }
+
+  private destroyLootBagActor(actor: LootBagActor): void {
+    actor.body.destroy();
+    actor.label.destroy();
   }
 
   private createEnemyActor(enemy: EnemySnapshot): EnemyActor {
@@ -1439,6 +1671,7 @@ class HubScene extends Phaser.Scene {
     this.clearRemotePlayers();
     this.clearEnemyActors();
     this.clearProjectileActors();
+    this.clearLootBagActors();
     this.enemyPredictionColliders = [];
     this.pendingInputs = [];
     this.nextInputSequence = 1;
@@ -1453,6 +1686,8 @@ class HubScene extends Phaser.Scene {
       players: [],
       enemies: [],
       projectiles: [],
+      lootBags: [],
+      openContainer: null,
       localHealthCurrent: null,
       localHealthMax: null,
       localLevel: null,
@@ -1460,6 +1695,7 @@ class HubScene extends Phaser.Scene {
       localXpToNextLevel: null,
       lastCombatDeniedReason: null,
       inventoryError: null,
+      containerError: null,
     });
   }
 
@@ -1491,10 +1727,37 @@ class HubScene extends Phaser.Scene {
     this.projectileActors.clear();
   }
 
+  private clearLootBagActors(): void {
+    for (const actor of this.lootBagActors.values()) {
+      this.destroyLootBagActor(actor);
+    }
+    this.lootBagActors.clear();
+  }
+
+  private findNearestLootBagActor(): { id: string; distanceSq: number } | null {
+    let nearest: { id: string; distanceSq: number } | null = null;
+    const maxDistanceSq = LOOT_BAG_INTERACT_RADIUS * LOOT_BAG_INTERACT_RADIUS;
+
+    for (const [id, actor] of this.lootBagActors.entries()) {
+      const dx = actor.body.x - this.predictedPosition.x;
+      const dy = actor.body.y - this.predictedPosition.y;
+      const distanceSq = dx * dx + dy * dy;
+      if (distanceSq > maxDistanceSq) {
+        continue;
+      }
+      if (!nearest || distanceSq < nearest.distanceSq) {
+        nearest = { id, distanceSq };
+      }
+    }
+
+    return nearest;
+  }
+
   private syncOverlayState(): void {
     const players: OverlayPlayer[] = [];
     const enemies: OverlayEnemy[] = [];
     const projectiles: OverlayProjectile[] = [];
+    const lootBags: OverlayLootBag[] = [];
 
     if (
       this.localCharacterId &&
@@ -1542,7 +1805,19 @@ class HubScene extends Phaser.Scene {
       });
     }
 
-    this.bridge.updateState({ players, enemies, projectiles });
+    for (const [id, actor] of this.lootBagActors.entries()) {
+      lootBags.push({
+        id,
+        x: actor.body.x,
+        y: actor.body.y,
+        itemCount: actor.itemCount,
+        ownerCharacterId: actor.ownerCharacterId,
+        ownerLockedUntilEpochMs: actor.ownerLockedUntilEpochMs,
+        openedByCharacterId: actor.openedByCharacterId,
+      });
+    }
+
+    this.bridge.updateState({ players, enemies, projectiles, lootBags });
   }
 
   private sendMessage(message: ClientToServerMessage): void {

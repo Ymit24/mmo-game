@@ -2,6 +2,8 @@ import {
   type EquipSlot,
   INVENTORY_BAG_SLOT_COUNT,
   type InventorySlotRef,
+  LOOT_BAG_SLOT_COUNT,
+  type StorageSlotRef,
 } from "@mmo/shared";
 import { type DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -23,36 +25,54 @@ const EMPTY_EQUIP_SLOTS: Record<EquipSlot, null> = {
   armor: null,
 };
 
-function slotRefLabel(slot: InventorySlotRef): string {
+function slotRefLabel(slot: StorageSlotRef): string {
   if (slot.kind === "bag") {
     return `Slot ${slot.index + 1}`;
+  }
+  if (slot.kind === "container") {
+    return `Container Slot ${slot.index + 1}`;
   }
   return slot.slot === "weapon" ? "Weapon" : "Armor";
 }
 
-function slotRefKey(slot: InventorySlotRef): string {
+function slotRefKey(slot: StorageSlotRef): string {
   if (slot.kind === "bag") {
     return `bag:${slot.index}`;
+  }
+  if (slot.kind === "container") {
+    return `container:${slot.containerId}:${slot.index}`;
   }
   return `equip:${slot.slot}`;
 }
 
-function encodeSlotRef(slot: InventorySlotRef): string {
+function encodeSlotRef(slot: StorageSlotRef): string {
   return JSON.stringify(slot);
 }
 
-function decodeSlotRef(raw: string): InventorySlotRef | null {
+function decodeSlotRef(raw: string): StorageSlotRef | null {
   if (!raw) {
     return null;
   }
 
   try {
-    const parsed = JSON.parse(raw) as InventorySlotRef;
+    const parsed = JSON.parse(raw) as StorageSlotRef;
     if (parsed.kind === "bag") {
       if (
         Number.isSafeInteger(parsed.index) &&
         parsed.index >= 0 &&
         parsed.index < INVENTORY_BAG_SLOT_COUNT
+      ) {
+        return parsed;
+      }
+      return null;
+    }
+    if (parsed.kind === "container") {
+      if (
+        typeof parsed.containerId === "string" &&
+        parsed.containerId.length > 0 &&
+        Number.isSafeInteger(parsed.index) &&
+        parsed.index >= 0 &&
+        parsed.index < LOOT_BAG_SLOT_COUNT
       ) {
         return parsed;
       }
@@ -70,9 +90,7 @@ function decodeSlotRef(raw: string): InventorySlotRef | null {
   }
 }
 
-function getDraggedSlot(
-  event: DragEvent<HTMLElement>,
-): InventorySlotRef | null {
+function getDraggedSlot(event: DragEvent<HTMLElement>): StorageSlotRef | null {
   const custom = event.dataTransfer.getData(DRAG_SLOT_MIME);
   const fallback = event.dataTransfer.getData("text/plain");
   return decodeSlotRef(custom || fallback);
@@ -95,7 +113,7 @@ export function GameShell({ characterId }: GameShellProps) {
     useState<boolean>(false);
   const [hoveredSlotKey, setHoveredSlotKey] = useState<string | null>(null);
   const [hoveredSlotData, setHoveredSlotData] = useState<{
-    slot: InventorySlotRef;
+    slot: StorageSlotRef;
     rect: DOMRect;
   } | null>(null);
   const dragInProgressRef = useRef<boolean>(false);
@@ -175,6 +193,11 @@ export function GameShell({ characterId }: GameShellProps) {
     Array.from({ length: INVENTORY_BAG_SLOT_COUNT }, () => null);
   const equipSlots = uiState.inventory?.equipSlots ?? EMPTY_EQUIP_SLOTS;
   const definitions = uiState.inventory?.definitions ?? {};
+  const openContainer = uiState.openContainer;
+  const containerSlots =
+    openContainer?.slots ??
+    Array.from({ length: LOOT_BAG_SLOT_COUNT }, () => null);
+  const isContainerOpen = !!openContainer;
 
   function reconnect(): void {
     window.location.reload();
@@ -182,7 +205,7 @@ export function GameShell({ characterId }: GameShellProps) {
 
   function onSlotDragStart(
     event: DragEvent<HTMLButtonElement>,
-    from: InventorySlotRef,
+    from: StorageSlotRef,
   ): void {
     setActiveDropSlotKey(null);
     setHoveredSlotKey(null);
@@ -194,10 +217,7 @@ export function GameShell({ characterId }: GameShellProps) {
     event.dataTransfer.effectAllowed = "move";
   }
 
-  function onSlotDrop(
-    event: DragEvent<HTMLElement>,
-    to: InventorySlotRef,
-  ): void {
+  function onSlotDrop(event: DragEvent<HTMLElement>, to: StorageSlotRef): void {
     event.preventDefault();
     setActiveDropSlotKey(null);
     setIsDraggingInventoryItem(false);
@@ -207,13 +227,17 @@ export function GameShell({ characterId }: GameShellProps) {
       return;
     }
 
-    bridge.requestInventoryMove({ from, to });
+    if (from.kind === "container" || to.kind === "container") {
+      bridge.requestContainerMove({ from, to });
+    } else {
+      bridge.requestInventoryMove({ from, to });
+    }
     setHoveredSlotKey(slotRefKey(to));
   }
 
   function onSlotDragOver(
     event: DragEvent<HTMLElement>,
-    to: InventorySlotRef,
+    to: StorageSlotRef,
   ): void {
     if (!dragInProgressRef.current) {
       return;
@@ -222,7 +246,7 @@ export function GameShell({ characterId }: GameShellProps) {
     setActiveDropSlotKey(slotRefKey(to));
   }
 
-  function onSlotDragLeave(to: InventorySlotRef): void {
+  function onSlotDragLeave(to: StorageSlotRef): void {
     const key = slotRefKey(to);
     setActiveDropSlotKey((current) => (current === key ? null : current));
   }
@@ -239,7 +263,7 @@ export function GameShell({ characterId }: GameShellProps) {
     setIsDraggingInventoryItem(false);
     dragInProgressRef.current = false;
     const from = getDraggedSlot(event);
-    if (!from) {
+    if (!from || from.kind === "container") {
       return;
     }
 
@@ -248,7 +272,7 @@ export function GameShell({ characterId }: GameShellProps) {
 
   function onSlotMouseEnter(
     event: React.MouseEvent<HTMLElement>,
-    slot: InventorySlotRef,
+    slot: StorageSlotRef,
   ): void {
     if (isDraggingInventoryItem) {
       return;
@@ -258,7 +282,7 @@ export function GameShell({ characterId }: GameShellProps) {
     setHoveredSlotData({ slot, rect });
   }
 
-  function onSlotMouseLeave(slot: InventorySlotRef): void {
+  function onSlotMouseLeave(slot: StorageSlotRef): void {
     const key = slotRefKey(slot);
     setHoveredSlotKey((current) => (current === key ? null : current));
     setHoveredSlotData((current) =>
@@ -402,6 +426,18 @@ export function GameShell({ characterId }: GameShellProps) {
                     />
                   );
                 })}
+                {uiState.lootBags.map((lootBag) => {
+                  const x = (lootBag.x / uiState.mapSize.width) * 100;
+                  const y = (lootBag.y / uiState.mapSize.height) * 100;
+
+                  return (
+                    <span
+                      key={lootBag.id}
+                      className="absolute h-1.5 w-1.5 -translate-x-0.5 -translate-y-0.5 bg-amber-300"
+                      style={{ left: `${x}%`, top: `${y}%` }}
+                    />
+                  );
+                })}
               </div>
             </div>
 
@@ -479,9 +515,17 @@ export function GameShell({ characterId }: GameShellProps) {
 
             {/* Bag slots */}
             <div className="flex-1 overflow-y-auto p-2">
+              <div className="mb-1.5 flex items-center justify-between">
+                <span className="font-display text-[10px] text-vec-green tracking-[0.08em] uppercase">
+                  Inventory
+                </span>
+                <span className="text-[8px] text-muted">
+                  {isContainerOpen ? "E to close bag" : "E near bag to loot"}
+                </span>
+              </div>
               <div className="grid grid-cols-3 gap-1">
                 {bagSlots.map((instance, index) => {
-                  const slotRef: InventorySlotRef = {
+                  const slotRef: StorageSlotRef = {
                     kind: "bag",
                     index,
                   };
@@ -547,18 +591,110 @@ export function GameShell({ characterId }: GameShellProps) {
                 })}
               </div>
 
-              {/* Drop zone */}
+              <div className="mt-2 rounded border border-amber-300/30 bg-gradient-to-b from-amber-100/5 to-transparent p-2">
+                <div className="mb-1.5 flex items-center justify-between">
+                  <span className="font-display text-[10px] text-amber-300 tracking-[0.08em] uppercase">
+                    Loot Bag
+                  </span>
+                  <span className="text-[8px] text-muted">
+                    {isContainerOpen ? "Single opener lock" : "Not open"}
+                  </span>
+                </div>
+                {isContainerOpen && openContainer ? (
+                  <div className="grid grid-cols-3 gap-1">
+                    {containerSlots.map((instance, index) => {
+                      const slotRef: StorageSlotRef = {
+                        kind: "container",
+                        containerId: openContainer.containerId,
+                        index,
+                      };
+                      const key = slotRefKey(slotRef);
+                      const definition = instance
+                        ? (definitions[instance.itemDefinitionId] ?? null)
+                        : null;
+                      const iconUrl = definition
+                        ? resolveItemIconUrl(definition.iconKey)
+                        : null;
+
+                      return (
+                        <button
+                          key={`container-slot-${index + 1}`}
+                          type="button"
+                          aria-label={`Container Slot ${index + 1}${definition ? `: ${definition.name}` : ""}`}
+                          draggable={!!instance}
+                          onDragStart={(event) => {
+                            if (!instance) {
+                              return;
+                            }
+                            onSlotDragStart(event, slotRef);
+                          }}
+                          onDragEnd={onSlotDragEnd}
+                          onDragOver={(event) => onSlotDragOver(event, slotRef)}
+                          onDragLeave={() => onSlotDragLeave(slotRef)}
+                          onDrop={(event) => onSlotDrop(event, slotRef)}
+                          onMouseEnter={(event) =>
+                            onSlotMouseEnter(event, slotRef)
+                          }
+                          onMouseLeave={() => onSlotMouseLeave(slotRef)}
+                          className={`flex flex-col items-center justify-center border aspect-square p-1 ${
+                            dropHighlightedSlotKey === key
+                              ? "border-amber-300 bg-amber-300/12"
+                              : hoveredSlotKey === key
+                                ? "border-amber-300/60"
+                                : "border-amber-300/25 bg-void/70"
+                          }`}
+                        >
+                          {instance && definition ? (
+                            <>
+                              {iconUrl ? (
+                                <img
+                                  src={iconUrl}
+                                  alt={definition.name}
+                                  className="h-7 w-7 p-0.5"
+                                  style={{ imageRendering: "pixelated" }}
+                                />
+                              ) : (
+                                <span className="text-[8px] text-amber-200/80">
+                                  {definition.type}
+                                </span>
+                              )}
+                              <span className="mt-0.5 text-[7px] text-amber-100 truncate w-full text-center leading-tight">
+                                {definition.name}
+                              </span>
+                            </>
+                          ) : (
+                            <span className="text-[8px] text-amber-100/30">
+                              {index + 1}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-[9px] text-muted leading-relaxed">
+                    Stand near a loot bag and press{" "}
+                    <span className="text-amber-300">E</span> to open.
+                  </p>
+                )}
+              </div>
+
               <div
                 onDragOver={(event) => event.preventDefault()}
                 onDrop={onGroundDrop}
-                className="mt-2 border border-dashed border-vec-magenta/30 bg-void/40 py-2 text-center text-[9px] text-vec-magenta/50"
+                className="mt-2 border border-dashed border-vec-magenta/30 bg-void/40 py-2 text-center text-[9px] text-vec-magenta/60"
               >
-                Drop to discard
+                Drop from inventory to create loot bag
               </div>
 
               {uiState.inventoryError ? (
                 <p className="mt-1 text-[9px] text-vec-magenta">
                   {uiState.inventoryError}
+                </p>
+              ) : null}
+              {uiState.containerError ? (
+                <p className="mt-1 text-[9px] text-amber-300">
+                  {uiState.containerError}
                 </p>
               ) : null}
             </div>
@@ -629,9 +765,15 @@ export function GameShell({ characterId }: GameShellProps) {
 
         if (slot.kind === "bag") {
           item = bagSlots[slot.index];
-        } else {
+        } else if (slot.kind === "equip") {
           item = equipSlots[slot.slot];
           slotType = slot.slot;
+        } else if (
+          isContainerOpen &&
+          openContainer &&
+          slot.containerId === openContainer.containerId
+        ) {
+          item = containerSlots[slot.index];
         }
 
         if (!item) return null;
@@ -641,9 +783,11 @@ export function GameShell({ characterId }: GameShellProps) {
 
         // Get equipped weapon for comparison (only when hovering a bag item)
         const equippedWeapon =
-          slot.kind === "bag" ? uiState.inventory.equipSlots.weapon : undefined;
+          slot.kind === "bag" || slot.kind === "container"
+            ? uiState.inventory.equipSlots.weapon
+            : undefined;
         const equippedWeaponDefinition =
-          equippedWeapon && slot.kind === "bag"
+          equippedWeapon && (slot.kind === "bag" || slot.kind === "container")
             ? uiState.inventory.definitions[equippedWeapon.itemDefinitionId]
             : undefined;
 
