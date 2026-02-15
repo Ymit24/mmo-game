@@ -52,7 +52,7 @@ describe("database bootstrap", () => {
       )
       .get();
 
-    expect(slime?.visual_width).toBe(10);
+    expect(slime?.visual_width).toBe(20);
     db.close();
   });
 
@@ -103,28 +103,28 @@ describe("database bootstrap", () => {
       .query<{ enemy_archetype_id: string; drop_chance: number }, []>(
         `SELECT enemy_archetype_id, drop_chance
          FROM enemy_loot_tables
-         WHERE enemy_archetype_id = 'e_001_slime'
+         WHERE enemy_archetype_id = 'e_010_forest_ogre'
          LIMIT 1`,
       )
       .get();
-    expect(lootTable?.enemy_archetype_id).toBe("e_001_slime");
-    expect(lootTable?.drop_chance).toBe(0.1);
+    expect(lootTable?.enemy_archetype_id).toBe("e_010_forest_ogre");
+    expect(lootTable?.drop_chance).toBe(1);
 
     const entries = db
       .query<{ item_definition_id: string; class_affinity: string | null }, []>(
         `SELECT item_definition_id, class_affinity
          FROM enemy_loot_table_entries
-         WHERE enemy_archetype_id = 'e_001_slime'
+         WHERE enemy_archetype_id = 'e_010_forest_ogre'
          ORDER BY item_definition_id ASC`,
       )
       .all();
     expect(entries).toEqual([
       {
-        item_definition_id: "w_kn_001_rusty_sword",
+        item_definition_id: "w_kn_006_iron_sword",
         class_affinity: "knight",
       },
       {
-        item_definition_id: "w_mg_001_apprentice_staff",
+        item_definition_id: "w_mg_006_oak_wand",
         class_affinity: "mage",
       },
     ]);
