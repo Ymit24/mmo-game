@@ -1,112 +1,174 @@
 {
   "id": "world_06_void_citadel",
   "name": "Void Citadel",
-  "width": 320,
-  "height": 190,
-  "background": { "color": "#2a1445", "gridSize": 10 },
-  "combat": { "allowCombat": true, "pvpEnabled": false },
+  "width": 3200,
+  "height": 1900,
+  "background": {
+    "color": "#2a1445",
+    "gridSize": 100
+  },
+  "combat": {
+    "allowCombat": true,
+    "pvpEnabled": false
+  },
   "playerSpawnId": "sp_void_start",
   "spawnPoints": [
-    { "id": "sp_void_start", "x": 18, "y": 95 },
-    { "id": "sp_void_mid", "x": 184, "y": 95 }
+    {
+      "id": "sp_void_start",
+      "x": 180,
+      "y": 950
+    },
+    {
+      "id": "sp_void_mid",
+      "x": 1840,
+      "y": 950
+    }
   ],
   "collisions": [
-    { "type": "rect", "x": 0, "y": 0, "width": 320, "height": 6 },
-    { "type": "rect", "x": 0, "y": 184, "width": 320, "height": 6 },
-    { "type": "rect", "x": 0, "y": 0, "width": 6, "height": 190 },
-    { "type": "rect", "x": 314, "y": 0, "width": 6, "height": 190 }
+    {
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "width": 3200,
+      "height": 60
+    },
+    {
+      "type": "rect",
+      "x": 0,
+      "y": 1840,
+      "width": 3200,
+      "height": 60
+    },
+    {
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "width": 60,
+      "height": 1900
+    },
+    {
+      "type": "rect",
+      "x": 3140,
+      "y": 0,
+      "width": 60,
+      "height": 1900
+    }
   ],
   "regions": [
     {
       "id": "r_vc_01_ruins",
       "name": "Outer Ruins (Lv 51-54)",
-      "shape": { "type": "rect", "x": 6, "y": 6, "width": 120, "height": 178 }
+      "shape": {
+        "type": "rect",
+        "x": 60,
+        "y": 60,
+        "width": 1200,
+        "height": 1780
+      }
     },
     {
       "id": "r_vc_02_halls",
       "name": "Twilight Halls (Lv 54-58)",
-      "shape": { "type": "rect", "x": 126, "y": 6, "width": 138, "height": 178 }
+      "shape": {
+        "type": "rect",
+        "x": 1260,
+        "y": 60,
+        "width": 1380,
+        "height": 1780
+      }
     },
     {
       "id": "r_vc_03_throne",
       "name": "Throne Approach (Lv 58-60)",
-      "shape": { "type": "rect", "x": 264, "y": 6, "width": 50, "height": 178 }
+      "shape": {
+        "type": "rect",
+        "x": 2640,
+        "y": 60,
+        "width": 500,
+        "height": 1780
+      }
     }
   ],
   "portals": [
     {
       "id": "p_vc_to_dreadmoor",
       "name": "Back to Dreadmoor",
-      "shape": { "type": "rect", "x": 6, "y": 87, "width": 8, "height": 16 },
+      "shape": {
+        "type": "rect",
+        "x": 60,
+        "y": 870,
+        "width": 80,
+        "height": 160
+      },
       "targetWorldId": "world_05_dreadmoor",
       "targetSpawnId": "sp_dreadmoor_mid",
-      "exitOffset": { "x": 2, "y": 0 }
+      "exitOffset": {
+        "x": 20,
+        "y": 0
+      }
     }
   ],
   "enemySpawners": [
     {
       "id": "s_vc_voidling_1",
       "archetypeId": "e_052_voidling",
-      "x": 46,
-      "y": 56,
-      "spawnRadius": 22,
+      "x": 460,
+      "y": 560,
+      "spawnRadius": 220,
       "maxAlive": 7,
       "respawnSeconds": 16
     },
     {
       "id": "s_vc_voidling_2",
       "archetypeId": "e_052_voidling",
-      "x": 70,
-      "y": 140,
-      "spawnRadius": 22,
+      "x": 700,
+      "y": 1400,
+      "spawnRadius": 220,
       "maxAlive": 7,
       "respawnSeconds": 16
     },
-
     {
       "id": "s_vc_enforcer_1",
       "archetypeId": "e_055_cult_enforcer",
-      "x": 166,
-      "y": 56,
-      "spawnRadius": 20,
+      "x": 1660,
+      "y": 560,
+      "spawnRadius": 200,
       "maxAlive": 6,
       "respawnSeconds": 18
     },
     {
       "id": "s_vc_enforcer_2",
       "archetypeId": "e_055_cult_enforcer",
-      "x": 190,
-      "y": 140,
-      "spawnRadius": 20,
+      "x": 1900,
+      "y": 1400,
+      "spawnRadius": 200,
       "maxAlive": 6,
       "respawnSeconds": 18
     },
-
     {
       "id": "s_vc_sentinel_1",
       "archetypeId": "e_058_void_sentinel",
-      "x": 276,
-      "y": 58,
-      "spawnRadius": 18,
+      "x": 2760,
+      "y": 580,
+      "spawnRadius": 180,
       "maxAlive": 4,
       "respawnSeconds": 22
     },
     {
       "id": "s_vc_binder_1",
       "archetypeId": "e_059_void_binder",
-      "x": 292,
-      "y": 138,
-      "spawnRadius": 20,
+      "x": 2920,
+      "y": 1380,
+      "spawnRadius": 200,
       "maxAlive": 3,
       "respawnSeconds": 23
     },
-
     {
       "id": "s_vc_boss_overlord",
       "archetypeId": "e_060_citadel_overlord",
-      "x": 302,
-      "y": 95,
-      "spawnRadius": 10,
+      "x": 3020,
+      "y": 950,
+      "spawnRadius": 100,
       "maxAlive": 1,
       "respawnSeconds": 180
     }

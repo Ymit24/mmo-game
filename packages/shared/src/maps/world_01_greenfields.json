@@ -1,112 +1,174 @@
 {
   "id": "world_01_greenfields",
   "name": "Greenfields",
-  "width": 220,
-  "height": 140,
-  "background": { "color": "#2b6f3a", "gridSize": 10 },
-  "combat": { "allowCombat": true, "pvpEnabled": false },
+  "width": 2200,
+  "height": 1400,
+  "background": {
+    "color": "#2b6f3a",
+    "gridSize": 100
+  },
+  "combat": {
+    "allowCombat": true,
+    "pvpEnabled": false
+  },
   "playerSpawnId": "sp_greenfields_start",
   "spawnPoints": [
-    { "id": "sp_greenfields_start", "x": 18, "y": 70 },
-    { "id": "sp_greenfields_mid", "x": 120, "y": 70 }
+    {
+      "id": "sp_greenfields_start",
+      "x": 180,
+      "y": 700
+    },
+    {
+      "id": "sp_greenfields_mid",
+      "x": 1200,
+      "y": 700
+    }
   ],
   "collisions": [
-    { "type": "rect", "x": 0, "y": 0, "width": 220, "height": 6 },
-    { "type": "rect", "x": 0, "y": 134, "width": 220, "height": 6 },
-    { "type": "rect", "x": 0, "y": 0, "width": 6, "height": 140 },
-    { "type": "rect", "x": 214, "y": 0, "width": 6, "height": 140 }
+    {
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "width": 2200,
+      "height": 60
+    },
+    {
+      "type": "rect",
+      "x": 0,
+      "y": 1340,
+      "width": 2200,
+      "height": 60
+    },
+    {
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "width": 60,
+      "height": 1400
+    },
+    {
+      "type": "rect",
+      "x": 2140,
+      "y": 0,
+      "width": 60,
+      "height": 1400
+    }
   ],
   "regions": [
     {
       "id": "r_gf_01_meadow",
       "name": "Starter Meadow (Lv 1-3)",
-      "shape": { "type": "rect", "x": 6, "y": 6, "width": 70, "height": 128 }
+      "shape": {
+        "type": "rect",
+        "x": 60,
+        "y": 60,
+        "width": 700,
+        "height": 1280
+      }
     },
     {
       "id": "r_gf_02_woods",
       "name": "Winding Woods (Lv 3-7)",
-      "shape": { "type": "rect", "x": 76, "y": 6, "width": 78, "height": 128 }
+      "shape": {
+        "type": "rect",
+        "x": 760,
+        "y": 60,
+        "width": 780,
+        "height": 1280
+      }
     },
     {
       "id": "r_gf_03_road",
       "name": "Bandit Road (Lv 7-10)",
-      "shape": { "type": "rect", "x": 154, "y": 6, "width": 60, "height": 128 }
+      "shape": {
+        "type": "rect",
+        "x": 1540,
+        "y": 60,
+        "width": 600,
+        "height": 1280
+      }
     }
   ],
   "portals": [
     {
       "id": "p_gf_to_canyons",
       "name": "Trail to Dusty Canyons",
-      "shape": { "type": "rect", "x": 206, "y": 62, "width": 8, "height": 16 },
+      "shape": {
+        "type": "rect",
+        "x": 2060,
+        "y": 620,
+        "width": 80,
+        "height": 160
+      },
       "targetWorldId": "world_02_dusty_canyons",
       "targetSpawnId": "sp_canyons_start",
-      "exitOffset": { "x": 2, "y": 0 }
+      "exitOffset": {
+        "x": 20,
+        "y": 0
+      }
     }
   ],
   "enemySpawners": [
     {
       "id": "s_gf_slime_1",
       "archetypeId": "e_001_slime",
-      "x": 28,
-      "y": 40,
-      "spawnRadius": 14,
+      "x": 280,
+      "y": 400,
+      "spawnRadius": 140,
       "maxAlive": 6,
       "respawnSeconds": 7
     },
     {
       "id": "s_gf_slime_2",
       "archetypeId": "e_001_slime",
-      "x": 40,
-      "y": 92,
-      "spawnRadius": 14,
+      "x": 400,
+      "y": 920,
+      "spawnRadius": 140,
       "maxAlive": 6,
       "respawnSeconds": 7
     },
-
     {
       "id": "s_gf_wolf_1",
       "archetypeId": "e_003_wolf",
-      "x": 96,
-      "y": 40,
-      "spawnRadius": 18,
+      "x": 960,
+      "y": 400,
+      "spawnRadius": 180,
       "maxAlive": 5,
       "respawnSeconds": 9
     },
     {
       "id": "s_gf_wolf_2",
       "archetypeId": "e_003_wolf",
-      "x": 108,
-      "y": 96,
-      "spawnRadius": 18,
+      "x": 1080,
+      "y": 960,
+      "spawnRadius": 180,
       "maxAlive": 5,
       "respawnSeconds": 9
     },
-
     {
       "id": "s_gf_bandit_1",
       "archetypeId": "e_006_bandit",
-      "x": 170,
-      "y": 42,
-      "spawnRadius": 16,
+      "x": 1700,
+      "y": 420,
+      "spawnRadius": 160,
       "maxAlive": 4,
       "respawnSeconds": 11
     },
     {
       "id": "s_gf_archer_1",
       "archetypeId": "e_008_bandit_archer",
-      "x": 184,
-      "y": 96,
-      "spawnRadius": 16,
+      "x": 1840,
+      "y": 960,
+      "spawnRadius": 160,
       "maxAlive": 3,
       "respawnSeconds": 12
     },
-
     {
       "id": "s_gf_boss_ogre",
       "archetypeId": "e_010_forest_ogre",
-      "x": 196,
-      "y": 70,
-      "spawnRadius": 10,
+      "x": 1960,
+      "y": 700,
+      "spawnRadius": 100,
       "maxAlive": 1,
       "respawnSeconds": 55
     }

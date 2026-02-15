@@ -52,7 +52,7 @@ describe("database bootstrap", () => {
       )
       .get();
 
-    expect(slime?.visual_width).toBe(1);
+    expect(slime?.visual_width).toBe(10);
     db.close();
   });
 
