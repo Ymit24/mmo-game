@@ -144,7 +144,27 @@ vi.mock("./phaser/runtime", () => ({
       enemies: [],
       projectiles: [],
       lootBags: [],
-      openContainer: null,
+      openContainer: {
+        containerId: "lootbag-1",
+        slots: [
+          {
+            id: "loot-1",
+            itemDefinitionId: "training_sword",
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+        ],
+        slotCount: 9,
+        openedByCharacterId: "character-1",
+        ownerCharacterId: "character-1",
+        ownerLockedUntilEpochMs: Date.now() + 10_000,
+      },
       containerError: null,
       localHealthCurrent: 100,
       localHealthMax: 100,
@@ -228,6 +248,35 @@ describe("GameShell inventory UI", () => {
 
     expect(dropRequests).toContainEqual({
       from: { kind: "bag", index: 0 },
+    });
+  });
+
+  test("emits container quick-transfer requests on shift-click", async () => {
+    render(
+      <MemoryRouter>
+        <AuthProvider>
+          <GameShell characterId="character-1" />
+        </AuthProvider>
+      </MemoryRouter>,
+    );
+
+    const bagSlotOne = await screen.findByRole("button", {
+      name: /Bag Slot 1/i,
+    });
+    const containerSlotOne = await screen.findByRole("button", {
+      name: /Container Slot 1/i,
+    });
+
+    fireEvent.click(bagSlotOne, { shiftKey: true });
+    expect(containerMoveRequests).toContainEqual({
+      from: { kind: "bag", index: 0 },
+      to: { kind: "container", containerId: "lootbag-1", index: 1 },
+    });
+
+    fireEvent.click(containerSlotOne, { shiftKey: true });
+    expect(containerMoveRequests).toContainEqual({
+      from: { kind: "container", containerId: "lootbag-1", index: 0 },
+      to: { kind: "bag", index: 1 },
     });
   });
 });

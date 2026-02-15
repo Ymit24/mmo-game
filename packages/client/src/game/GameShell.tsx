@@ -270,6 +270,72 @@ export function GameShell({ characterId }: GameShellProps) {
     bridge.requestInventoryDrop({ from });
   }
 
+  function findFirstEmptyBagSlot(): InventorySlotRef | null {
+    for (let index = 0; index < bagSlots.length; index += 1) {
+      if (!bagSlots[index]) {
+        return {
+          kind: "bag",
+          index,
+        };
+      }
+    }
+
+    return null;
+  }
+
+  function findFirstEmptyContainerSlot(): StorageSlotRef | null {
+    if (!openContainer) {
+      return null;
+    }
+
+    for (let index = 0; index < containerSlots.length; index += 1) {
+      if (!containerSlots[index]) {
+        return {
+          kind: "container",
+          containerId: openContainer.containerId,
+          index,
+        };
+      }
+    }
+
+    return null;
+  }
+
+  function onSlotShiftClick(
+    event: React.MouseEvent<HTMLButtonElement>,
+    slot: StorageSlotRef,
+    hasItem: boolean,
+  ): void {
+    if (!event.shiftKey || !hasItem || !openContainer) {
+      return;
+    }
+
+    event.preventDefault();
+
+    if (slot.kind === "container") {
+      const destination = findFirstEmptyBagSlot();
+      if (!destination) {
+        return;
+      }
+
+      bridge.requestContainerMove({
+        from: slot,
+        to: destination,
+      });
+      return;
+    }
+
+    const destination = findFirstEmptyContainerSlot();
+    if (!destination) {
+      return;
+    }
+
+    bridge.requestContainerMove({
+      from: slot,
+      to: destination,
+    });
+  }
+
   function onSlotMouseEnter(
     event: React.MouseEvent<HTMLElement>,
     slot: StorageSlotRef,
@@ -348,6 +414,9 @@ export function GameShell({ characterId }: GameShellProps) {
                           onDragOver={(event) => onSlotDragOver(event, slotRef)}
                           onDragLeave={() => onSlotDragLeave(slotRef)}
                           onDrop={(event) => onSlotDrop(event, slotRef)}
+                          onClick={(event) =>
+                            onSlotShiftClick(event, slotRef, !!instance)
+                          }
                           onMouseEnter={(event) =>
                             onSlotMouseEnter(event, slotRef)
                           }
@@ -570,6 +639,9 @@ export function GameShell({ characterId }: GameShellProps) {
                       onDragOver={(event) => onSlotDragOver(event, slotRef)}
                       onDragLeave={() => onSlotDragLeave(slotRef)}
                       onDrop={(event) => onSlotDrop(event, slotRef)}
+                      onClick={(event) =>
+                        onSlotShiftClick(event, slotRef, !!instance)
+                      }
                       onMouseEnter={(event) => onSlotMouseEnter(event, slotRef)}
                       onMouseLeave={() => onSlotMouseLeave(slotRef)}
                       className={`flex flex-col items-center justify-center border p-1.5 aspect-square ${
@@ -649,6 +721,9 @@ export function GameShell({ characterId }: GameShellProps) {
                       onDragOver={(event) => onSlotDragOver(event, slotRef)}
                       onDragLeave={() => onSlotDragLeave(slotRef)}
                       onDrop={(event) => onSlotDrop(event, slotRef)}
+                      onClick={(event) =>
+                        onSlotShiftClick(event, slotRef, !!instance)
+                      }
                       onMouseEnter={(event) => onSlotMouseEnter(event, slotRef)}
                       onMouseLeave={() => onSlotMouseLeave(slotRef)}
                       className={`flex flex-col items-center justify-center border aspect-square p-1 ${
