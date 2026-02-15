@@ -259,9 +259,6 @@ export function GameShell({ characterId }: GameShellProps) {
   }
 
   function onGroundDrop(event: DragEvent<HTMLDivElement>): void {
-    if (event.target !== event.currentTarget) {
-      return;
-    }
     event.preventDefault();
     setActiveDropSlotKey(null);
     setIsDraggingInventoryItem(false);

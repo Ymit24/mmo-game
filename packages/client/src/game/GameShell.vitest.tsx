@@ -251,6 +251,32 @@ describe("GameShell inventory UI", () => {
     });
   });
 
+  test("emits ground-drop request when dropping on a canvas child element", async () => {
+    render(
+      <MemoryRouter>
+        <AuthProvider>
+          <GameShell characterId="character-1" />
+        </AuthProvider>
+      </MemoryRouter>,
+    );
+
+    const bagSlotOne = await screen.findByRole("button", {
+      name: /Bag Slot 1/i,
+    });
+    const gameCanvas = screen.getByTestId("game-canvas");
+    const child = document.createElement("canvas");
+    gameCanvas.appendChild(child);
+
+    const dropTransfer = createDragDataTransfer();
+    fireEvent.dragStart(bagSlotOne, { dataTransfer: dropTransfer });
+    fireEvent.dragOver(child, { dataTransfer: dropTransfer });
+    fireEvent.drop(child, { dataTransfer: dropTransfer });
+
+    expect(dropRequests).toContainEqual({
+      from: { kind: "bag", index: 0 },
+    });
+  });
+
   test("emits container quick-transfer requests on shift-click", async () => {
     render(
       <MemoryRouter>
