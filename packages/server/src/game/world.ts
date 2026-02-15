@@ -3,9 +3,12 @@ import type {
   CharacterClass,
   ClientToServerMessage,
   CollisionShape,
+  ContainerActionErrorCode,
   EnemyArchetype,
   EnemyBehaviorState,
   EnemySnapshot,
+  InventoryItemInstance,
+  LootBagSnapshot,
   PlayerSnapshot,
   PortalTrigger,
   ProjectileSnapshot,
@@ -16,6 +19,8 @@ import type {
 } from "@mmo/shared";
 import {
   DEFAULT_WORLD_ID,
+  LOOT_BAG_INTERACT_RADIUS,
+  LOOT_BAG_SLOT_COUNT,
   PLAYER_COLLIDER_SIZE,
   WORLD_MAPS_BY_ID,
   applyCharacterExperience,
@@ -45,6 +50,11 @@ const MELEE_ARC_COS_THRESHOLD = 0.4;
 const PLAYER_PROJECTILE_SPEED = 640;
 const PLAYER_PROJECTILE_TTL_MS = 900;
 const PLAYER_PROJECTILE_RADIUS = 8;
+const LOOT_BAG_DESPAWN_MS = 5 * 60 * 1000;
+const LOOT_BAG_OWNER_GRACE_MS = 10 * 1000;
+const LOOT_BAG_INTERACT_RADIUS_SQ =
+  LOOT_BAG_INTERACT_RADIUS * LOOT_BAG_INTERACT_RADIUS;
+const LOOT_BAG_DROP_DISTANCE = 42;
 
 interface PlayerCombatStats {
   currentHealth: number;
@@ -85,6 +95,7 @@ interface PlayerState {
   xp: number;
   nextAttackAtMs: number;
   pendingRespawn: boolean;
+  openedContainerId: string | null;
   socket: ServerWebSocket<RealtimeSocketData>;
 }
 
@@ -123,6 +134,18 @@ interface ProjectileState {
   colorHex: string;
 }
 
+interface LootBagState {
+  id: string;
+  position: Vector2;
+  slots: Array<InventoryItemInstance | null>;
+  createdAtEpochMs: number;
+  expiresAtEpochMs: number;
+  ownerCharacterId: string | null;
+  ownerLockedUntilEpochMs: number | null;
+  openedByCharacterId: string | null;
+  pendingDespawn: boolean;
+}
+
 interface JoinWorldOptions {
   spawnOverride?: Vector2;
   combatStats?: Partial<PlayerCombatStats>;
@@ -143,7 +166,47 @@ type PersistCharacterProgression = (update: CharacterProgressionUpdate) => void;
 interface WorldManagerOptions {
   resolveEnemyArchetype?: (archetypeId: string) => EnemyArchetype | null;
   persistCharacterProgression?: PersistCharacterProgression;
+  resolveEnemyLootDropDefinitionIds?: (
+    enemyArchetypeId: string,
+    killerClass: CharacterClass | null,
+  ) => string[];
 }
+
+export interface ContainerOpenSuccess {
+  ok: true;
+  state: {
+    containerId: string;
+    slots: Array<InventoryItemInstance | null>;
+    slotCount: number;
+    openedByCharacterId: string | null;
+    ownerCharacterId: string | null;
+    ownerLockedUntilEpochMs: number | null;
+  };
+}
+
+export interface ContainerOpenError {
+  ok: false;
+  code: ContainerActionErrorCode;
+  message: string;
+}
+
+export type ContainerOpenResult = ContainerOpenSuccess | ContainerOpenError;
+
+export interface ContainerUpdateResult {
+  ok: true;
+  state: {
+    containerId: string;
+    slots: Array<InventoryItemInstance | null>;
+    slotCount: number;
+    openedByCharacterId: string | null;
+    ownerCharacterId: string | null;
+    ownerLockedUntilEpochMs: number | null;
+  };
+}
+
+export type ContainerUpdateStateResult =
+  | ContainerUpdateResult
+  | ContainerOpenError;
 
 export interface RealtimeSession {
   connectionId: string;
@@ -219,6 +282,26 @@ function toProjectileSnapshot(projectile: ProjectileState): ProjectileSnapshot {
   };
 }
 
+function toLootBagSnapshot(lootBag: LootBagState): LootBagSnapshot {
+  let itemCount = 0;
+  for (const item of lootBag.slots) {
+    if (item) {
+      itemCount += 1;
+    }
+  }
+
+  return {
+    id: lootBag.id,
+    position: lootBag.position,
+    itemCount,
+    slotCount: lootBag.slots.length,
+    openedByCharacterId: lootBag.openedByCharacterId,
+    ownerCharacterId: lootBag.ownerCharacterId,
+    ownerLockedUntilEpochMs: lootBag.ownerLockedUntilEpochMs,
+    expiresAtEpochMs: lootBag.expiresAtEpochMs,
+  };
+}
+
 function intersectsPlayerBounds(
   position: Vector2,
   shape: CollisionShape,
@@ -258,6 +341,22 @@ function normalizeDirection(from: Vector2, to: Vector2): Vector2 {
 
 function dotProduct(first: Vector2, second: Vector2): number {
   return first.x * second.x + first.y * second.y;
+}
+
+function createEmptyLootBagSlots(): Array<InventoryItemInstance | null> {
+  return Array.from({ length: LOOT_BAG_SLOT_COUNT }, () => null);
+}
+
+function countFilledSlots(
+  slots: ReadonlyArray<InventoryItemInstance | null>,
+): number {
+  let count = 0;
+  for (const slot of slots) {
+    if (slot) {
+      count += 1;
+    }
+  }
+  return count;
 }
 
 function clampHealth(current: number, max: number): number {
@@ -381,6 +480,7 @@ class WorldInstance {
   private players = new Map<string, PlayerState>();
   private enemies = new Map<string, EnemyState>();
   private projectiles = new Map<string, ProjectileState>();
+  private lootBags = new Map<string, LootBagState>();
   private spawners = new Map<string, SpawnerRuntimeState>();
   private deadPlayerQueue = new Map<
     string,
@@ -396,6 +496,10 @@ class WorldInstance {
     characterId: string,
   ) => void;
   private readonly persistCharacterProgression: PersistCharacterProgression | null;
+  private readonly resolveEnemyLootDropDefinitionIds: (
+    enemyArchetypeId: string,
+    killerClass: CharacterClass | null,
+  ) => string[];
 
   constructor(
     worldId: string,
@@ -406,12 +510,17 @@ class WorldInstance {
       characterId: string,
     ) => void,
     persistCharacterProgression: PersistCharacterProgression | null = null,
+    resolveEnemyLootDropDefinitionIds: (
+      enemyArchetypeId: string,
+      killerClass: CharacterClass | null,
+    ) => string[] = () => [],
   ) {
     this.worldId = worldId;
     this.map = map;
     this.resolveEnemyArchetype = resolveEnemyArchetype;
     this.onPlayerDeath = onPlayerDeath;
     this.persistCharacterProgression = persistCharacterProgression;
+    this.resolveEnemyLootDropDefinitionIds = resolveEnemyLootDropDefinitionIds;
 
     for (const spawner of map.enemySpawners) {
       this.spawners.set(spawner.id, {
@@ -492,6 +601,7 @@ class WorldInstance {
       xp: resolvedProgression.xp,
       nextAttackAtMs: 0,
       pendingRespawn: false,
+      openedContainerId: null,
     };
 
     this.players.set(characterId, player);
@@ -515,6 +625,10 @@ class WorldInstance {
     }
     if (removed.connectionId !== connectionId) {
       return null;
+    }
+
+    if (removed.openedContainerId) {
+      this.closeLootBagForPlayer(removed.id, "disconnect");
     }
 
     this.players.delete(characterId);
@@ -714,6 +828,7 @@ class WorldInstance {
     this.tickSpawners(now);
     this.tickProjectiles(dtMs);
     this.tickEnemies(now, dtMs);
+    this.tickLootBags(now);
     this.flushDeadPlayers();
   }
 
@@ -902,6 +1017,358 @@ class WorldInstance {
         this.projectiles.delete(projectile.id);
       }
     }
+  }
+
+  private tickLootBags(now: number): void {
+    for (const lootBag of this.lootBags.values()) {
+      if (lootBag.openedByCharacterId) {
+        const opener = this.players.get(lootBag.openedByCharacterId);
+        if (!opener) {
+          lootBag.openedByCharacterId = null;
+          continue;
+        }
+
+        const distanceToOpenerSq = distanceSquared(
+          opener.position,
+          lootBag.position,
+        );
+        if (distanceToOpenerSq > LOOT_BAG_INTERACT_RADIUS_SQ) {
+          this.closeLootBagForPlayer(opener.id, "out_of_range", lootBag.id);
+          continue;
+        }
+      }
+
+      if (now >= lootBag.expiresAtEpochMs) {
+        if (lootBag.openedByCharacterId) {
+          lootBag.pendingDespawn = true;
+          this.closeLootBagForPlayer(
+            lootBag.openedByCharacterId,
+            "despawned",
+            lootBag.id,
+          );
+          continue;
+        }
+        this.lootBags.delete(lootBag.id);
+        continue;
+      }
+
+      if (
+        !lootBag.openedByCharacterId &&
+        countFilledSlots(lootBag.slots) === 0
+      ) {
+        this.lootBags.delete(lootBag.id);
+      }
+    }
+  }
+
+  createPlayerDropLootBag(
+    characterId: string,
+    connectionId: string,
+    targetPosition: Vector2,
+    item: InventoryItemInstance,
+  ): LootBagSnapshot | null {
+    const player = this.players.get(characterId);
+    if (!player || player.connectionId !== connectionId) {
+      return null;
+    }
+
+    const direction = normalizeDirection(player.position, targetPosition);
+    const candidate = clampToWorldBounds(
+      {
+        x: player.position.x + direction.x * LOOT_BAG_DROP_DISTANCE,
+        y: player.position.y + direction.y * LOOT_BAG_DROP_DISTANCE,
+      },
+      this.map,
+      PLAYER_COLLIDER_SIZE,
+    );
+    const fallback = clampToWorldBounds(
+      {
+        x: player.position.x,
+        y: player.position.y,
+      },
+      this.map,
+      PLAYER_COLLIDER_SIZE,
+    );
+
+    const spawnPosition = positionCollidesWithMap(
+      candidate,
+      this.map,
+      PLAYER_COLLIDER_SIZE,
+    )
+      ? fallback
+      : candidate;
+
+    const lootBag = this.spawnLootBagAtPosition(
+      spawnPosition,
+      [item],
+      player.id,
+      Date.now(),
+    );
+    return toLootBagSnapshot(lootBag);
+  }
+
+  createEnemyDropLootBag(
+    enemyArchetypeId: string,
+    enemyPosition: Vector2,
+    killerCharacterId: string | null,
+    killerClass: CharacterClass | null,
+  ): LootBagSnapshot | null {
+    const definitionIds = this.resolveEnemyLootDropDefinitionIds(
+      enemyArchetypeId,
+      killerClass,
+    );
+    if (definitionIds.length === 0) {
+      return null;
+    }
+
+    const items = definitionIds
+      .slice(0, LOOT_BAG_SLOT_COUNT)
+      .map((itemDefinitionId) => ({
+        id: `loot-${crypto.randomUUID()}`,
+        itemDefinitionId,
+      }));
+
+    const lootBag = this.spawnLootBagAtPosition(
+      enemyPosition,
+      items,
+      killerCharacterId,
+      Date.now(),
+    );
+    return toLootBagSnapshot(lootBag);
+  }
+
+  openLootBag(
+    characterId: string,
+    connectionId: string,
+    containerId: string,
+  ): ContainerOpenResult {
+    const player = this.players.get(characterId);
+    if (!player || player.connectionId !== connectionId) {
+      return {
+        ok: false,
+        code: "CONTAINER_REQUEST_INVALID",
+        message: "Player context is invalid.",
+      };
+    }
+
+    const lootBag = this.lootBags.get(containerId);
+    if (!lootBag) {
+      return {
+        ok: false,
+        code: "CONTAINER_MISSING",
+        message: "Loot bag no longer exists.",
+      };
+    }
+
+    const distanceToBagSq = distanceSquared(player.position, lootBag.position);
+    if (distanceToBagSq > LOOT_BAG_INTERACT_RADIUS_SQ) {
+      return {
+        ok: false,
+        code: "CONTAINER_OUT_OF_RANGE",
+        message: "Move closer to interact with this loot bag.",
+      };
+    }
+
+    const now = Date.now();
+    if (
+      lootBag.ownerCharacterId &&
+      lootBag.ownerCharacterId !== player.id &&
+      typeof lootBag.ownerLockedUntilEpochMs === "number" &&
+      now < lootBag.ownerLockedUntilEpochMs
+    ) {
+      return {
+        ok: false,
+        code: "CONTAINER_OWNER_LOCKED",
+        message: "This loot bag is temporarily reserved.",
+      };
+    }
+
+    if (
+      lootBag.openedByCharacterId &&
+      lootBag.openedByCharacterId !== player.id
+    ) {
+      return {
+        ok: false,
+        code: "CONTAINER_LOCKED",
+        message: "Another player is currently looting this bag.",
+      };
+    }
+
+    if (player.openedContainerId && player.openedContainerId !== containerId) {
+      this.closeLootBagForPlayer(player.id, "manual", player.openedContainerId);
+    }
+
+    lootBag.openedByCharacterId = player.id;
+    player.openedContainerId = lootBag.id;
+
+    return {
+      ok: true,
+      state: this.toContainerState(lootBag),
+    };
+  }
+
+  closeLootBagForPlayer(
+    characterId: string,
+    reason: "manual" | "out_of_range" | "despawned" | "disconnect",
+    expectedContainerId?: string,
+  ): string | null {
+    const player = this.players.get(characterId);
+    if (!player) {
+      return null;
+    }
+
+    const openedContainerId = player.openedContainerId;
+    if (!openedContainerId) {
+      return null;
+    }
+    if (
+      expectedContainerId !== undefined &&
+      expectedContainerId !== openedContainerId
+    ) {
+      return null;
+    }
+    const containerId = openedContainerId;
+
+    const lootBag = this.lootBags.get(containerId);
+    if (lootBag && lootBag.openedByCharacterId === characterId) {
+      lootBag.openedByCharacterId = null;
+      if (countFilledSlots(lootBag.slots) === 0 || lootBag.pendingDespawn) {
+        this.lootBags.delete(lootBag.id);
+      }
+    }
+    player.openedContainerId = null;
+
+    player.socket.send(
+      stringifyServerMessage({
+        type: "container.closed",
+        containerId,
+        reason,
+      }),
+    );
+
+    return containerId;
+  }
+
+  getOpenedLootBagState(
+    characterId: string,
+    connectionId: string,
+  ): {
+    containerId: string;
+    slots: Array<InventoryItemInstance | null>;
+  } | null {
+    const player = this.players.get(characterId);
+    if (
+      !player ||
+      player.connectionId !== connectionId ||
+      !player.openedContainerId
+    ) {
+      return null;
+    }
+    const lootBag = this.lootBags.get(player.openedContainerId);
+    if (!lootBag || lootBag.openedByCharacterId !== player.id) {
+      player.openedContainerId = null;
+      return null;
+    }
+
+    return {
+      containerId: lootBag.id,
+      slots: [...lootBag.slots],
+    };
+  }
+
+  updateOpenedLootBagSlots(
+    characterId: string,
+    connectionId: string,
+    containerId: string,
+    nextSlotsInput: ReadonlyArray<InventoryItemInstance | null>,
+  ): ContainerUpdateResult | ContainerOpenError {
+    const player = this.players.get(characterId);
+    if (!player || player.connectionId !== connectionId) {
+      return {
+        ok: false,
+        code: "CONTAINER_REQUEST_INVALID",
+        message: "Player context is invalid.",
+      };
+    }
+    if (player.openedContainerId !== containerId) {
+      return {
+        ok: false,
+        code: "CONTAINER_NOT_OPEN",
+        message: "Open this loot bag before moving items.",
+      };
+    }
+    const lootBag = this.lootBags.get(containerId);
+    if (!lootBag || lootBag.openedByCharacterId !== player.id) {
+      return {
+        ok: false,
+        code: "CONTAINER_MISSING",
+        message: "Loot bag no longer exists.",
+      };
+    }
+
+    lootBag.slots = Array.from(
+      { length: LOOT_BAG_SLOT_COUNT },
+      (_, index) => nextSlotsInput[index] ?? null,
+    );
+
+    return {
+      ok: true,
+      state: this.toContainerState(lootBag),
+    };
+  }
+
+  private spawnLootBagAtPosition(
+    position: Vector2,
+    items: ReadonlyArray<InventoryItemInstance>,
+    ownerCharacterId: string | null,
+    now: number,
+  ): LootBagState {
+    const slots = createEmptyLootBagSlots();
+    for (
+      let index = 0;
+      index < items.length && index < LOOT_BAG_SLOT_COUNT;
+      index += 1
+    ) {
+      const item = items[index];
+      if (!item) {
+        continue;
+      }
+      slots[index] = item;
+    }
+
+    const lootBag: LootBagState = {
+      id: `lootbag-${crypto.randomUUID()}`,
+      position: { x: position.x, y: position.y },
+      slots,
+      createdAtEpochMs: now,
+      expiresAtEpochMs: now + LOOT_BAG_DESPAWN_MS,
+      ownerCharacterId,
+      ownerLockedUntilEpochMs: ownerCharacterId
+        ? now + LOOT_BAG_OWNER_GRACE_MS
+        : null,
+      openedByCharacterId: null,
+      pendingDespawn: false,
+    };
+    this.lootBags.set(lootBag.id, lootBag);
+    return lootBag;
+  }
+
+  private toContainerState(lootBag: LootBagState): {
+    containerId: string;
+    slots: Array<InventoryItemInstance | null>;
+    slotCount: number;
+    openedByCharacterId: string | null;
+    ownerCharacterId: string | null;
+    ownerLockedUntilEpochMs: number | null;
+  } {
+    return {
+      containerId: lootBag.id,
+      slots: [...lootBag.slots],
+      slotCount: lootBag.slots.length,
+      openedByCharacterId: lootBag.openedByCharacterId,
+      ownerCharacterId: lootBag.ownerCharacterId,
+      ownerLockedUntilEpochMs: lootBag.ownerLockedUntilEpochMs,
+    };
   }
 
   private resolveOrAcquireTarget(enemy: EnemyState): PlayerState | null {
@@ -1121,7 +1588,19 @@ class WorldInstance {
       return;
     }
 
+    const enemyPosition = {
+      x: enemy.position.x,
+      y: enemy.position.y,
+    };
+    const enemyArchetypeId = enemy.archetype.id;
     this.enemies.delete(enemy.id);
+
+    this.createEnemyDropLootBag(
+      enemyArchetypeId,
+      enemyPosition,
+      attacker?.id ?? null,
+      attacker?.class ?? null,
+    );
 
     if (attacker) {
       this.awardEnemyKillExperience(attacker, enemy);
@@ -1402,6 +1881,7 @@ class WorldInstance {
     players: PlayerSnapshot[];
     enemies: EnemySnapshot[];
     projectiles: ProjectileSnapshot[];
+    lootBags: LootBagSnapshot[];
   } {
     return {
       worldId: this.worldId,
@@ -1413,6 +1893,9 @@ class WorldInstance {
       projectiles: [...this.projectiles.values()].map((projectile) =>
         toProjectileSnapshot(projectile),
       ),
+      lootBags: [...this.lootBags.values()].map((lootBag) =>
+        toLootBagSnapshot(lootBag),
+      ),
     };
   }
 }
@@ -1423,6 +1906,10 @@ export class WorldManager {
     archetypeId: string,
   ) => EnemyArchetype | null;
   private readonly persistCharacterProgression: PersistCharacterProgression | null;
+  private readonly resolveEnemyLootDropDefinitionIds: (
+    enemyArchetypeId: string,
+    killerClass: CharacterClass | null,
+  ) => string[];
 
   constructor(
     resolveEnemyArchetypeOrOptions:
@@ -1432,6 +1919,7 @@ export class WorldManager {
     if (typeof resolveEnemyArchetypeOrOptions === "function") {
       this.resolveEnemyArchetype = resolveEnemyArchetypeOrOptions;
       this.persistCharacterProgression = null;
+      this.resolveEnemyLootDropDefinitionIds = () => [];
       return;
     }
 
@@ -1439,6 +1927,9 @@ export class WorldManager {
       resolveEnemyArchetypeOrOptions.resolveEnemyArchetype ?? (() => null);
     this.persistCharacterProgression =
       resolveEnemyArchetypeOrOptions.persistCharacterProgression ?? null;
+    this.resolveEnemyLootDropDefinitionIds =
+      resolveEnemyArchetypeOrOptions.resolveEnemyLootDropDefinitionIds ??
+      (() => []);
   }
 
   createSocketData(): RealtimeSocketData {
@@ -1692,6 +2183,119 @@ export class WorldManager {
     socket.data.session.characterBaseAttackRange = updated.baseAttackRange;
   }
 
+  createPlayerDropLootBag(
+    socket: ServerWebSocket<RealtimeSocketData>,
+    targetPosition: Vector2,
+    item: InventoryItemInstance,
+  ): LootBagSnapshot | null {
+    const { connectionId, characterId, worldId } = socket.data.session;
+    if (!characterId || !worldId) {
+      return null;
+    }
+
+    const instance = this.instances.get(worldId);
+    if (!instance) {
+      return null;
+    }
+
+    return instance.createPlayerDropLootBag(
+      characterId,
+      connectionId,
+      targetPosition,
+      item,
+    );
+  }
+
+  openContainer(
+    socket: ServerWebSocket<RealtimeSocketData>,
+    containerId: string,
+  ): ContainerOpenResult {
+    const { connectionId, characterId, worldId } = socket.data.session;
+    if (!characterId || !worldId) {
+      return {
+        ok: false,
+        code: "CONTAINER_REQUEST_INVALID",
+        message: "Join a world before opening containers.",
+      };
+    }
+
+    const instance = this.instances.get(worldId);
+    if (!instance) {
+      return {
+        ok: false,
+        code: "CONTAINER_MISSING",
+        message: "Container world is unavailable.",
+      };
+    }
+
+    return instance.openLootBag(characterId, connectionId, containerId);
+  }
+
+  closeContainer(
+    socket: ServerWebSocket<RealtimeSocketData>,
+    containerId: string,
+    reason: "manual" | "out_of_range" | "despawned" | "disconnect" = "manual",
+  ): boolean {
+    const { characterId, worldId } = socket.data.session;
+    if (!characterId || !worldId) {
+      return false;
+    }
+    const instance = this.instances.get(worldId);
+    if (!instance) {
+      return false;
+    }
+
+    return (
+      instance.closeLootBagForPlayer(characterId, reason, containerId) !== null
+    );
+  }
+
+  getOpenedContainer(socket: ServerWebSocket<RealtimeSocketData>): {
+    containerId: string;
+    slots: Array<InventoryItemInstance | null>;
+  } | null {
+    const { characterId, connectionId, worldId } = socket.data.session;
+    if (!characterId || !worldId) {
+      return null;
+    }
+    const instance = this.instances.get(worldId);
+    if (!instance) {
+      return null;
+    }
+    return instance.getOpenedLootBagState(characterId, connectionId);
+  }
+
+  updateOpenedContainerSlots(
+    socket: ServerWebSocket<RealtimeSocketData>,
+    containerId: string,
+    nextSlots: ReadonlyArray<InventoryItemInstance | null>,
+  ): ContainerUpdateStateResult {
+    const { characterId, connectionId, worldId } = socket.data.session;
+    if (!characterId || !worldId) {
+      return {
+        ok: false,
+        code: "CONTAINER_REQUEST_INVALID",
+        message: "Join a world before moving container items.",
+      };
+    }
+
+    const instance = this.instances.get(worldId);
+    if (!instance) {
+      return {
+        ok: false,
+        code: "CONTAINER_MISSING",
+        message: "Container world is unavailable.",
+      };
+    }
+
+    return instance.updateOpenedLootBagSlots(
+      characterId,
+      connectionId,
+      containerId,
+      nextSlots,
+    );
+  }
+
   private getOrCreate(worldId: string): WorldInstance | null {
     const existing = this.instances.get(worldId);
     if (existing) {
@@ -1711,6 +2315,7 @@ export class WorldManager {
         this.handlePlayerDeath(socket, characterId);
       },
       this.persistCharacterProgression,
+      this.resolveEnemyLootDropDefinitionIds,
     );
     this.instances.set(worldId, created);
     return created;

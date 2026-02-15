@@ -1590,4 +1590,108 @@ describe("world manager", () => {
       Math.random = originalRandom;
     }
   });
+
+  test("closeContainer ignores mismatched container id and keeps active bag open", () => {
+    const manager = new WorldManager();
+    const socket = createMockSocket(manager, "user-a", "player-a");
+
+    manager.joinWorld(
+      asServerSocket(socket),
+      HUB_ALPHA_MAP.id,
+      "player-a",
+      "Alpha",
+      "knight",
+      "#E8A832",
+    );
+    cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
+
+    const lootBag = manager.createPlayerDropLootBag(
+      asServerSocket(socket),
+      { x: 1_150, y: 520 },
+      {
+        id: "loot-item-1",
+        itemDefinitionId: "training_sword",
+      },
+    );
+    expect(lootBag).not.toBeNull();
+    if (!lootBag) {
+      throw new Error("expected loot bag to be created");
+    }
+
+    const opened = manager.openContainer(asServerSocket(socket), lootBag.id);
+    expect(opened.ok).toBe(true);
+
+    const closedWithWrongId = manager.closeContainer(
+      asServerSocket(socket),
+      "lootbag-wrong",
+    );
+    expect(closedWithWrongId).toBe(false);
+
+    const stillOpen = manager.getOpenedContainer(asServerSocket(socket));
+    expect(stillOpen?.containerId).toBe(lootBag.id);
+  });
+
+  test("expired open loot bags force-close with despawn reason", async () => {
+    const manager = new WorldManager();
+    const socket = createMockSocket(manager, "user-a", "player-a");
+    const originalDateNow = Date.now;
+    let fakeNow = originalDateNow();
+    Date.now = () => fakeNow;
+
+    try {
+      manager.joinWorld(
+        asServerSocket(socket),
+        HUB_ALPHA_MAP.id,
+        "player-a",
+        "Alpha",
+        "knight",
+        "#E8A832",
+      );
+      cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
+
+      const lootBag = manager.createPlayerDropLootBag(
+        asServerSocket(socket),
+        { x: 1_150, y: 520 },
+        {
+          id: "loot-item-2",
+          itemDefinitionId: "training_sword",
+        },
+      );
+      expect(lootBag).not.toBeNull();
+      if (!lootBag) {
+        throw new Error("expected loot bag to be created");
+      }
+
+      const opened = manager.openContainer(asServerSocket(socket), lootBag.id);
+      expect(opened.ok).toBe(true);
+      socket.sent = [];
+
+      fakeNow += 5 * 60 * 1000 + 1;
+      await wait(140);
+
+      const closeMessage = parseMessages(socket).find(
+        (message) =>
+          message.type === "container.closed" &&
+          message.containerId === lootBag.id,
+      );
+      expect(closeMessage?.type).toBe("container.closed");
+      if (!closeMessage || closeMessage.type !== "container.closed") {
+        throw new Error("missing container.closed message");
+      }
+      expect(closeMessage.reason).toBe("despawned");
+
+      const openedAfterExpiry = manager.getOpenedContainer(
+        asServerSocket(socket),
+      );
+      expect(openedAfterExpiry).toBeNull();
+
+      const snapshot = latestWorldSnapshot(socket);
+      const stillExists =
+        snapshot?.payload.lootBags.some((bag) => bag.id === lootBag.id) ??
+        false;
+      expect(stillExists).toBe(false);
+    } finally {
+      Date.now = originalDateNow;
+    }
+  });
 });

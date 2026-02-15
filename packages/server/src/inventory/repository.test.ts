@@ -5,6 +5,7 @@ import { createDatabase } from "../db";
 import {
   dropInventoryItem,
   loadInventoryStateForCharacter,
+  moveBetweenInventoryAndContainer,
   moveInventoryItem,
 } from "./repository";
 
@@ -296,7 +297,83 @@ describe("inventory repository", () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.removedItemInstanceId).toBe("inv-a");
+      expect(result.removedItemDefinitionId).toBe("training_sword");
       expect(result.state.bagSlots[0]).toBeNull();
+    }
+    db.close();
+  });
+
+  test("moveBetweenInventoryAndContainer moves item from inventory bag to container slot", () => {
+    const db = createDatabase(":memory:");
+    const { characterId } = seedCharacter(db, {
+      characterClass: "knight",
+      level: 1,
+    });
+    insertInventoryItem(db, {
+      id: "inv-a",
+      characterId,
+      definitionId: "training_sword",
+      slotKind: "bag",
+      slotIndex: 0,
+    });
+
+    const result = moveBetweenInventoryAndContainer(
+      db,
+      characterId,
+      "lootbag-1",
+      Array.from({ length: 9 }, () => null),
+      { kind: "bag", index: 0 },
+      { kind: "container", containerId: "lootbag-1", index: 0 },
+      {
+        characterClass: "knight",
+        characterLevel: 1,
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.inventoryState.bagSlots[0]).toBeNull();
+      expect(result.containerSlots[0]?.id).toBe("inv-a");
+    }
+    db.close();
+  });
+
+  test("moveBetweenInventoryAndContainer enforces equip class requirements", () => {
+    const db = createDatabase(":memory:");
+    const { characterId } = seedCharacter(db, {
+      characterClass: "knight",
+      level: 1,
+    });
+    insertInventoryItem(db, {
+      id: "inv-weapon",
+      characterId,
+      definitionId: "training_sword",
+      slotKind: "weapon",
+      slotIndex: null,
+    });
+
+    const result = moveBetweenInventoryAndContainer(
+      db,
+      characterId,
+      "lootbag-1",
+      [
+        {
+          id: "container-wand-1",
+          itemDefinitionId: "training_wand",
+        },
+        ...Array.from({ length: 8 }, () => null),
+      ],
+      { kind: "container", containerId: "lootbag-1", index: 0 },
+      { kind: "equip", slot: "weapon" },
+      {
+        characterClass: "knight",
+        characterLevel: 1,
+      },
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("INVENTORY_CLASS_REQUIREMENT_FAILED");
     }
     db.close();
   });

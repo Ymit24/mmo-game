@@ -96,6 +96,42 @@ describe("database bootstrap", () => {
     db.close();
   });
 
+  test("creates and seeds enemy loot table data", () => {
+    const db = createDatabase(":memory:");
+
+    const lootTable = db
+      .query<{ enemy_archetype_id: string; drop_chance: number }, []>(
+        `SELECT enemy_archetype_id, drop_chance
+         FROM enemy_loot_tables
+         WHERE enemy_archetype_id = 'slime_scout'
+         LIMIT 1`,
+      )
+      .get();
+    expect(lootTable?.enemy_archetype_id).toBe("slime_scout");
+    expect(lootTable?.drop_chance).toBe(0.3);
+
+    const entries = db
+      .query<{ item_definition_id: string; class_affinity: string | null }, []>(
+        `SELECT item_definition_id, class_affinity
+         FROM enemy_loot_table_entries
+         WHERE enemy_archetype_id = 'slime_scout'
+         ORDER BY item_definition_id ASC`,
+      )
+      .all();
+    expect(entries).toEqual([
+      {
+        item_definition_id: "adept_focus_wand",
+        class_affinity: "mage",
+      },
+      {
+        item_definition_id: "iron_broadsword",
+        class_affinity: "knight",
+      },
+    ]);
+
+    db.close();
+  });
+
   test("seeds starter and progression weapons", () => {
     const db = createDatabase(":memory:");
 

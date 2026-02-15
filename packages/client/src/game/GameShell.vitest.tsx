@@ -19,10 +19,21 @@ const dropRequests: Array<{
     | { kind: "bag"; index: number }
     | { kind: "equip"; slot: "weapon" | "armor" };
 }> = [];
+const containerMoveRequests: Array<{
+  from:
+    | { kind: "bag"; index: number }
+    | { kind: "equip"; slot: "weapon" | "armor" }
+    | { kind: "container"; containerId: string; index: number };
+  to:
+    | { kind: "bag"; index: number }
+    | { kind: "equip"; slot: "weapon" | "armor" }
+    | { kind: "container"; containerId: string; index: number };
+}> = [];
 
 interface RuntimeMockBridge {
   onInventoryMoveRequest: (listener: (request: unknown) => void) => void;
   onInventoryDropRequest: (listener: (request: unknown) => void) => void;
+  onContainerMoveRequest: (listener: (request: unknown) => void) => void;
   updateState: (state: Record<string, unknown>) => void;
 }
 
@@ -74,6 +85,20 @@ vi.mock("./phaser/runtime", () => ({
         },
       );
     });
+    bridge.onContainerMoveRequest((request: unknown) => {
+      containerMoveRequests.push(
+        request as {
+          from:
+            | { kind: "bag"; index: number }
+            | { kind: "equip"; slot: "weapon" | "armor" }
+            | { kind: "container"; containerId: string; index: number };
+          to:
+            | { kind: "bag"; index: number }
+            | { kind: "equip"; slot: "weapon" | "armor" }
+            | { kind: "container"; containerId: string; index: number };
+        },
+      );
+    });
     bridge.updateState({
       connectionStatus: "connected",
       isInWorld: true,
@@ -118,6 +143,29 @@ vi.mock("./phaser/runtime", () => ({
       players: [],
       enemies: [],
       projectiles: [],
+      lootBags: [],
+      openContainer: {
+        containerId: "lootbag-1",
+        slots: [
+          {
+            id: "loot-1",
+            itemDefinitionId: "training_sword",
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+        ],
+        slotCount: 9,
+        openedByCharacterId: "character-1",
+        ownerCharacterId: "character-1",
+        ownerLockedUntilEpochMs: Date.now() + 10_000,
+      },
+      containerError: null,
       localHealthCurrent: 100,
       localHealthMax: 100,
       localLevel: 1,
@@ -132,6 +180,7 @@ describe("GameShell inventory UI", () => {
   beforeEach(() => {
     moveRequests.length = 0;
     dropRequests.length = 0;
+    containerMoveRequests.length = 0;
     saveSession({
       token: "token",
       user: {
@@ -180,7 +229,7 @@ describe("GameShell inventory UI", () => {
     const bagSlotTwo = screen.getByRole("button", {
       name: /Bag Slot 2/i,
     });
-    const groundDropZone = screen.getByText(/Drop to discard/i);
+    const gameCanvas = screen.getByTestId("game-canvas");
 
     const moveTransfer = createDragDataTransfer();
     fireEvent.dragStart(bagSlotOne, { dataTransfer: moveTransfer });
@@ -194,11 +243,94 @@ describe("GameShell inventory UI", () => {
 
     const dropTransfer = createDragDataTransfer();
     fireEvent.dragStart(bagSlotOne, { dataTransfer: dropTransfer });
-    fireEvent.dragOver(groundDropZone, { dataTransfer: dropTransfer });
-    fireEvent.drop(groundDropZone, { dataTransfer: dropTransfer });
+    fireEvent.dragOver(gameCanvas, { dataTransfer: dropTransfer });
+    fireEvent.drop(gameCanvas, { dataTransfer: dropTransfer });
 
     expect(dropRequests).toContainEqual({
       from: { kind: "bag", index: 0 },
     });
+  });
+
+  test("emits ground-drop request when dropping on a canvas child element", async () => {
+    render(
+      <MemoryRouter>
+        <AuthProvider>
+          <GameShell characterId="character-1" />
+        </AuthProvider>
+      </MemoryRouter>,
+    );
+
+    const bagSlotOne = await screen.findByRole("button", {
+      name: /Bag Slot 1/i,
+    });
+    const gameCanvas = screen.getByTestId("game-canvas");
+    const child = document.createElement("canvas");
+    gameCanvas.appendChild(child);
+
+    const dropTransfer = createDragDataTransfer();
+    fireEvent.dragStart(bagSlotOne, { dataTransfer: dropTransfer });
+    fireEvent.dragOver(child, { dataTransfer: dropTransfer });
+    fireEvent.drop(child, { dataTransfer: dropTransfer });
+
+    expect(dropRequests).toContainEqual({
+      from: { kind: "bag", index: 0 },
+    });
+  });
+
+  test("emits container quick-transfer requests on shift-click", async () => {
+    render(
+      <MemoryRouter>
+        <AuthProvider>
+          <GameShell characterId="character-1" />
+        </AuthProvider>
+      </MemoryRouter>,
+    );
+
+    const bagSlotOne = await screen.findByRole("button", {
+      name: /Bag Slot 1/i,
+    });
+    const containerSlotOne = await screen.findByRole("button", {
+      name: /Container Slot 1/i,
+    });
+
+    fireEvent.click(bagSlotOne, { shiftKey: true });
+    expect(containerMoveRequests).toContainEqual({
+      from: { kind: "bag", index: 0 },
+      to: { kind: "container", containerId: "lootbag-1", index: 1 },
+    });
+
+    fireEvent.click(containerSlotOne, { shiftKey: true });
+    expect(containerMoveRequests).toContainEqual({
+      from: { kind: "container", containerId: "lootbag-1", index: 0 },
+      to: { kind: "bag", index: 1 },
+    });
+  });
+
+  test("dropping onto a container slot does not emit ground-drop request", async () => {
+    render(
+      <MemoryRouter>
+        <AuthProvider>
+          <GameShell characterId="character-1" />
+        </AuthProvider>
+      </MemoryRouter>,
+    );
+
+    const bagSlotOne = await screen.findByRole("button", {
+      name: /Bag Slot 1/i,
+    });
+    const containerSlotTwo = await screen.findByRole("button", {
+      name: /Container Slot 2/i,
+    });
+
+    const transfer = createDragDataTransfer();
+    fireEvent.dragStart(bagSlotOne, { dataTransfer: transfer });
+    fireEvent.dragOver(containerSlotTwo, { dataTransfer: transfer });
+    fireEvent.drop(containerSlotTwo, { dataTransfer: transfer });
+
+    expect(containerMoveRequests).toContainEqual({
+      from: { kind: "bag", index: 0 },
+      to: { kind: "container", containerId: "lootbag-1", index: 1 },
+    });
+    expect(dropRequests).toHaveLength(0);
   });
 });

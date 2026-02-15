@@ -1,6 +1,8 @@
 import type { CharacterClass } from "./characters";
 
 export const INVENTORY_BAG_SLOT_COUNT = 9;
+export const LOOT_BAG_SLOT_COUNT = 9;
+export const LOOT_BAG_INTERACT_RADIUS = 72;
 
 export const ITEM_TYPES = ["weapon", "armor", "potion", "misc"] as const;
 export type ItemType = (typeof ITEM_TYPES)[number];
@@ -17,6 +19,14 @@ export type InventorySlotRef =
       kind: "equip";
       slot: EquipSlot;
     };
+
+export interface ContainerSlotRef {
+  kind: "container";
+  containerId: string;
+  index: number;
+}
+
+export type StorageSlotRef = InventorySlotRef | ContainerSlotRef;
 
 export interface ItemDefinition {
   id: string;
@@ -60,6 +70,23 @@ export const INVENTORY_ACTION_ERROR_CODES = {
 export type InventoryActionErrorCode =
   (typeof INVENTORY_ACTION_ERROR_CODES)[keyof typeof INVENTORY_ACTION_ERROR_CODES];
 
+export const CONTAINER_ACTION_ERROR_CODES = {
+  containerMissing: "CONTAINER_MISSING",
+  containerOutOfRange: "CONTAINER_OUT_OF_RANGE",
+  containerLocked: "CONTAINER_LOCKED",
+  containerOwnerLocked: "CONTAINER_OWNER_LOCKED",
+  containerNotOpen: "CONTAINER_NOT_OPEN",
+  sourceEmpty: "CONTAINER_SOURCE_EMPTY",
+  slotInvalid: "CONTAINER_SLOT_INVALID",
+  slotTypeMismatch: "CONTAINER_SLOT_TYPE_MISMATCH",
+  classRequirementFailed: "CONTAINER_CLASS_REQUIREMENT_FAILED",
+  levelRequirementFailed: "CONTAINER_LEVEL_REQUIREMENT_FAILED",
+  requestInvalid: "CONTAINER_REQUEST_INVALID",
+} as const;
+
+export type ContainerActionErrorCode =
+  (typeof CONTAINER_ACTION_ERROR_CODES)[keyof typeof CONTAINER_ACTION_ERROR_CODES];
+
 export function isItemType(value: string): value is ItemType {
   return (ITEM_TYPES as readonly string[]).includes(value);
 }
@@ -73,6 +100,14 @@ export function isInventoryActionErrorCode(
 ): value is InventoryActionErrorCode {
   return (
     Object.values(INVENTORY_ACTION_ERROR_CODES) as readonly string[]
+  ).includes(value);
+}
+
+export function isContainerActionErrorCode(
+  value: string,
+): value is ContainerActionErrorCode {
+  return (
+    Object.values(CONTAINER_ACTION_ERROR_CODES) as readonly string[]
   ).includes(value);
 }
 
@@ -101,6 +136,25 @@ export function isInventorySlotRef(value: unknown): value is InventorySlotRef {
   return false;
 }
 
+export function isContainerSlotRef(value: unknown): value is ContainerSlotRef {
+  if (!isObject(value) || value.kind !== "container") {
+    return false;
+  }
+
+  return (
+    typeof value.containerId === "string" &&
+    value.containerId.length > 0 &&
+    typeof value.index === "number" &&
+    Number.isSafeInteger(value.index) &&
+    value.index >= 0 &&
+    value.index < LOOT_BAG_SLOT_COUNT
+  );
+}
+
+export function isStorageSlotRef(value: unknown): value is StorageSlotRef {
+  return isInventorySlotRef(value) || isContainerSlotRef(value);
+}
+
 export function slotRefEquals(
   first: InventorySlotRef,
   second: InventorySlotRef,
@@ -115,6 +169,52 @@ export function slotRefEquals(
     return first.slot === second.slot;
   }
   return false;
+}
+
+export function isInventorySlotCompatibleForItem(
+  definition: ItemDefinition,
+  slot: InventorySlotRef,
+): boolean {
+  if (slot.kind === "bag") {
+    return true;
+  }
+
+  return definition.type === slot.slot;
+}
+
+export function getInventorySlotPlacementError(
+  definition: ItemDefinition,
+  slot: InventorySlotRef,
+  context: {
+    characterClass: CharacterClass;
+    characterLevel: number;
+  },
+):
+  | "slotTypeMismatch"
+  | "classRequirementFailed"
+  | "levelRequirementFailed"
+  | null {
+  if (!isInventorySlotCompatibleForItem(definition, slot)) {
+    return "slotTypeMismatch";
+  }
+
+  if (
+    slot.kind === "equip" &&
+    definition.classRequirement &&
+    definition.classRequirement !== context.characterClass
+  ) {
+    return "classRequirementFailed";
+  }
+
+  if (
+    slot.kind === "equip" &&
+    definition.minLevelToEquip !== null &&
+    context.characterLevel < definition.minLevelToEquip
+  ) {
+    return "levelRequirementFailed";
+  }
+
+  return null;
 }
 
 export function itemDefinitionToWeaponModifiers(

@@ -6,10 +6,14 @@ import {
   INVENTORY_ACTION_ERROR_CODES,
   INVENTORY_BAG_SLOT_COUNT,
   type InventoryActionErrorCode,
+  type InventoryItemInstance,
   type InventorySlotRef,
   type InventoryStatePayload,
   type ItemDefinition,
+  LOOT_BAG_SLOT_COUNT,
+  type StorageSlotRef,
   type WeaponStatModifiers,
+  getInventorySlotPlacementError,
   itemDefinitionToWeaponModifiers,
   slotRefEquals,
 } from "@mmo/shared";
@@ -68,7 +72,16 @@ interface InventoryDropSuccessResult {
   ok: true;
   from: InventorySlotRef;
   removedItemInstanceId: string;
+  removedItemDefinitionId: string;
   state: InventoryStatePayload;
+}
+
+interface InventoryContainerMoveSuccessResult {
+  ok: true;
+  from: StorageSlotRef;
+  to: StorageSlotRef;
+  inventoryState: InventoryStatePayload;
+  containerSlots: Array<InventoryItemInstance | null>;
 }
 
 export type InventoryMoveResult =
@@ -76,6 +89,9 @@ export type InventoryMoveResult =
   | InventoryErrorResult;
 export type InventoryDropResult =
   | InventoryDropSuccessResult
+  | InventoryErrorResult;
+export type InventoryContainerMoveResult =
+  | InventoryContainerMoveSuccessResult
   | InventoryErrorResult;
 
 const STARTER_LOADOUT_BY_CLASS: Record<
@@ -283,12 +299,12 @@ function validateDestination(
   slot: InventorySlotRef,
   context: InventoryActionContext,
 ): InventoryErrorResult | null {
-  if (slot.kind === "bag") {
-    return null;
-  }
-
-  const requiredType = slot.slot;
-  if (definition.type !== requiredType) {
+  const placementError = getInventorySlotPlacementError(definition, slot, {
+    characterClass: context.characterClass,
+    characterLevel: context.characterLevel,
+  });
+  if (placementError === "slotTypeMismatch") {
+    const requiredType = slot.kind === "equip" ? slot.slot : "weapon";
     return {
       ok: false,
       code: INVENTORY_ACTION_ERROR_CODES.slotTypeMismatch,
@@ -299,10 +315,7 @@ function validateDestination(
     };
   }
 
-  if (
-    definition.classRequirement &&
-    definition.classRequirement !== context.characterClass
-  ) {
+  if (placementError === "classRequirementFailed") {
     return {
       ok: false,
       code: INVENTORY_ACTION_ERROR_CODES.classRequirementFailed,
@@ -310,10 +323,7 @@ function validateDestination(
     };
   }
 
-  if (
-    definition.minLevelToEquip !== null &&
-    context.characterLevel < definition.minLevelToEquip
-  ) {
+  if (placementError === "levelRequirementFailed") {
     return {
       ok: false,
       code: INVENTORY_ACTION_ERROR_CODES.levelRequirementFailed,
@@ -699,6 +709,7 @@ export function dropInventoryItem(
       ok: true,
       from,
       removedItemInstanceId: source.id,
+      removedItemDefinitionId: source.item_definition_id,
       state: loadInventoryStateForCharacter(db, characterId),
     };
   } finally {
@@ -710,4 +721,240 @@ export function dropInventoryItem(
       }
     }
   }
+}
+
+function storageSlotRefEquals(
+  first: StorageSlotRef,
+  second: StorageSlotRef,
+): boolean {
+  if (first.kind === "container" && second.kind === "container") {
+    return (
+      first.containerId === second.containerId && first.index === second.index
+    );
+  }
+  if (first.kind === "container" || second.kind === "container") {
+    return false;
+  }
+  return slotRefEquals(first, second);
+}
+
+function isValidStorageSlotRef(
+  slot: StorageSlotRef,
+  containerId: string,
+): boolean {
+  if (slot.kind === "container") {
+    return (
+      slot.containerId === containerId &&
+      Number.isSafeInteger(slot.index) &&
+      slot.index >= 0 &&
+      slot.index < LOOT_BAG_SLOT_COUNT
+    );
+  }
+
+  return slotToStorage(slot) !== null;
+}
+
+function getStorageItem(
+  slot: StorageSlotRef,
+  inventoryState: InventoryStatePayload,
+  containerSlots: Array<InventoryItemInstance | null>,
+): InventoryItemInstance | null {
+  if (slot.kind === "container") {
+    return containerSlots[slot.index] ?? null;
+  }
+
+  if (slot.kind === "bag") {
+    return inventoryState.bagSlots[slot.index] ?? null;
+  }
+
+  return inventoryState.equipSlots[slot.slot] ?? null;
+}
+
+function setStorageItem(
+  slot: StorageSlotRef,
+  inventoryState: InventoryStatePayload,
+  containerSlots: Array<InventoryItemInstance | null>,
+  item: InventoryItemInstance | null,
+): void {
+  if (slot.kind === "container") {
+    containerSlots[slot.index] = item;
+    return;
+  }
+
+  if (slot.kind === "bag") {
+    inventoryState.bagSlots[slot.index] = item;
+    return;
+  }
+
+  inventoryState.equipSlots[slot.slot] = item;
+}
+
+function persistInventoryLayout(
+  db: Database,
+  characterId: string,
+  state: Pick<InventoryStatePayload, "bagSlots" | "equipSlots">,
+): void {
+  let committed = false;
+  const timestamp = new Date().toISOString();
+
+  try {
+    db.exec("BEGIN IMMEDIATE;");
+    db.query(
+      `DELETE FROM character_inventory
+       WHERE character_id = ?1`,
+    ).run(characterId);
+
+    const insertStatement = db.query(
+      `INSERT INTO character_inventory (
+         id,
+         character_id,
+         item_definition_id,
+         slot_kind,
+         slot_index,
+         created_at,
+         updated_at
+       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+    );
+
+    for (let index = 0; index < state.bagSlots.length; index += 1) {
+      const item = state.bagSlots[index];
+      if (!item) {
+        continue;
+      }
+      insertStatement.run(
+        item.id,
+        characterId,
+        item.itemDefinitionId,
+        "bag",
+        index,
+        timestamp,
+        timestamp,
+      );
+    }
+
+    for (const slot of EQUIP_SLOTS) {
+      const item = state.equipSlots[slot];
+      if (!item) {
+        continue;
+      }
+      insertStatement.run(
+        item.id,
+        characterId,
+        item.itemDefinitionId,
+        slot,
+        null,
+        timestamp,
+        timestamp,
+      );
+    }
+
+    db.exec("COMMIT;");
+    committed = true;
+  } finally {
+    if (!committed) {
+      try {
+        db.exec("ROLLBACK;");
+      } catch {
+        // SQLite may auto-close transaction after errors.
+      }
+    }
+  }
+}
+
+export function moveBetweenInventoryAndContainer(
+  db: Database,
+  characterId: string,
+  containerId: string,
+  containerSlotsInput: ReadonlyArray<InventoryItemInstance | null>,
+  from: StorageSlotRef,
+  to: StorageSlotRef,
+  context: InventoryActionContext,
+): InventoryContainerMoveResult {
+  if (
+    !isValidStorageSlotRef(from, containerId) ||
+    !isValidStorageSlotRef(to, containerId)
+  ) {
+    return {
+      ok: false,
+      code: INVENTORY_ACTION_ERROR_CODES.slotInvalid,
+      message: "Inventory slot is invalid.",
+    };
+  }
+
+  const inventoryState = loadInventoryStateForCharacter(db, characterId);
+  const containerSlots = Array.from(
+    { length: LOOT_BAG_SLOT_COUNT },
+    (_, index) => containerSlotsInput[index] ?? null,
+  );
+
+  if (storageSlotRefEquals(from, to)) {
+    return {
+      ok: true,
+      from,
+      to,
+      inventoryState,
+      containerSlots,
+    };
+  }
+
+  const sourceItem = getStorageItem(from, inventoryState, containerSlots);
+  if (!sourceItem) {
+    return {
+      ok: false,
+      code: INVENTORY_ACTION_ERROR_CODES.sourceEmpty,
+      message: "Source slot is empty.",
+    };
+  }
+  const sourceDefinition =
+    inventoryState.definitions[sourceItem.itemDefinitionId];
+  if (!sourceDefinition) {
+    return {
+      ok: false,
+      code: INVENTORY_ACTION_ERROR_CODES.requestInvalid,
+      message: "Source item definition could not be resolved.",
+    };
+  }
+
+  if (to.kind !== "container") {
+    const destinationError = validateDestination(sourceDefinition, to, context);
+    if (destinationError) {
+      return destinationError;
+    }
+  }
+
+  const destinationItem = getStorageItem(to, inventoryState, containerSlots);
+  if (destinationItem && from.kind !== "container") {
+    const destinationDefinition =
+      inventoryState.definitions[destinationItem.itemDefinitionId];
+    if (!destinationDefinition) {
+      return {
+        ok: false,
+        code: INVENTORY_ACTION_ERROR_CODES.requestInvalid,
+        message: "Destination item definition could not be resolved.",
+      };
+    }
+    const sourceError = validateDestination(
+      destinationDefinition,
+      from,
+      context,
+    );
+    if (sourceError) {
+      return sourceError;
+    }
+  }
+
+  setStorageItem(from, inventoryState, containerSlots, destinationItem ?? null);
+  setStorageItem(to, inventoryState, containerSlots, sourceItem);
+
+  if (from.kind !== "container" || to.kind !== "container") {
+    persistInventoryLayout(db, characterId, inventoryState);
+  }
+
+  return {
+    ok: true,
+    from,
+    to,
+    inventoryState: loadInventoryStateForCharacter(db, characterId),
+    containerSlots,
+  };
 }
