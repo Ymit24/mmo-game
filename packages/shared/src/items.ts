@@ -2,6 +2,7 @@ import type { CharacterClass } from "./characters";
 
 export const INVENTORY_BAG_SLOT_COUNT = 9;
 export const LOOT_BAG_SLOT_COUNT = 9;
+export const LOOT_BAG_INTERACT_RADIUS = 72;
 
 export const ITEM_TYPES = ["weapon", "armor", "potion", "misc"] as const;
 export type ItemType = (typeof ITEM_TYPES)[number];

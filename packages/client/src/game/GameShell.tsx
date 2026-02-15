@@ -219,6 +219,7 @@ export function GameShell({ characterId }: GameShellProps) {
 
   function onSlotDrop(event: DragEvent<HTMLElement>, to: StorageSlotRef): void {
     event.preventDefault();
+    event.stopPropagation();
     setActiveDropSlotKey(null);
     setIsDraggingInventoryItem(false);
     dragInProgressRef.current = false;
@@ -258,6 +259,9 @@ export function GameShell({ characterId }: GameShellProps) {
   }
 
   function onGroundDrop(event: DragEvent<HTMLDivElement>): void {
+    if (event.target !== event.currentTarget) {
+      return;
+    }
     event.preventDefault();
     setActiveDropSlotKey(null);
     setIsDraggingInventoryItem(false);

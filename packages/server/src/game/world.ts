@@ -19,6 +19,7 @@ import type {
 } from "@mmo/shared";
 import {
   DEFAULT_WORLD_ID,
+  LOOT_BAG_INTERACT_RADIUS,
   LOOT_BAG_SLOT_COUNT,
   PLAYER_COLLIDER_SIZE,
   WORLD_MAPS_BY_ID,
@@ -51,7 +52,6 @@ const PLAYER_PROJECTILE_TTL_MS = 900;
 const PLAYER_PROJECTILE_RADIUS = 8;
 const LOOT_BAG_DESPAWN_MS = 5 * 60 * 1000;
 const LOOT_BAG_OWNER_GRACE_MS = 10 * 1000;
-const LOOT_BAG_INTERACT_RADIUS = 72;
 const LOOT_BAG_INTERACT_RADIUS_SQ =
   LOOT_BAG_INTERACT_RADIUS * LOOT_BAG_INTERACT_RADIUS;
 const LOOT_BAG_DROP_DISTANCE = 42;
@@ -1041,10 +1041,15 @@ class WorldInstance {
       if (now >= lootBag.expiresAtEpochMs) {
         if (lootBag.openedByCharacterId) {
           lootBag.pendingDespawn = true;
-        } else {
-          this.lootBags.delete(lootBag.id);
+          this.closeLootBagForPlayer(
+            lootBag.openedByCharacterId,
+            "despawned",
+            lootBag.id,
+          );
           continue;
         }
+        this.lootBags.delete(lootBag.id);
+        continue;
       }
 
       if (
@@ -1212,10 +1217,17 @@ class WorldInstance {
       return null;
     }
 
-    const containerId = expectedContainerId ?? player.openedContainerId;
-    if (!containerId) {
+    const openedContainerId = player.openedContainerId;
+    if (!openedContainerId) {
       return null;
     }
+    if (
+      expectedContainerId !== undefined &&
+      expectedContainerId !== openedContainerId
+    ) {
+      return null;
+    }
+    const containerId = openedContainerId;
 
     const lootBag = this.lootBags.get(containerId);
     if (lootBag && lootBag.openedByCharacterId === characterId) {

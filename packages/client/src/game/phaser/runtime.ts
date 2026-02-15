@@ -4,6 +4,7 @@ import {
   type CombatFloatingTextVariant,
   DEFAULT_WORLD_ID,
   type EnemySnapshot,
+  LOOT_BAG_INTERACT_RADIUS,
   type LootBagSnapshot,
   PLAYER_COLLIDER_SIZE,
   PLAYER_MOVE_SPEED,
@@ -78,7 +79,6 @@ const PLAYER_LABEL_OFFSET_Y = 30;
 const ENEMY_LABEL_OFFSET_Y = 34;
 const ENEMY_HEALTH_TEXT_OFFSET_Y = 22;
 const ENEMY_HEALTH_BAR_OFFSET_Y = 12;
-const LOOT_BAG_INTERACT_RADIUS = 90;
 
 function toWsUrl(apiBaseUrl: string): string {
   const wsPath = `${apiBaseUrl}/ws`;

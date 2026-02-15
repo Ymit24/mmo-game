@@ -504,9 +504,26 @@ export function createRealtimeGateway(
           }
 
           case "container.close": {
+            const openedContainer = worlds.getOpenedContainer(socket);
+            if (!openedContainer) {
+              sendContainerActionRejected(
+                socket,
+                "CONTAINER_NOT_OPEN",
+                "This loot bag is not currently open.",
+              );
+              return;
+            }
+            if (incoming.containerId !== openedContainer.containerId) {
+              sendContainerActionRejected(
+                socket,
+                "CONTAINER_NOT_OPEN",
+                "Open this loot bag before closing it.",
+              );
+              return;
+            }
             const closed = worlds.closeContainer(
               socket,
-              incoming.containerId,
+              openedContainer.containerId,
               "manual",
             );
             if (!closed) {

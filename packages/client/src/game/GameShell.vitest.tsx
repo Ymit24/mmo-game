@@ -279,4 +279,32 @@ describe("GameShell inventory UI", () => {
       to: { kind: "bag", index: 1 },
     });
   });
+
+  test("dropping onto a container slot does not emit ground-drop request", async () => {
+    render(
+      <MemoryRouter>
+        <AuthProvider>
+          <GameShell characterId="character-1" />
+        </AuthProvider>
+      </MemoryRouter>,
+    );
+
+    const bagSlotOne = await screen.findByRole("button", {
+      name: /Bag Slot 1/i,
+    });
+    const containerSlotTwo = await screen.findByRole("button", {
+      name: /Container Slot 2/i,
+    });
+
+    const transfer = createDragDataTransfer();
+    fireEvent.dragStart(bagSlotOne, { dataTransfer: transfer });
+    fireEvent.dragOver(containerSlotTwo, { dataTransfer: transfer });
+    fireEvent.drop(containerSlotTwo, { dataTransfer: transfer });
+
+    expect(containerMoveRequests).toContainEqual({
+      from: { kind: "bag", index: 0 },
+      to: { kind: "container", containerId: "lootbag-1", index: 1 },
+    });
+    expect(dropRequests).toHaveLength(0);
+  });
 });

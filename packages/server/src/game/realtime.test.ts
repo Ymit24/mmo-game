@@ -65,6 +65,12 @@ function parseMessages(
   );
 }
 
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 function seedCharacterWithInventory(
   db: ReturnType<typeof createDatabase>,
 ): void {
@@ -306,6 +312,94 @@ describe("realtime gateway", () => {
       )
       .get();
     expect(item?.id).toBe("inv-1");
+    db.close();
+  });
+
+  test("container.close rejects mismatched container id and keeps the opened bag active", async () => {
+    const db = createDatabase(":memory:");
+    const gateway = createRealtimeGateway(baseConfig, db);
+    const socket = createMockSocket(gateway.createSocketData);
+    const token = await issueAccessToken({ sub: "player-a" }, baseConfig);
+    seedCharacterWithInventory(db);
+
+    await gateway.handlers.message(
+      asServerSocket(socket),
+      JSON.stringify({
+        type: "auth.hello",
+        token: token.token,
+      }),
+    );
+    await gateway.handlers.message(
+      asServerSocket(socket),
+      JSON.stringify({
+        type: "world.join",
+        worldId: "hub:alpha",
+        characterId: "character-1",
+      }),
+    );
+
+    socket.sent = [];
+    await gateway.handlers.message(
+      asServerSocket(socket),
+      JSON.stringify({
+        type: "inventory.drop",
+        payload: {
+          from: { kind: "bag", index: 0 },
+          position: { x: 100, y: 100 },
+        },
+      }),
+    );
+
+    await wait(140);
+    const snapshot = parseMessages(socket)
+      .filter((message) => message.type === "world.snapshot")
+      .at(-1) as
+      | {
+          type: "world.snapshot";
+          payload?: {
+            lootBags?: Array<{ id: string }>;
+          };
+        }
+      | undefined;
+    const bagId = snapshot?.payload?.lootBags?.[0]?.id;
+    expect(typeof bagId).toBe("string");
+    if (!bagId) {
+      throw new Error("missing spawned loot bag id");
+    }
+
+    await gateway.handlers.message(
+      asServerSocket(socket),
+      JSON.stringify({
+        type: "container.open",
+        containerId: bagId,
+      }),
+    );
+    expect(parseLastMessage(socket).type).toBe("container.opened");
+
+    await gateway.handlers.message(
+      asServerSocket(socket),
+      JSON.stringify({
+        type: "container.close",
+        containerId: "lootbag-wrong",
+      }),
+    );
+    const rejected = parseLastMessage(socket);
+    expect(rejected.type).toBe("container.actionRejected");
+    expect(rejected.code).toBe("CONTAINER_NOT_OPEN");
+
+    await gateway.handlers.message(
+      asServerSocket(socket),
+      JSON.stringify({
+        type: "container.move",
+        payload: {
+          from: { kind: "container", containerId: bagId, index: 0 },
+          to: { kind: "bag", index: 0 },
+        },
+      }),
+    );
+
+    const finalMessage = parseLastMessage(socket);
+    expect(finalMessage.type).toBe("container.updated");
     db.close();
   });
 });
