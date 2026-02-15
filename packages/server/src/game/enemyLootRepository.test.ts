@@ -17,35 +17,35 @@ describe("enemy loot repository", () => {
     const db = createDatabase(":memory:");
     const drops = resolveEnemyLootDropDefinitionIds(
       db,
-      "stone_golem",
+      "missing_enemy",
       "knight",
     );
     expect(drops).toHaveLength(0);
     db.close();
   });
 
-  test("applies class-biased weighted selection for slime scout seed table", () => {
+  test("applies class-biased weighted selection for world-1 seed table", () => {
     const db = createDatabase(":memory:");
 
     const knightDrops = resolveEnemyLootDropDefinitionIds(
       db,
-      "slime_scout",
+      "e_001_slime",
       "knight",
       {
         random: sequenceRandom([0.01, 0.6]),
       },
     );
-    expect(knightDrops).toEqual(["iron_broadsword"]);
+    expect(knightDrops).toEqual(["w_kn_001_rusty_sword"]);
 
     const mageDrops = resolveEnemyLootDropDefinitionIds(
       db,
-      "slime_scout",
+      "e_001_slime",
       "mage",
       {
         random: sequenceRandom([0.01, 0.6]),
       },
     );
-    expect(mageDrops).toEqual(["adept_focus_wand"]);
+    expect(mageDrops).toEqual(["w_mg_001_apprentice_staff"]);
 
     db.close();
   });

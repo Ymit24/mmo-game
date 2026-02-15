@@ -98,16 +98,16 @@ const STARTER_LOADOUT_BY_CLASS: Record<
   CharacterClass,
   {
     equippedWeaponId: string;
-    bagWeaponIds: [string, string, string];
+    bagWeaponIds: string[];
   }
 > = {
   knight: {
-    equippedWeaponId: "training_sword",
-    bagWeaponIds: ["iron_broadsword", "runed_greatsword", "dragonbone_blade"],
+    equippedWeaponId: "w_kn_001_rusty_sword",
+    bagWeaponIds: [],
   },
   mage: {
-    equippedWeaponId: "training_wand",
-    bagWeaponIds: ["adept_focus_wand", "stormweave_rod", "arcane_scepter"],
+    equippedWeaponId: "w_mg_001_apprentice_staff",
+    bagWeaponIds: [],
   },
 };
 
@@ -517,7 +517,7 @@ export function grantStarterInventoryForCharacter(
     timestamp,
   );
 
-  db.query(
+  const bagInsert = db.query(
     `INSERT INTO character_inventory (
        id,
        character_id,
@@ -527,52 +527,21 @@ export function grantStarterInventoryForCharacter(
        created_at,
        updated_at
      ) VALUES (?1, ?2, ?3, 'bag', ?4, ?5, ?6)`,
-  ).run(
-    crypto.randomUUID(),
-    characterId,
-    starterLoadout.bagWeaponIds[0],
-    0,
-    timestamp,
-    timestamp,
   );
 
-  db.query(
-    `INSERT INTO character_inventory (
-       id,
-       character_id,
-       item_definition_id,
-       slot_kind,
-       slot_index,
-       created_at,
-       updated_at
-     ) VALUES (?1, ?2, ?3, 'bag', ?4, ?5, ?6)`,
-  ).run(
-    crypto.randomUUID(),
-    characterId,
-    starterLoadout.bagWeaponIds[1],
-    1,
-    timestamp,
-    timestamp,
-  );
-
-  db.query(
-    `INSERT INTO character_inventory (
-       id,
-       character_id,
-       item_definition_id,
-       slot_kind,
-       slot_index,
-       created_at,
-       updated_at
-     ) VALUES (?1, ?2, ?3, 'bag', ?4, ?5, ?6)`,
-  ).run(
-    crypto.randomUUID(),
-    characterId,
-    starterLoadout.bagWeaponIds[2],
-    2,
-    timestamp,
-    timestamp,
-  );
+  for (const [
+    index,
+    itemDefinitionId,
+  ] of starterLoadout.bagWeaponIds.entries()) {
+    bagInsert.run(
+      crypto.randomUUID(),
+      characterId,
+      itemDefinitionId,
+      index,
+      timestamp,
+      timestamp,
+    );
+  }
 }
 
 export function moveInventoryItem(

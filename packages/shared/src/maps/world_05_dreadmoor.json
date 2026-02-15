@@ -1,0 +1,122 @@
+{
+  "id": "world_05_dreadmoor",
+  "name": "Dreadmoor",
+  "width": 300,
+  "height": 180,
+  "background": { "color": "#1e5a3a", "gridSize": 10 },
+  "combat": { "allowCombat": true, "pvpEnabled": false },
+  "playerSpawnId": "sp_dreadmoor_start",
+  "spawnPoints": [
+    { "id": "sp_dreadmoor_start", "x": 18, "y": 90 },
+    { "id": "sp_dreadmoor_mid", "x": 168, "y": 90 }
+  ],
+  "collisions": [
+    { "type": "rect", "x": 0, "y": 0, "width": 300, "height": 6 },
+    { "type": "rect", "x": 0, "y": 174, "width": 300, "height": 6 },
+    { "type": "rect", "x": 0, "y": 0, "width": 6, "height": 180 },
+    { "type": "rect", "x": 294, "y": 0, "width": 6, "height": 180 }
+  ],
+  "regions": [
+    {
+      "id": "r_dm_01_fen",
+      "name": "Rotfen (Lv 41-44)",
+      "shape": { "type": "rect", "x": 6, "y": 6, "width": 110, "height": 168 }
+    },
+    {
+      "id": "r_dm_02_murkwood",
+      "name": "Murkwood (Lv 44-48)",
+      "shape": { "type": "rect", "x": 116, "y": 6, "width": 124, "height": 168 }
+    },
+    {
+      "id": "r_dm_03_hydra_lair",
+      "name": "Hydra Mire (Lv 48-50)",
+      "shape": { "type": "rect", "x": 240, "y": 6, "width": 54, "height": 168 }
+    }
+  ],
+  "portals": [
+    {
+      "id": "p_dm_to_ember",
+      "name": "Back to Ember Highlands",
+      "shape": { "type": "rect", "x": 6, "y": 82, "width": 8, "height": 16 },
+      "targetWorldId": "world_04_ember_highlands",
+      "targetSpawnId": "sp_ember_mid",
+      "exitOffset": { "x": 2, "y": 0 }
+    },
+    {
+      "id": "p_dm_to_void",
+      "name": "Gate to Void Citadel",
+      "shape": { "type": "rect", "x": 286, "y": 82, "width": 8, "height": 16 },
+      "targetWorldId": "world_06_void_citadel",
+      "targetSpawnId": "sp_void_start",
+      "exitOffset": { "x": 2, "y": 0 }
+    }
+  ],
+  "enemySpawners": [
+    {
+      "id": "s_dm_ghoul_1",
+      "archetypeId": "e_042_swamp_ghoul",
+      "x": 44,
+      "y": 54,
+      "spawnRadius": 22,
+      "maxAlive": 7,
+      "respawnSeconds": 14
+    },
+    {
+      "id": "s_dm_ghoul_2",
+      "archetypeId": "e_042_swamp_ghoul",
+      "x": 64,
+      "y": 134,
+      "spawnRadius": 22,
+      "maxAlive": 7,
+      "respawnSeconds": 14
+    },
+
+    {
+      "id": "s_dm_wraith_1",
+      "archetypeId": "e_045_wraith",
+      "x": 150,
+      "y": 52,
+      "spawnRadius": 20,
+      "maxAlive": 6,
+      "respawnSeconds": 16
+    },
+    {
+      "id": "s_dm_wraith_2",
+      "archetypeId": "e_045_wraith",
+      "x": 170,
+      "y": 132,
+      "spawnRadius": 20,
+      "maxAlive": 6,
+      "respawnSeconds": 16
+    },
+
+    {
+      "id": "s_dm_bogknight_1",
+      "archetypeId": "e_048_bog_knight",
+      "x": 256,
+      "y": 56,
+      "spawnRadius": 18,
+      "maxAlive": 4,
+      "respawnSeconds": 18
+    },
+    {
+      "id": "s_dm_shaman_1",
+      "archetypeId": "e_049_hex_shaman",
+      "x": 270,
+      "y": 128,
+      "spawnRadius": 20,
+      "maxAlive": 3,
+      "respawnSeconds": 19
+    },
+
+    {
+      "id": "s_dm_boss_hydra",
+      "archetypeId": "e_050_mire_hydra",
+      "x": 280,
+      "y": 90,
+      "spawnRadius": 10,
+      "maxAlive": 1,
+      "respawnSeconds": 140
+    }
+  ]
+}

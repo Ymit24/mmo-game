@@ -10,7 +10,7 @@ describe("database bootstrap", () => {
       .query<{ melee_range: number; ranged_range: number }, []>(
         `SELECT melee_range, ranged_range
          FROM enemy_archetypes
-         WHERE id = 'slime_scout'
+         WHERE id = 'e_001_slime'
          LIMIT 1`,
       )
       .get();
@@ -21,14 +21,14 @@ describe("database bootstrap", () => {
     db.close();
   });
 
-  test("creates and seeds enemy archetypes without overwriting tuned values", () => {
+  test("creates and upserts enemy archetypes to latest seed values", () => {
     const db = createDatabase(":memory:");
 
     const seeded = db
       .query<{ id: string; visual_width: number }, []>(
         `SELECT id, visual_width
          FROM enemy_archetypes
-         WHERE id IN ('slime_scout', 'stone_golem')
+         WHERE id IN ('e_001_slime', 'e_012_scorpion')
          ORDER BY id ASC`,
       )
       .all();
@@ -39,7 +39,7 @@ describe("database bootstrap", () => {
        SET visual_width = ?1,
            updated_at = ?2
        WHERE id = ?3`,
-    ).run(99, new Date().toISOString(), "slime_scout");
+    ).run(99, new Date().toISOString(), "e_001_slime");
 
     bootstrapDatabase(db);
 
@@ -47,12 +47,12 @@ describe("database bootstrap", () => {
       .query<{ visual_width: number }, []>(
         `SELECT visual_width
          FROM enemy_archetypes
-         WHERE id = 'slime_scout'
+         WHERE id = 'e_001_slime'
          LIMIT 1`,
       )
       .get();
 
-    expect(slime?.visual_width).toBe(99);
+    expect(slime?.visual_width).toBe(1);
     db.close();
   });
 
@@ -103,29 +103,29 @@ describe("database bootstrap", () => {
       .query<{ enemy_archetype_id: string; drop_chance: number }, []>(
         `SELECT enemy_archetype_id, drop_chance
          FROM enemy_loot_tables
-         WHERE enemy_archetype_id = 'slime_scout'
+         WHERE enemy_archetype_id = 'e_001_slime'
          LIMIT 1`,
       )
       .get();
-    expect(lootTable?.enemy_archetype_id).toBe("slime_scout");
-    expect(lootTable?.drop_chance).toBe(0.3);
+    expect(lootTable?.enemy_archetype_id).toBe("e_001_slime");
+    expect(lootTable?.drop_chance).toBe(0.1);
 
     const entries = db
       .query<{ item_definition_id: string; class_affinity: string | null }, []>(
         `SELECT item_definition_id, class_affinity
          FROM enemy_loot_table_entries
-         WHERE enemy_archetype_id = 'slime_scout'
+         WHERE enemy_archetype_id = 'e_001_slime'
          ORDER BY item_definition_id ASC`,
       )
       .all();
     expect(entries).toEqual([
       {
-        item_definition_id: "adept_focus_wand",
-        class_affinity: "mage",
+        item_definition_id: "w_kn_001_rusty_sword",
+        class_affinity: "knight",
       },
       {
-        item_definition_id: "iron_broadsword",
-        class_affinity: "knight",
+        item_definition_id: "w_mg_001_apprentice_staff",
+        class_affinity: "mage",
       },
     ]);
 
@@ -148,12 +148,12 @@ describe("database bootstrap", () => {
         `SELECT id, type, class_requirement, min_level_to_equip
          FROM item_definitions
          WHERE id IN (
-           'training_sword',
-           'training_wand',
-           'iron_broadsword',
-           'runed_greatsword',
-           'adept_focus_wand',
-           'stormweave_rod'
+           'w_kn_001_rusty_sword',
+           'w_mg_001_apprentice_staff',
+           'w_kn_006_iron_sword',
+           'w_mg_006_oak_wand',
+           'w_kn_056_kingbreaker',
+           'w_mg_056_worldspark_staff'
          )
          ORDER BY id ASC`,
       )
@@ -161,40 +161,40 @@ describe("database bootstrap", () => {
 
     expect(items).toEqual([
       {
-        id: "adept_focus_wand",
-        type: "weapon",
-        class_requirement: "mage",
-        min_level_to_equip: 5,
-      },
-      {
-        id: "iron_broadsword",
-        type: "weapon",
-        class_requirement: "knight",
-        min_level_to_equip: 5,
-      },
-      {
-        id: "runed_greatsword",
-        type: "weapon",
-        class_requirement: "knight",
-        min_level_to_equip: 10,
-      },
-      {
-        id: "stormweave_rod",
-        type: "weapon",
-        class_requirement: "mage",
-        min_level_to_equip: 10,
-      },
-      {
-        id: "training_sword",
+        id: "w_kn_001_rusty_sword",
         type: "weapon",
         class_requirement: "knight",
         min_level_to_equip: 1,
       },
       {
-        id: "training_wand",
+        id: "w_kn_006_iron_sword",
+        type: "weapon",
+        class_requirement: "knight",
+        min_level_to_equip: 6,
+      },
+      {
+        id: "w_kn_056_kingbreaker",
+        type: "weapon",
+        class_requirement: "knight",
+        min_level_to_equip: 56,
+      },
+      {
+        id: "w_mg_001_apprentice_staff",
         type: "weapon",
         class_requirement: "mage",
         min_level_to_equip: 1,
+      },
+      {
+        id: "w_mg_006_oak_wand",
+        type: "weapon",
+        class_requirement: "mage",
+        min_level_to_equip: 6,
+      },
+      {
+        id: "w_mg_056_worldspark_staff",
+        type: "weapon",
+        class_requirement: "mage",
+        min_level_to_equip: 56,
       },
     ]);
     db.close();
@@ -263,8 +263,8 @@ describe("database bootstrap", () => {
     );
 
     insertLegacy.run(
-      "slime_scout",
-      "Slime Scout",
+      "e_001_slime",
+      "Green Slime",
       60,
       8,
       130,
@@ -277,13 +277,13 @@ describe("database bootstrap", () => {
       0,
       34,
       24,
-      "#22d3ee",
+      "#43c76b",
       timestamp,
       timestamp,
     );
     insertLegacy.run(
-      "stone_golem",
-      "Stone Golem",
+      "e_012_scorpion",
+      "Canyon Scorpion",
       220,
       18,
       95,
@@ -296,7 +296,7 @@ describe("database bootstrap", () => {
       0,
       46,
       46,
-      "#a3a3a3",
+      "#b07d2a",
       timestamp,
       timestamp,
     );
@@ -307,14 +307,14 @@ describe("database bootstrap", () => {
       .query<{ id: string; level: number; xp_reward: number }, []>(
         `SELECT id, level, xp_reward
          FROM enemy_archetypes
-         WHERE id IN ('slime_scout', 'stone_golem')
+         WHERE id IN ('e_001_slime', 'e_012_scorpion')
          ORDER BY id ASC`,
       )
       .all();
 
     expect(rows).toEqual([
-      { id: "slime_scout", level: 1, xp_reward: 16 },
-      { id: "stone_golem", level: 6, xp_reward: 70 },
+      { id: "e_001_slime", level: 1, xp_reward: 10 },
+      { id: "e_012_scorpion", level: 12, xp_reward: 75 },
     ]);
     db.close();
   });
