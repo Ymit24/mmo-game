@@ -300,7 +300,102 @@ export function GameShell({ characterId }: GameShellProps) {
           className="flex-1 relative min-w-0"
           onDragOver={(event) => event.preventDefault()}
           onDrop={onGroundDrop}
-        />
+        >
+          {isReady && isContainerOpen && openContainer ? (
+            <div className="pointer-events-none absolute bottom-3 right-3 z-20 w-[19rem] max-w-[min(19rem,calc(100%-1.5rem))] sm:right-4 sm:bottom-4">
+              <div className="pointer-events-auto rounded-md border border-amber-300/40 bg-void/95 shadow-[0_0_24px_rgba(245,158,11,0.2)]">
+                <div className="flex items-center justify-between border-b border-amber-300/25 px-3 py-2">
+                  <span className="font-display text-xs tracking-[0.1em] text-amber-300 uppercase">
+                    Loot Bag
+                  </span>
+                  <span className="text-[10px] text-muted">
+                    Press <span className="text-amber-300">E</span> to close
+                  </span>
+                </div>
+                <div className="p-3">
+                  <div className="mb-2 text-[9px] text-muted">
+                    Single opener lock active
+                  </div>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {containerSlots.map((instance, index) => {
+                      const slotRef: StorageSlotRef = {
+                        kind: "container",
+                        containerId: openContainer.containerId,
+                        index,
+                      };
+                      const key = slotRefKey(slotRef);
+                      const definition = instance
+                        ? (definitions[instance.itemDefinitionId] ?? null)
+                        : null;
+                      const iconUrl = definition
+                        ? resolveItemIconUrl(definition.iconKey)
+                        : null;
+
+                      return (
+                        <button
+                          key={`container-slot-${index + 1}`}
+                          type="button"
+                          aria-label={`Container Slot ${index + 1}${definition ? `: ${definition.name}` : ""}`}
+                          draggable={!!instance}
+                          onDragStart={(event) => {
+                            if (!instance) {
+                              return;
+                            }
+                            onSlotDragStart(event, slotRef);
+                          }}
+                          onDragEnd={onSlotDragEnd}
+                          onDragOver={(event) => onSlotDragOver(event, slotRef)}
+                          onDragLeave={() => onSlotDragLeave(slotRef)}
+                          onDrop={(event) => onSlotDrop(event, slotRef)}
+                          onMouseEnter={(event) =>
+                            onSlotMouseEnter(event, slotRef)
+                          }
+                          onMouseLeave={() => onSlotMouseLeave(slotRef)}
+                          className={`flex min-h-16 flex-col items-center justify-center border p-1 ${
+                            dropHighlightedSlotKey === key
+                              ? "border-amber-300 bg-amber-300/12"
+                              : hoveredSlotKey === key
+                                ? "border-amber-300/60"
+                                : "border-amber-300/25 bg-void/70"
+                          }`}
+                        >
+                          {instance && definition ? (
+                            <>
+                              {iconUrl ? (
+                                <img
+                                  src={iconUrl}
+                                  alt={definition.name}
+                                  className="h-7 w-7 p-0.5"
+                                  style={{ imageRendering: "pixelated" }}
+                                />
+                              ) : (
+                                <span className="text-[8px] text-amber-200/80">
+                                  {definition.type}
+                                </span>
+                              )}
+                              <span className="mt-0.5 w-full truncate text-center text-[7px] leading-tight text-amber-100">
+                                {definition.name}
+                              </span>
+                            </>
+                          ) : (
+                            <span className="text-[8px] text-amber-100/30">
+                              {index + 1}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {uiState.containerError ? (
+                    <p className="mt-2 text-[9px] text-amber-300">
+                      {uiState.containerError}
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </div>
 
         {/* Right sidebar (RotMG-style) */}
         {isReady ? (
@@ -591,94 +686,6 @@ export function GameShell({ characterId }: GameShellProps) {
                 })}
               </div>
 
-              <div className="mt-2 rounded border border-amber-300/30 bg-gradient-to-b from-amber-100/5 to-transparent p-2">
-                <div className="mb-1.5 flex items-center justify-between">
-                  <span className="font-display text-[10px] text-amber-300 tracking-[0.08em] uppercase">
-                    Loot Bag
-                  </span>
-                  <span className="text-[8px] text-muted">
-                    {isContainerOpen ? "Single opener lock" : "Not open"}
-                  </span>
-                </div>
-                {isContainerOpen && openContainer ? (
-                  <div className="grid grid-cols-3 gap-1">
-                    {containerSlots.map((instance, index) => {
-                      const slotRef: StorageSlotRef = {
-                        kind: "container",
-                        containerId: openContainer.containerId,
-                        index,
-                      };
-                      const key = slotRefKey(slotRef);
-                      const definition = instance
-                        ? (definitions[instance.itemDefinitionId] ?? null)
-                        : null;
-                      const iconUrl = definition
-                        ? resolveItemIconUrl(definition.iconKey)
-                        : null;
-
-                      return (
-                        <button
-                          key={`container-slot-${index + 1}`}
-                          type="button"
-                          aria-label={`Container Slot ${index + 1}${definition ? `: ${definition.name}` : ""}`}
-                          draggable={!!instance}
-                          onDragStart={(event) => {
-                            if (!instance) {
-                              return;
-                            }
-                            onSlotDragStart(event, slotRef);
-                          }}
-                          onDragEnd={onSlotDragEnd}
-                          onDragOver={(event) => onSlotDragOver(event, slotRef)}
-                          onDragLeave={() => onSlotDragLeave(slotRef)}
-                          onDrop={(event) => onSlotDrop(event, slotRef)}
-                          onMouseEnter={(event) =>
-                            onSlotMouseEnter(event, slotRef)
-                          }
-                          onMouseLeave={() => onSlotMouseLeave(slotRef)}
-                          className={`flex flex-col items-center justify-center border aspect-square p-1 ${
-                            dropHighlightedSlotKey === key
-                              ? "border-amber-300 bg-amber-300/12"
-                              : hoveredSlotKey === key
-                                ? "border-amber-300/60"
-                                : "border-amber-300/25 bg-void/70"
-                          }`}
-                        >
-                          {instance && definition ? (
-                            <>
-                              {iconUrl ? (
-                                <img
-                                  src={iconUrl}
-                                  alt={definition.name}
-                                  className="h-7 w-7 p-0.5"
-                                  style={{ imageRendering: "pixelated" }}
-                                />
-                              ) : (
-                                <span className="text-[8px] text-amber-200/80">
-                                  {definition.type}
-                                </span>
-                              )}
-                              <span className="mt-0.5 text-[7px] text-amber-100 truncate w-full text-center leading-tight">
-                                {definition.name}
-                              </span>
-                            </>
-                          ) : (
-                            <span className="text-[8px] text-amber-100/30">
-                              {index + 1}
-                            </span>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <p className="text-[9px] text-muted leading-relaxed">
-                    Stand near a loot bag and press{" "}
-                    <span className="text-amber-300">E</span> to open.
-                  </p>
-                )}
-              </div>
-
               <div
                 onDragOver={(event) => event.preventDefault()}
                 onDrop={onGroundDrop}
@@ -690,11 +697,6 @@ export function GameShell({ characterId }: GameShellProps) {
               {uiState.inventoryError ? (
                 <p className="mt-1 text-[9px] text-vec-magenta">
                   {uiState.inventoryError}
-                </p>
-              ) : null}
-              {uiState.containerError ? (
-                <p className="mt-1 text-[9px] text-amber-300">
-                  {uiState.containerError}
                 </p>
               ) : null}
             </div>
