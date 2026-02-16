@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  type EnemyArchetype,
   type MapData,
+  type MapSummary,
   createMap,
   deleteMap,
   getMap,
+  listEnemies,
   listMaps,
   updateMap,
 } from "../api/adminApi";
@@ -450,6 +453,7 @@ function renderCanvas(
 
 export function MapsPage() {
   const { data: mapList, loading, error, refetch } = useAsyncData(listMaps);
+  const { data: enemiesList } = useAsyncData(listEnemies);
   const [selectedMapId, setSelectedMapId] = useState<string | null>(null);
   const [mapData, setMapData] = useState<MapData | null>(null);
   const [loadingMap, setLoadingMap] = useState(false);
@@ -586,13 +590,15 @@ export function MapsPage() {
 
   /* ── Wheel handler (zoom + pan) ─────────────────────────────── */
   useEffect(() => {
+    // Container only renders when mapData is loaded
+    if (!mapData) return;
     const container = containerRef.current;
     if (!container) return;
 
     const handleWheel = (e: WheelEvent) => {
       e.preventDefault();
 
-      // Pinch-to-zoom (trackpad) or ctrl+wheel
+      // Pinch-to-zoom (trackpad sends ctrlKey) or ctrl/meta+wheel
       if (e.ctrlKey || e.metaKey) {
         const sensitivity =
           Math.abs(e.deltaY) < 10
@@ -603,17 +609,24 @@ export function MapsPage() {
         return;
       }
 
-      // Two-finger scroll = pan
-      setCamera((prev) => ({
-        ...prev,
-        x: prev.x + e.deltaX / prev.zoom,
-        y: prev.y + e.deltaY / prev.zoom,
-      }));
+      // Two-finger trackpad scroll has a horizontal component → pan
+      if (Math.abs(e.deltaX) > 2) {
+        setCamera((prev) => ({
+          ...prev,
+          x: prev.x + e.deltaX / prev.zoom,
+          y: prev.y + e.deltaY / prev.zoom,
+        }));
+        return;
+      }
+
+      // Mouse wheel (pure vertical, no modifier) → zoom
+      const zoomDelta = -e.deltaY * WHEEL_ZOOM_SENSITIVITY;
+      zoomToPoint(e.clientX, e.clientY, zoomDelta);
     };
 
     container.addEventListener("wheel", handleWheel, { passive: false });
     return () => container.removeEventListener("wheel", handleWheel);
-  }, [zoomToPoint]);
+  }, [zoomToPoint, mapData]);
 
   /* ── Pointer handlers ───────────────────────────────────────── */
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
@@ -854,6 +867,37 @@ export function MapsPage() {
         setMapData({ ...map, [field]: arr });
         setSelectedEntity(null);
         setDirty(true);
+        return;
+      }
+
+      // Arrow key nudge (Shift = 1px fine-tune, default = grid snap)
+      if (
+        e.key === "ArrowUp" ||
+        e.key === "ArrowDown" ||
+        e.key === "ArrowLeft" ||
+        e.key === "ArrowRight"
+      ) {
+        const sel = selectedEntityRef.current;
+        const map = mapDataRef.current;
+        if (!sel || !map) return;
+        e.preventDefault();
+        const step = e.shiftKey ? 1 : GRID_SIZE;
+        let dx = 0;
+        let dy = 0;
+        if (e.key === "ArrowUp") dy = -step;
+        if (e.key === "ArrowDown") dy = step;
+        if (e.key === "ArrowLeft") dx = -step;
+        if (e.key === "ArrowRight") dx = step;
+
+        const field = entityFieldName(sel.type);
+        const arr = [...(map[field] as Array<Record<string, unknown>>)];
+        const ent = arr[sel.index];
+        if (ent && typeof ent.x === "number" && typeof ent.y === "number") {
+          arr[sel.index] = { ...ent, x: ent.x + dx, y: ent.y + dy };
+          const updated = { ...map, [field]: arr };
+          setMapData(updated);
+          setDirty(true);
+        }
         return;
       }
 
@@ -1228,8 +1272,8 @@ export function MapsPage() {
                 <span>Grid: {GRID_SIZE}px</span>
                 <span className="flex-1" />
                 <span>Space+Drag = Pan</span>
-                <span>Scroll = Pan</span>
-                <span>Ctrl+Scroll = Zoom</span>
+                <span>Scroll = Zoom</span>
+                <span>Arrows = Nudge</span>
                 <span>Del = Remove</span>
               </div>
             </div>
@@ -1239,6 +1283,8 @@ export function MapsPage() {
               <PropertiesPanel
                 mapData={mapData}
                 entity={selectedEntity}
+                enemiesList={enemiesList ?? []}
+                mapsList={mapList ?? []}
                 onChange={(updated) => {
                   setMapData(updated);
                   setDirty(true);
@@ -1254,18 +1300,49 @@ export function MapsPage() {
 
 /* ─── Properties Panel ──────────────────────────────────────────── */
 
+const REGION_TYPES = ["safe", "combat", "pvp", "quest", "boss"];
+
 function PropertiesPanel({
   mapData,
   entity,
+  enemiesList,
+  mapsList,
   onChange,
 }: {
   mapData: MapData;
   entity: { type: string; index: number };
+  enemiesList: EnemyArchetype[];
+  mapsList: MapSummary[];
   onChange: (updated: MapData) => void;
 }) {
   const field = entityFieldName(entity.type);
   const arr = mapData[field] as Array<Record<string, unknown>>;
   const data = arr[entity.index];
+
+  // Load target map spawn points for portal editing
+  const targetMapId =
+    entity.type === "portal" && data ? String(data.targetMapId ?? "") : "";
+  const [targetMapSpawns, setTargetMapSpawns] = useState<Array<{ id: string }>>(
+    [],
+  );
+
+  useEffect(() => {
+    if (!targetMapId) {
+      setTargetMapSpawns([]);
+      return;
+    }
+    getMap(targetMapId)
+      .then((m) => {
+        const spawns = (m.spawnPoints ?? [])
+          .map((sp) => ({
+            id: String((sp as { id?: string }).id ?? ""),
+          }))
+          .filter((s) => s.id);
+        setTargetMapSpawns(spawns);
+      })
+      .catch(() => setTargetMapSpawns([]));
+  }, [targetMapId]);
+
   if (!data) return null;
 
   const updateProp = (key: string, value: unknown) => {
@@ -1328,10 +1405,15 @@ function PropertiesPanel({
           />
         )}
         {data.archetypeId !== undefined && (
-          <PropInput
+          <PropSelect
             label="Archetype"
             value={String(data.archetypeId)}
             onChange={(v) => updateProp("archetypeId", v)}
+            options={enemiesList.map((e) => ({
+              value: e.id,
+              label: `${e.name} (Lv.${e.level})`,
+            }))}
+            placeholder="Select archetype..."
           />
         )}
         {data.maxCount !== undefined && (
@@ -1351,24 +1433,40 @@ function PropertiesPanel({
           />
         )}
         {data.targetMapId !== undefined && (
-          <PropInput
+          <PropSelect
             label="Target Map"
             value={String(data.targetMapId)}
             onChange={(v) => updateProp("targetMapId", v)}
+            options={mapsList.map((m) => ({
+              value: m.id,
+              label: m.name,
+            }))}
+            placeholder="Select map..."
           />
         )}
         {data.targetSpawnId !== undefined && (
-          <PropInput
+          <PropSelect
             label="Target Spawn"
             value={String(data.targetSpawnId)}
             onChange={(v) => updateProp("targetSpawnId", v)}
+            options={targetMapSpawns.map((s) => ({
+              value: s.id,
+              label: s.id,
+            }))}
+            placeholder={
+              targetMapId ? "Select spawn..." : "Choose target map first"
+            }
           />
         )}
         {data.type !== undefined && entity.type === "region" && (
-          <PropInput
+          <PropSelect
             label="Type"
             value={String(data.type)}
             onChange={(v) => updateProp("type", v)}
+            options={REGION_TYPES.map((t) => ({
+              value: t,
+              label: t,
+            }))}
           />
         )}
       </div>
@@ -1396,6 +1494,38 @@ function PropInput({
         onChange={(e) => onChange(e.target.value)}
         className="w-20 text-[11px] px-1.5 py-0.5"
       />
+    </div>
+  );
+}
+
+function PropSelect({
+  label,
+  value,
+  onChange,
+  options,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: Array<{ value: string; label: string }>;
+  placeholder?: string;
+}) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="text-muted text-[10px] uppercase">{label}</span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-44 text-[11px] px-1.5 py-0.5 bg-deep border border-border"
+      >
+        {placeholder && <option value="">{placeholder}</option>}
+        {options.map((opt) => (
+          <option key={opt.value} value={opt.value}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
     </div>
   );
 }
