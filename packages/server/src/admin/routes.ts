@@ -951,10 +951,8 @@ export async function handleAdminRequest(
     }
 
     return response;
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Unexpected admin API error.";
-    const response = json(500, { error: message });
+  } catch {
+    const response = json(500, { error: "Unexpected admin API error." });
     applyCorsHeaders(response, allowedOrigin);
     return response;
   }

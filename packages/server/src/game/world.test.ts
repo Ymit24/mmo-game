@@ -299,16 +299,16 @@ describe("world manager", () => {
     );
 
     let travelJoined = false;
-    for (let sequence = 1; sequence <= 20; sequence += 1) {
+    for (let sequence = 1; sequence <= 40; sequence += 1) {
       manager.applyInput(asServerSocket(socket), {
         type: "player.input",
         sequence,
         dtMs: 80,
         input: {
-          up: false,
+          up: true,
           down: false,
           left: false,
-          right: true,
+          right: false,
         },
       });
 
@@ -421,16 +421,16 @@ describe("world manager", () => {
       "#E8A832",
     );
 
-    for (let sequence = 1; sequence <= 20; sequence += 1) {
+    for (let sequence = 1; sequence <= 40; sequence += 1) {
       manager.applyInput(asServerSocket(socket), {
         type: "player.input",
         sequence,
         dtMs: 80,
         input: {
-          up: false,
+          up: true,
           down: false,
           left: false,
-          right: true,
+          right: false,
         },
       });
     }
@@ -508,40 +508,28 @@ describe("world manager", () => {
     expect(traveledToHub).toBe(true);
 
     socket.sent = [];
-    manager.applyInput(asServerSocket(socket), {
-      type: "player.input",
-      sequence: 99,
-      dtMs: 80,
-      input: {
-        up: false,
-        down: false,
-        left: false,
-        right: true,
-      },
-    });
-    manager.applyInput(asServerSocket(socket), {
-      type: "player.input",
-      sequence: 100,
-      dtMs: 80,
-      input: {
-        up: false,
-        down: false,
-        left: false,
-        right: true,
-      },
-    });
+    for (let sequence = 99; sequence <= 150; sequence += 1) {
+      manager.applyInput(asServerSocket(socket), {
+        type: "player.input",
+        sequence,
+        dtMs: 80,
+        input: {
+          up: true,
+          down: false,
+          left: false,
+          right: false,
+        },
+      });
 
-    manager.applyInput(asServerSocket(socket), {
-      type: "player.input",
-      sequence: 101,
-      dtMs: 80,
-      input: {
-        up: false,
-        down: false,
-        left: false,
-        right: true,
-      },
-    });
+      const hasReturnedToWilds = parseMessages(socket).some(
+        (message) =>
+          message.type === "world.joined" &&
+          message.worldId === WILDS_BETA_MAP.id,
+      );
+      if (hasReturnedToWilds) {
+        break;
+      }
+    }
 
     const returnedToWilds = parseMessages(socket).some(
       (message) =>
@@ -1296,16 +1284,16 @@ describe("world manager", () => {
     );
     cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
 
-    for (let sequence = 1; sequence <= 20; sequence += 1) {
+    for (let sequence = 1; sequence <= 40; sequence += 1) {
       manager.applyInput(asServerSocket(socket), {
         type: "player.input",
         sequence,
         dtMs: 80,
         input: {
-          up: false,
+          up: true,
           down: false,
           left: false,
-          right: true,
+          right: false,
         },
       });
     }
