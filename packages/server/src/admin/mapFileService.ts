@@ -2,6 +2,7 @@ import {
   existsSync,
   readFileSync,
   readdirSync,
+  renameSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -157,9 +158,29 @@ export function writeMapFile(mapId: string, data: unknown): boolean {
     return false;
   }
 
-  const jsonContent = JSON.stringify(data, null, 2);
-  writeFileSync(filePath, `${jsonContent}\n`, "utf-8");
-  return true;
+  const tempPath = resolveMapPath(
+    mapsDir,
+    `${targetFile}.tmp-${process.pid}-${Date.now()}`,
+  );
+  if (!tempPath) {
+    return false;
+  }
+
+  try {
+    const jsonContent = JSON.stringify(data, null, 2);
+    writeFileSync(tempPath, `${jsonContent}\n`, "utf-8");
+    renameSync(tempPath, filePath);
+    return true;
+  } catch {
+    try {
+      if (existsSync(tempPath)) {
+        unlinkSync(tempPath);
+      }
+    } catch {
+      // best-effort cleanup
+    }
+    return false;
+  }
 }
 
 export function deleteMapFile(mapId: string): boolean {

@@ -55,6 +55,28 @@ function parseAllowedCorsOrigins(): Set<string> {
   );
 }
 
+function isLoopbackHostname(hostname: string): boolean {
+  return (
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "::1" ||
+    hostname === "[::1]" ||
+    hostname === "0.0.0.0"
+  );
+}
+
+function isTrustedLoopbackOrigin(requestOrigin: string, url: URL): boolean {
+  try {
+    const requestOriginUrl = new URL(requestOrigin);
+    return (
+      isLoopbackHostname(requestOriginUrl.hostname) &&
+      isLoopbackHostname(url.hostname)
+    );
+  } catch {
+    return false;
+  }
+}
+
 function getAllowedCorsOrigin(
   request: Request,
   url: URL,
@@ -66,6 +88,12 @@ function getAllowedCorsOrigin(
   }
 
   if (requestOrigin === url.origin) {
+    return requestOrigin;
+  }
+
+  // Local editor/client dev servers commonly run on a different loopback port
+  // than the API server (for example 5174 -> 3001). Treat that as trusted.
+  if (isTrustedLoopbackOrigin(requestOrigin, url)) {
     return requestOrigin;
   }
 
@@ -823,101 +851,111 @@ export async function handleAdminRequest(
     });
   }
 
-  let response: Response | null = null;
+  try {
+    let response: Response | null = null;
 
-  // ── Enemies
-  if (path === "/enemies" && method === "GET") {
-    response = handleListEnemies(db);
-  } else if (path.startsWith("/enemies/") && method === "GET") {
-    response = handleGetEnemy(
-      db,
-      decodeURIComponent(path.slice("/enemies/".length)),
-    );
-  } else if (path === "/enemies" && method === "POST") {
-    response = await handleCreateEnemy(request, db);
-  } else if (path.startsWith("/enemies/") && method === "PUT") {
-    response = await handleUpdateEnemy(
-      request,
-      db,
-      decodeURIComponent(path.slice("/enemies/".length)),
-    );
-  } else if (path.startsWith("/enemies/") && method === "DELETE") {
-    response = handleDeleteEnemy(
-      db,
-      decodeURIComponent(path.slice("/enemies/".length)),
-    );
-  }
+    // ── Enemies
+    if (path === "/enemies" && method === "GET") {
+      response = handleListEnemies(db);
+    } else if (path.startsWith("/enemies/") && method === "GET") {
+      response = handleGetEnemy(
+        db,
+        decodeURIComponent(path.slice("/enemies/".length)),
+      );
+    } else if (path === "/enemies" && method === "POST") {
+      response = await handleCreateEnemy(request, db);
+    } else if (path.startsWith("/enemies/") && method === "PUT") {
+      response = await handleUpdateEnemy(
+        request,
+        db,
+        decodeURIComponent(path.slice("/enemies/".length)),
+      );
+    } else if (path.startsWith("/enemies/") && method === "DELETE") {
+      response = handleDeleteEnemy(
+        db,
+        decodeURIComponent(path.slice("/enemies/".length)),
+      );
+    }
 
-  // ── Items
-  else if (path === "/items" && method === "GET") {
-    response = handleListItems(db);
-  } else if (path.startsWith("/items/") && method === "GET") {
-    response = handleGetItem(
-      db,
-      decodeURIComponent(path.slice("/items/".length)),
-    );
-  } else if (path === "/items" && method === "POST") {
-    response = await handleCreateItem(request, db);
-  } else if (path.startsWith("/items/") && method === "PUT") {
-    response = await handleUpdateItem(
-      request,
-      db,
-      decodeURIComponent(path.slice("/items/".length)),
-    );
-  } else if (path.startsWith("/items/") && method === "DELETE") {
-    response = handleDeleteItem(
-      db,
-      decodeURIComponent(path.slice("/items/".length)),
-    );
-  }
+    // ── Items
+    else if (path === "/items" && method === "GET") {
+      response = handleListItems(db);
+    } else if (path.startsWith("/items/") && method === "GET") {
+      response = handleGetItem(
+        db,
+        decodeURIComponent(path.slice("/items/".length)),
+      );
+    } else if (path === "/items" && method === "POST") {
+      response = await handleCreateItem(request, db);
+    } else if (path.startsWith("/items/") && method === "PUT") {
+      response = await handleUpdateItem(
+        request,
+        db,
+        decodeURIComponent(path.slice("/items/".length)),
+      );
+    } else if (path.startsWith("/items/") && method === "DELETE") {
+      response = handleDeleteItem(
+        db,
+        decodeURIComponent(path.slice("/items/".length)),
+      );
+    }
 
-  // ── Loot Tables
-  else if (path === "/loot-tables" && method === "GET") {
-    response = handleListLootTables(db);
-  } else if (path.startsWith("/loot-tables/") && method === "GET") {
-    response = handleGetLootTable(
-      db,
-      decodeURIComponent(path.slice("/loot-tables/".length)),
-    );
-  } else if (path.startsWith("/loot-tables/") && method === "PUT") {
-    response = await handleUpsertLootTable(
-      request,
-      db,
-      decodeURIComponent(path.slice("/loot-tables/".length)),
-    );
-  } else if (path.startsWith("/loot-tables/") && method === "DELETE") {
-    response = handleDeleteLootTable(
-      db,
-      decodeURIComponent(path.slice("/loot-tables/".length)),
-    );
-  }
+    // ── Loot Tables
+    else if (path === "/loot-tables" && method === "GET") {
+      response = handleListLootTables(db);
+    } else if (path.startsWith("/loot-tables/") && method === "GET") {
+      response = handleGetLootTable(
+        db,
+        decodeURIComponent(path.slice("/loot-tables/".length)),
+      );
+    } else if (path.startsWith("/loot-tables/") && method === "PUT") {
+      response = await handleUpsertLootTable(
+        request,
+        db,
+        decodeURIComponent(path.slice("/loot-tables/".length)),
+      );
+    } else if (path.startsWith("/loot-tables/") && method === "DELETE") {
+      response = handleDeleteLootTable(
+        db,
+        decodeURIComponent(path.slice("/loot-tables/".length)),
+      );
+    }
 
-  // ── Level Progression
-  else if (path === "/level-progression" && method === "GET") {
-    response = handleGetLevelProgression(db);
-  } else if (path === "/level-progression" && method === "PUT") {
-    response = await handleUpdateLevelProgression(request, db);
-  }
+    // ── Level Progression
+    else if (path === "/level-progression" && method === "GET") {
+      response = handleGetLevelProgression(db);
+    } else if (path === "/level-progression" && method === "PUT") {
+      response = await handleUpdateLevelProgression(request, db);
+    }
 
-  // ── Maps
-  else if (path === "/maps" && method === "GET") {
-    response = handleListMaps();
-  } else if (path === "/maps" && method === "POST") {
-    response = await handleCreateMap(request);
-  } else if (path.startsWith("/maps/") && method === "GET") {
-    response = handleGetMap(decodeURIComponent(path.slice("/maps/".length)));
-  } else if (path.startsWith("/maps/") && method === "PUT") {
-    response = await handleSaveMap(
-      request,
-      decodeURIComponent(path.slice("/maps/".length)),
-    );
-  } else if (path.startsWith("/maps/") && method === "DELETE") {
-    response = handleDeleteMap(decodeURIComponent(path.slice("/maps/".length)));
-  }
+    // ── Maps
+    else if (path === "/maps" && method === "GET") {
+      response = handleListMaps();
+    } else if (path === "/maps" && method === "POST") {
+      response = await handleCreateMap(request);
+    } else if (path.startsWith("/maps/") && method === "GET") {
+      response = handleGetMap(decodeURIComponent(path.slice("/maps/".length)));
+    } else if (path.startsWith("/maps/") && method === "PUT") {
+      response = await handleSaveMap(
+        request,
+        decodeURIComponent(path.slice("/maps/".length)),
+      );
+    } else if (path.startsWith("/maps/") && method === "DELETE") {
+      response = handleDeleteMap(
+        decodeURIComponent(path.slice("/maps/".length)),
+      );
+    }
 
-  if (response) {
+    if (response) {
+      applyCorsHeaders(response, allowedOrigin);
+    }
+
+    return response;
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unexpected admin API error.";
+    const response = json(500, { error: message });
     applyCorsHeaders(response, allowedOrigin);
+    return response;
   }
-
-  return response;
 }

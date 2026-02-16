@@ -13,22 +13,69 @@
   },
   "playerSpawnId": "central_spawn",
   "spawnPoints": [
-    { "id": "central_spawn", "x": 1100, "y": 520 },
-    { "id": "north_gate", "x": 1100, "y": 180 },
-    { "id": "south_gate", "x": 1100, "y": 1220 },
-    { "id": "arrival_from_wilds", "x": 1100, "y": 540 }
+    {
+      "id": "central_spawn",
+      "x": 1100,
+      "y": 520
+    },
+    {
+      "id": "north_gate",
+      "x": 1100,
+      "y": 180
+    },
+    {
+      "id": "south_gate",
+      "x": 1100,
+      "y": 1220
+    },
+    {
+      "id": "arrival_from_wilds",
+      "x": 1100,
+      "y": 540
+    }
   ],
   "collisions": [
-    { "type": "rect", "x": 360, "y": 260, "width": 200, "height": 360 },
-    { "type": "rect", "x": 1640, "y": 260, "width": 200, "height": 360 },
-    { "type": "rect", "x": 360, "y": 780, "width": 200, "height": 360 },
-    { "type": "rect", "x": 1640, "y": 780, "width": 200, "height": 360 },
-    { "type": "rect", "x": 1010, "y": 610, "width": 180, "height": 180 }
+    {
+      "type": "rect",
+      "x": 360,
+      "y": 260,
+      "width": 200,
+      "height": 360
+    },
+    {
+      "type": "rect",
+      "x": 1640,
+      "y": 260,
+      "width": 200,
+      "height": 360
+    },
+    {
+      "type": "rect",
+      "x": 360,
+      "y": 780,
+      "width": 200,
+      "height": 360
+    },
+    {
+      "type": "rect",
+      "x": 1640,
+      "y": 780,
+      "width": 200,
+      "height": 360
+    },
+    {
+      "type": "rect",
+      "x": 1010,
+      "y": 610,
+      "width": 180,
+      "height": 180
+    }
   ],
   "regions": [
     {
       "id": "hub_market",
       "name": "Market",
+      "type": "safe",
       "shape": {
         "type": "rect",
         "x": 820,
@@ -40,6 +87,7 @@
     {
       "id": "hub_portal_ring",
       "name": "Portal Ring",
+      "type": "safe",
       "shape": {
         "type": "rect",
         "x": 880,
@@ -55,14 +103,17 @@
       "name": "Wilds Gate",
       "shape": {
         "type": "rect",
-        "x": 1180,
-        "y": 480,
-        "width": 90,
-        "height": 160
+        "x": 960,
+        "y": 288,
+        "width": 346,
+        "height": 96
       },
       "targetWorldId": "wilds:beta",
       "targetSpawnId": "arrival_from_hub",
-      "exitOffset": { "x": 44, "y": 0 }
+      "exitOffset": {
+        "x": 44,
+        "y": 0
+      }
     }
   ],
   "enemySpawners": []

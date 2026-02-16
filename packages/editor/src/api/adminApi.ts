@@ -19,8 +19,23 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   }
 
   if (!res.ok) {
-    const body = await res.json().catch(() => ({ error: "Request failed" }));
-    const error = (body as { error?: string }).error;
+    const cloned = res.clone();
+    let error: string | undefined;
+
+    const body = (await res.json().catch(() => null)) as {
+      error?: unknown;
+    } | null;
+    if (body && typeof body.error === "string" && body.error.length > 0) {
+      error = body.error;
+    }
+
+    if (!error) {
+      const text = (await cloned.text().catch(() => "")).trim();
+      if (text.length > 0) {
+        const isHtml = text.startsWith("<!doctype") || text.startsWith("<html");
+        error = isHtml ? `HTTP ${res.status} ${res.statusText}` : text;
+      }
+    }
 
     if (res.status === 404 && error === "Not found.") {
       throw new Error(
