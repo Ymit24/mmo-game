@@ -83,6 +83,7 @@ function UserMenu({ items }: { items: MenuItem[] }) {
 export function SiteTopbar({ mode }: SiteTopbarProps) {
   const auth = useAuth();
   const navigate = useNavigate();
+  const isAdmin = auth.user?.role === "admin";
 
   const menuItems: MenuItem[] = [
     { label: "Home", to: "/" },
@@ -109,6 +110,15 @@ export function SiteTopbar({ mode }: SiteTopbarProps) {
           >
             Characters
           </Link>
+        ) : null}
+
+        {auth.isAuthenticated && isAdmin ? (
+          <span
+            className="border border-vec-gold-dim bg-vec-gold-dim/10 px-2 py-0.5 font-display text-[10px] tracking-wider text-vec-gold text-glow-gold"
+            title="Admin account"
+          >
+            ADMIN
+          </span>
         ) : null}
 
         {auth.isAuthenticated ? (

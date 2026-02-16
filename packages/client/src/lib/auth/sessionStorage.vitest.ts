@@ -12,7 +12,7 @@ import {
 function makeSession(overrides: Partial<AuthSession> = {}): AuthSession {
   return {
     token: "token-123",
-    user: { id: "user-1", email: "player@example.com" },
+    user: { id: "user-1", email: "player@example.com", role: "user" },
     expiresAtEpochMs: Date.now() + 10_000,
     ...overrides,
   };

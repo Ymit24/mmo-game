@@ -1,7 +1,11 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { MAX_CHARACTER_LEVEL, getLevelProgressionTable } from "@mmo/shared";
+import {
+  MAX_CHARACTER_LEVEL,
+  USER_ROLES,
+  getLevelProgressionTable,
+} from "@mmo/shared";
 
 const ENEMY_ARCHETYPE_PROGRESSION_SEEDS = [
   { id: "slime_scout", level: 1, xpReward: 16 },
@@ -43,11 +47,13 @@ export function bootstrapDatabase(db: Database): void {
       id TEXT PRIMARY KEY,
       email TEXT NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
       last_used_character_id TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
   `);
+  ensureUsersRoleColumn(db);
   ensureUsersLastUsedCharacterColumn(db);
   db.exec(`
     CREATE TABLE IF NOT EXISTS characters (
@@ -111,6 +117,23 @@ export function bootstrapDatabase(db: Database): void {
   ensureEnemyArchetypeSeeds(db);
   ensureEnemyLootTables(db);
   ensureEnemyLootSeed(db);
+}
+
+function ensureUsersRoleColumn(db: Database): void {
+  const columns = db
+    .query<{ name: string }, []>("PRAGMA table_info(users);")
+    .all();
+  const hasColumn = columns.some((column) => column.name === "role");
+  if (!hasColumn) {
+    db.exec(
+      "ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin'));",
+    );
+  }
+  db.query(
+    `UPDATE users
+     SET role = ?1
+     WHERE role IS NULL OR role NOT IN (?1, ?2)`,
+  ).run(USER_ROLES.user, USER_ROLES.admin);
 }
 
 function ensureUsersLastUsedCharacterColumn(db: Database): void {

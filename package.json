@@ -8,6 +8,7 @@
     "dev:client": "bun run --filter @mmo/client dev",
     "dev:server": "bun run --filter @mmo/server dev",
     "dev:editor": "bun run --parallel --filter @mmo/server --filter @mmo/editor dev",
+    "admin:promote": "bun run --filter @mmo/server admin:promote",
     "build": "bun run --filter '*' build",
     "typecheck": "bun run --filter '*' typecheck",
     "lint": "biome check .",

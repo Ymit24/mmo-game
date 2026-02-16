@@ -1,5 +1,12 @@
+import { runAdminCommand } from "./admin/cli";
 import { createApp } from "./app";
 import { createRealtimeGateway } from "./game/realtime";
+
+const args = Bun.argv.slice(2);
+if (args[0] === "admin") {
+  const exitCode = await runAdminCommand(args);
+  process.exit(exitCode);
+}
 
 const app = createApp();
 const realtime = createRealtimeGateway(app.config, app.db);

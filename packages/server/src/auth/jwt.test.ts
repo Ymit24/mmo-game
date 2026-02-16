@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { USER_ROLES } from "@mmo/shared";
 
 import type { ServerConfig } from "../config";
 import { issueAccessToken, verifyAccessToken } from "./jwt";
@@ -11,16 +12,23 @@ const baseConfig: ServerConfig = {
 
 describe("jwt", () => {
   test("issues and verifies access token", async () => {
-    const issued = await issueAccessToken({ sub: "user-1" }, baseConfig);
+    const issued = await issueAccessToken(
+      { sub: "user-1", role: USER_ROLES.user },
+      baseConfig,
+    );
     const verified = await verifyAccessToken(issued.token, baseConfig);
 
     expect(issued.expiresInSeconds).toBe(1);
     expect(verified.payload.sub).toBe("user-1");
     expect(verified.payload.email).toBeUndefined();
+    expect(verified.payload.role).toBe(USER_ROLES.user);
   });
 
   test("rejects tampered token", async () => {
-    const issued = await issueAccessToken({ sub: "user-1" }, baseConfig);
+    const issued = await issueAccessToken(
+      { sub: "user-1", role: USER_ROLES.user },
+      baseConfig,
+    );
     const tampered = `${issued.token}x`;
 
     let threw = false;
@@ -34,7 +42,10 @@ describe("jwt", () => {
   });
 
   test("rejects expired token", async () => {
-    const issued = await issueAccessToken({ sub: "user-1" }, baseConfig);
+    const issued = await issueAccessToken(
+      { sub: "user-1", role: USER_ROLES.user },
+      baseConfig,
+    );
 
     await Bun.sleep(1_200);
 

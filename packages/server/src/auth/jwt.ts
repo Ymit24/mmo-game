@@ -1,9 +1,11 @@
+import type { UserRole } from "@mmo/shared";
 import { SignJWT, jwtVerify } from "jose";
 
 import type { ServerConfig } from "../config";
 
 export interface AccessTokenClaims {
   sub: string;
+  role: UserRole;
 }
 
 export interface IssuedAccessToken {
@@ -19,7 +21,7 @@ export async function issueAccessToken(
   claims: AccessTokenClaims,
   config: ServerConfig,
 ): Promise<IssuedAccessToken> {
-  const signer = new SignJWT()
+  const signer = new SignJWT({ role: claims.role })
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
     .setSubject(claims.sub)
     .setIssuedAt()
