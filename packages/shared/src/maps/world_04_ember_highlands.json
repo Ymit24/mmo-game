@@ -1,0 +1,193 @@
+{
+  "id": "world_04_ember_highlands",
+  "name": "Ember Highlands",
+  "width": 2800,
+  "height": 1700,
+  "background": {
+    "color": "#6b1d1d",
+    "gridSize": 100
+  },
+  "combat": {
+    "allowCombat": true,
+    "pvpEnabled": false
+  },
+  "playerSpawnId": "sp_ember_start",
+  "spawnPoints": [
+    {
+      "id": "sp_ember_start",
+      "x": 180,
+      "y": 850
+    },
+    {
+      "id": "sp_ember_mid",
+      "x": 1520,
+      "y": 850
+    }
+  ],
+  "collisions": [
+    {
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "width": 2800,
+      "height": 60
+    },
+    {
+      "type": "rect",
+      "x": 0,
+      "y": 1640,
+      "width": 2800,
+      "height": 60
+    },
+    {
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "width": 60,
+      "height": 1700
+    },
+    {
+      "type": "rect",
+      "x": 2740,
+      "y": 0,
+      "width": 60,
+      "height": 1700
+    }
+  ],
+  "regions": [
+    {
+      "id": "r_eh_01_ashlands",
+      "name": "Ashlands (Lv 31-34)",
+      "shape": {
+        "type": "rect",
+        "x": 60,
+        "y": 60,
+        "width": 960,
+        "height": 1580
+      }
+    },
+    {
+      "id": "r_eh_02_scorched_ridge",
+      "name": "Scorched Ridge (Lv 34-38)",
+      "shape": {
+        "type": "rect",
+        "x": 1020,
+        "y": 60,
+        "width": 1100,
+        "height": 1580
+      }
+    },
+    {
+      "id": "r_eh_03_magma_gate",
+      "name": "Magma Gate (Lv 38-40)",
+      "shape": {
+        "type": "rect",
+        "x": 2120,
+        "y": 60,
+        "width": 620,
+        "height": 1580
+      }
+    }
+  ],
+  "portals": [
+    {
+      "id": "p_eh_to_frostmarch",
+      "name": "Back to Frostmarch",
+      "shape": {
+        "type": "rect",
+        "x": 60,
+        "y": 770,
+        "width": 80,
+        "height": 160
+      },
+      "targetWorldId": "world_03_frostmarch",
+      "targetSpawnId": "sp_frostmarch_mid",
+      "exitOffset": {
+        "x": 20,
+        "y": 0
+      }
+    },
+    {
+      "id": "p_eh_to_dreadmoor",
+      "name": "Road to Dreadmoor",
+      "shape": {
+        "type": "rect",
+        "x": 2660,
+        "y": 770,
+        "width": 80,
+        "height": 160
+      },
+      "targetWorldId": "world_05_dreadmoor",
+      "targetSpawnId": "sp_dreadmoor_start",
+      "exitOffset": {
+        "x": 20,
+        "y": 0
+      }
+    }
+  ],
+  "enemySpawners": [
+    {
+      "id": "s_eh_sprite_1",
+      "archetypeId": "e_032_ash_sprite",
+      "x": 380,
+      "y": 480,
+      "spawnRadius": 180,
+      "maxAlive": 7,
+      "respawnSeconds": 11
+    },
+    {
+      "id": "s_eh_sprite_2",
+      "archetypeId": "e_032_ash_sprite",
+      "x": 560,
+      "y": 1260,
+      "spawnRadius": 180,
+      "maxAlive": 7,
+      "respawnSeconds": 11
+    },
+    {
+      "id": "s_eh_hound_1",
+      "archetypeId": "e_035_lava_hound",
+      "x": 1320,
+      "y": 520,
+      "spawnRadius": 220,
+      "maxAlive": 6,
+      "respawnSeconds": 13
+    },
+    {
+      "id": "s_eh_hound_2",
+      "archetypeId": "e_035_lava_hound",
+      "x": 1500,
+      "y": 1260,
+      "spawnRadius": 220,
+      "maxAlive": 6,
+      "respawnSeconds": 13
+    },
+    {
+      "id": "s_eh_legion_1",
+      "archetypeId": "e_038_flame_legion",
+      "x": 2320,
+      "y": 520,
+      "spawnRadius": 180,
+      "maxAlive": 4,
+      "respawnSeconds": 16
+    },
+    {
+      "id": "s_eh_pyro_1",
+      "archetypeId": "e_039_pyromancer",
+      "x": 2460,
+      "y": 1220,
+      "spawnRadius": 200,
+      "maxAlive": 3,
+      "respawnSeconds": 17
+    },
+    {
+      "id": "s_eh_boss_titan",
+      "archetypeId": "e_040_magma_titan",
+      "x": 2580,
+      "y": 850,
+      "spawnRadius": 100,
+      "maxAlive": 1,
+      "respawnSeconds": 110
+    }
+  ]
+}

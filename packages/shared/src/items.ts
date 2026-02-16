@@ -295,7 +295,7 @@ export function applyWeaponModifiersToCombatStats(
   const nextRange = Math.max(1, base.baseAttackRange + safeModifiers.rangeFlat);
   const speedFactor = 1 - safeModifiers.speedPercent / 100;
   const nextSpeedMs = Math.max(
-    200,
+    100,
     Math.round(base.baseAttackSpeedMs * Math.max(0.05, speedFactor)),
   );
 

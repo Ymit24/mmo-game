@@ -289,19 +289,19 @@ describe("character routes", () => {
       class: "knight",
       max_hp: 180,
       base_damage: 24,
-      base_attack_speed_ms: 600,
+      base_attack_speed_ms: 100,
       base_attack_range: 60,
     });
     expect(mage).toEqual({
       class: "mage",
       max_hp: 110,
       base_damage: 18,
-      base_attack_speed_ms: 820,
+      base_attack_speed_ms: 100,
       base_attack_range: 360,
     });
   });
 
-  test("assigns full class starter loadout on character creation", async () => {
+  test("assigns only starter weapon loadout on character creation", async () => {
     const token = await signupAndGetToken(app, "player7@example.com");
 
     const knightResponse = await app.fetch(
@@ -351,51 +351,15 @@ describe("character routes", () => {
     expect(rows).toEqual([
       {
         nickname: "StarterKnight",
-        item_definition_id: "training_sword",
-        slot_kind: "weapon",
-        slot_index: null,
-      },
-      {
-        nickname: "StarterKnight",
-        item_definition_id: "iron_broadsword",
-        slot_kind: "bag",
-        slot_index: 0,
-      },
-      {
-        nickname: "StarterKnight",
-        item_definition_id: "runed_greatsword",
-        slot_kind: "bag",
-        slot_index: 1,
-      },
-      {
-        nickname: "StarterKnight",
-        item_definition_id: "dragonbone_blade",
-        slot_kind: "bag",
-        slot_index: 2,
-      },
-      {
-        nickname: "StarterMage",
-        item_definition_id: "training_wand",
+        item_definition_id: "w_kn_001_rusty_sword",
         slot_kind: "weapon",
         slot_index: null,
       },
       {
         nickname: "StarterMage",
-        item_definition_id: "adept_focus_wand",
-        slot_kind: "bag",
-        slot_index: 0,
-      },
-      {
-        nickname: "StarterMage",
-        item_definition_id: "stormweave_rod",
-        slot_kind: "bag",
-        slot_index: 1,
-      },
-      {
-        nickname: "StarterMage",
-        item_definition_id: "arcane_scepter",
-        slot_kind: "bag",
-        slot_index: 2,
+        item_definition_id: "w_mg_001_apprentice_staff",
+        slot_kind: "weapon",
+        slot_index: null,
       },
     ]);
   });

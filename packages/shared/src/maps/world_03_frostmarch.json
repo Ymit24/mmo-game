@@ -1,0 +1,193 @@
+{
+  "id": "world_03_frostmarch",
+  "name": "Frostmarch",
+  "width": 2600,
+  "height": 1600,
+  "background": {
+    "color": "#7aa7ff",
+    "gridSize": 100
+  },
+  "combat": {
+    "allowCombat": true,
+    "pvpEnabled": false
+  },
+  "playerSpawnId": "sp_frostmarch_start",
+  "spawnPoints": [
+    {
+      "id": "sp_frostmarch_start",
+      "x": 160,
+      "y": 800
+    },
+    {
+      "id": "sp_frostmarch_mid",
+      "x": 1400,
+      "y": 800
+    }
+  ],
+  "collisions": [
+    {
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "width": 2600,
+      "height": 60
+    },
+    {
+      "type": "rect",
+      "x": 0,
+      "y": 1540,
+      "width": 2600,
+      "height": 60
+    },
+    {
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "width": 60,
+      "height": 1600
+    },
+    {
+      "type": "rect",
+      "x": 2540,
+      "y": 0,
+      "width": 60,
+      "height": 1600
+    }
+  ],
+  "regions": [
+    {
+      "id": "r_fm_01_glacier_edge",
+      "name": "Glacier Edge (Lv 21-24)",
+      "shape": {
+        "type": "rect",
+        "x": 60,
+        "y": 60,
+        "width": 900,
+        "height": 1480
+      }
+    },
+    {
+      "id": "r_fm_02_snowfields",
+      "name": "Snowfields (Lv 24-28)",
+      "shape": {
+        "type": "rect",
+        "x": 960,
+        "y": 60,
+        "width": 1000,
+        "height": 1480
+      }
+    },
+    {
+      "id": "r_fm_03_ice_cavern",
+      "name": "Ice Cavern Mouth (Lv 28-30)",
+      "shape": {
+        "type": "rect",
+        "x": 1960,
+        "y": 60,
+        "width": 580,
+        "height": 1480
+      }
+    }
+  ],
+  "portals": [
+    {
+      "id": "p_fm_to_canyons",
+      "name": "Back to Dusty Canyons",
+      "shape": {
+        "type": "rect",
+        "x": 60,
+        "y": 720,
+        "width": 80,
+        "height": 160
+      },
+      "targetWorldId": "world_02_dusty_canyons",
+      "targetSpawnId": "sp_canyons_mid",
+      "exitOffset": {
+        "x": 20,
+        "y": 0
+      }
+    },
+    {
+      "id": "p_fm_to_ember",
+      "name": "Pass to Ember Highlands",
+      "shape": {
+        "type": "rect",
+        "x": 2460,
+        "y": 720,
+        "width": 80,
+        "height": 160
+      },
+      "targetWorldId": "world_04_ember_highlands",
+      "targetSpawnId": "sp_ember_start",
+      "exitOffset": {
+        "x": 20,
+        "y": 0
+      }
+    }
+  ],
+  "enemySpawners": [
+    {
+      "id": "s_fm_imp_1",
+      "archetypeId": "e_022_ice_imp",
+      "x": 340,
+      "y": 460,
+      "spawnRadius": 180,
+      "maxAlive": 6,
+      "respawnSeconds": 10
+    },
+    {
+      "id": "s_fm_imp_2",
+      "archetypeId": "e_022_ice_imp",
+      "x": 520,
+      "y": 1140,
+      "spawnRadius": 180,
+      "maxAlive": 6,
+      "respawnSeconds": 10
+    },
+    {
+      "id": "s_fm_wolf_1",
+      "archetypeId": "e_025_frostwolf",
+      "x": 1200,
+      "y": 460,
+      "spawnRadius": 200,
+      "maxAlive": 5,
+      "respawnSeconds": 12
+    },
+    {
+      "id": "s_fm_wolf_2",
+      "archetypeId": "e_025_frostwolf",
+      "x": 1380,
+      "y": 1160,
+      "spawnRadius": 200,
+      "maxAlive": 5,
+      "respawnSeconds": 12
+    },
+    {
+      "id": "s_fm_knight_1",
+      "archetypeId": "e_028_snow_knight",
+      "x": 2140,
+      "y": 500,
+      "spawnRadius": 160,
+      "maxAlive": 4,
+      "respawnSeconds": 14
+    },
+    {
+      "id": "s_fm_mage_1",
+      "archetypeId": "e_029_ice_mage",
+      "x": 2260,
+      "y": 1100,
+      "spawnRadius": 180,
+      "maxAlive": 3,
+      "respawnSeconds": 15
+    },
+    {
+      "id": "s_fm_boss_yeti",
+      "archetypeId": "e_030_yeti",
+      "x": 2380,
+      "y": 800,
+      "spawnRadius": 100,
+      "maxAlive": 1,
+      "respawnSeconds": 85
+    }
+  ]
+}

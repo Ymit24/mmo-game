@@ -85,7 +85,248 @@ export interface AppliedExperienceResult {
   gainedXp: number;
 }
 
-const LEVEL_PROGRESS_TABLE = buildDefaultLevelProgressionTable();
+const LEVEL_PROGRESS_TABLE: readonly LevelProgressionRow[] = [
+  { level: 1, xpToNextLevel: 60, hpMultiplier: 1.0, damageMultiplier: 1.0 },
+  { level: 2, xpToNextLevel: 70, hpMultiplier: 1.06, damageMultiplier: 1.05 },
+  { level: 3, xpToNextLevel: 80, hpMultiplier: 1.12, damageMultiplier: 1.1 },
+  { level: 4, xpToNextLevel: 90, hpMultiplier: 1.18, damageMultiplier: 1.15 },
+  { level: 5, xpToNextLevel: 110, hpMultiplier: 1.25, damageMultiplier: 1.2 },
+  { level: 6, xpToNextLevel: 130, hpMultiplier: 1.33, damageMultiplier: 1.26 },
+  { level: 7, xpToNextLevel: 150, hpMultiplier: 1.41, damageMultiplier: 1.32 },
+  { level: 8, xpToNextLevel: 175, hpMultiplier: 1.5, damageMultiplier: 1.38 },
+  { level: 9, xpToNextLevel: 200, hpMultiplier: 1.6, damageMultiplier: 1.44 },
+  { level: 10, xpToNextLevel: 230, hpMultiplier: 1.72, damageMultiplier: 1.65 },
+  { level: 11, xpToNextLevel: 270, hpMultiplier: 1.86, damageMultiplier: 1.8 },
+  { level: 12, xpToNextLevel: 310, hpMultiplier: 2.02, damageMultiplier: 1.95 },
+  { level: 13, xpToNextLevel: 360, hpMultiplier: 2.2, damageMultiplier: 2.15 },
+  { level: 14, xpToNextLevel: 410, hpMultiplier: 2.4, damageMultiplier: 2.35 },
+  { level: 15, xpToNextLevel: 470, hpMultiplier: 2.62, damageMultiplier: 2.6 },
+  { level: 16, xpToNextLevel: 540, hpMultiplier: 2.86, damageMultiplier: 2.85 },
+  { level: 17, xpToNextLevel: 620, hpMultiplier: 3.13, damageMultiplier: 3.15 },
+  { level: 18, xpToNextLevel: 710, hpMultiplier: 3.42, damageMultiplier: 3.5 },
+  { level: 19, xpToNextLevel: 810, hpMultiplier: 3.74, damageMultiplier: 3.9 },
+  { level: 20, xpToNextLevel: 920, hpMultiplier: 4.1, damageMultiplier: 4.35 },
+  {
+    level: 21,
+    xpToNextLevel: 1050,
+    hpMultiplier: 4.48,
+    damageMultiplier: 4.85,
+  },
+  { level: 22, xpToNextLevel: 1200, hpMultiplier: 4.9, damageMultiplier: 5.4 },
+  { level: 23, xpToNextLevel: 1370, hpMultiplier: 5.36, damageMultiplier: 6.0 },
+  {
+    level: 24,
+    xpToNextLevel: 1560,
+    hpMultiplier: 5.86,
+    damageMultiplier: 6.65,
+  },
+  { level: 25, xpToNextLevel: 1780, hpMultiplier: 6.4, damageMultiplier: 7.35 },
+  {
+    level: 26,
+    xpToNextLevel: 2030,
+    hpMultiplier: 6.99,
+    damageMultiplier: 8.1,
+  },
+  {
+    level: 27,
+    xpToNextLevel: 2310,
+    hpMultiplier: 7.63,
+    damageMultiplier: 8.9,
+  },
+  {
+    level: 28,
+    xpToNextLevel: 2630,
+    hpMultiplier: 8.32,
+    damageMultiplier: 9.75,
+  },
+  {
+    level: 29,
+    xpToNextLevel: 2990,
+    hpMultiplier: 9.08,
+    damageMultiplier: 10.65,
+  },
+  { level: 30, xpToNextLevel: 3400, hpMultiplier: 9.9, damageMultiplier: 11.6 },
+  {
+    level: 31,
+    xpToNextLevel: 3870,
+    hpMultiplier: 10.8,
+    damageMultiplier: 12.5,
+  },
+  {
+    level: 32,
+    xpToNextLevel: 4410,
+    hpMultiplier: 11.78,
+    damageMultiplier: 13.5,
+  },
+  {
+    level: 33,
+    xpToNextLevel: 5020,
+    hpMultiplier: 12.85,
+    damageMultiplier: 14.6,
+  },
+  {
+    level: 34,
+    xpToNextLevel: 5710,
+    hpMultiplier: 14.02,
+    damageMultiplier: 15.8,
+  },
+  {
+    level: 35,
+    xpToNextLevel: 6500,
+    hpMultiplier: 15.3,
+    damageMultiplier: 17.1,
+  },
+  {
+    level: 36,
+    xpToNextLevel: 7390,
+    hpMultiplier: 16.71,
+    damageMultiplier: 18.5,
+  },
+  {
+    level: 37,
+    xpToNextLevel: 8410,
+    hpMultiplier: 18.26,
+    damageMultiplier: 20.0,
+  },
+  {
+    level: 38,
+    xpToNextLevel: 9570,
+    hpMultiplier: 19.96,
+    damageMultiplier: 21.6,
+  },
+  {
+    level: 39,
+    xpToNextLevel: 10900,
+    hpMultiplier: 21.82,
+    damageMultiplier: 23.3,
+  },
+  {
+    level: 40,
+    xpToNextLevel: 12420,
+    hpMultiplier: 23.87,
+    damageMultiplier: 25.1,
+  },
+  {
+    level: 41,
+    xpToNextLevel: 14150,
+    hpMultiplier: 26.12,
+    damageMultiplier: 27.0,
+  },
+  {
+    level: 42,
+    xpToNextLevel: 16120,
+    hpMultiplier: 28.6,
+    damageMultiplier: 29.0,
+  },
+  {
+    level: 43,
+    xpToNextLevel: 18370,
+    hpMultiplier: 31.33,
+    damageMultiplier: 31.2,
+  },
+  {
+    level: 44,
+    xpToNextLevel: 20940,
+    hpMultiplier: 34.34,
+    damageMultiplier: 33.5,
+  },
+  {
+    level: 45,
+    xpToNextLevel: 23870,
+    hpMultiplier: 37.66,
+    damageMultiplier: 36.0,
+  },
+  {
+    level: 46,
+    xpToNextLevel: 27210,
+    hpMultiplier: 41.32,
+    damageMultiplier: 38.6,
+  },
+  {
+    level: 47,
+    xpToNextLevel: 31020,
+    hpMultiplier: 45.36,
+    damageMultiplier: 41.4,
+  },
+  {
+    level: 48,
+    xpToNextLevel: 35360,
+    hpMultiplier: 49.81,
+    damageMultiplier: 44.4,
+  },
+  {
+    level: 49,
+    xpToNextLevel: 40310,
+    hpMultiplier: 54.72,
+    damageMultiplier: 47.6,
+  },
+  {
+    level: 50,
+    xpToNextLevel: 45940,
+    hpMultiplier: 60.14,
+    damageMultiplier: 51.0,
+  },
+  {
+    level: 51,
+    xpToNextLevel: 52340,
+    hpMultiplier: 66.12,
+    damageMultiplier: 54.6,
+  },
+  {
+    level: 52,
+    xpToNextLevel: 59610,
+    hpMultiplier: 72.72,
+    damageMultiplier: 58.4,
+  },
+  {
+    level: 53,
+    xpToNextLevel: 67860,
+    hpMultiplier: 80.0,
+    damageMultiplier: 62.4,
+  },
+  {
+    level: 54,
+    xpToNextLevel: 77210,
+    hpMultiplier: 88.04,
+    damageMultiplier: 66.6,
+  },
+  {
+    level: 55,
+    xpToNextLevel: 87790,
+    hpMultiplier: 96.92,
+    damageMultiplier: 71.0,
+  },
+  {
+    level: 56,
+    xpToNextLevel: 99750,
+    hpMultiplier: 106.72,
+    damageMultiplier: 75.6,
+  },
+  {
+    level: 57,
+    xpToNextLevel: 113270,
+    hpMultiplier: 117.55,
+    damageMultiplier: 80.5,
+  },
+  {
+    level: 58,
+    xpToNextLevel: 128540,
+    hpMultiplier: 129.5,
+    damageMultiplier: 85.6,
+  },
+  {
+    level: 59,
+    xpToNextLevel: 145780,
+    hpMultiplier: 142.69,
+    damageMultiplier: 91.0,
+  },
+  {
+    level: 60,
+    xpToNextLevel: null,
+    hpMultiplier: 157.23,
+    damageMultiplier: 96.6,
+  },
+] as const;
 
 export function normalizeNickname(nickname: string): string {
   return nickname.trim().toLowerCase();
@@ -137,21 +378,21 @@ export function getCharacterClassBaseCombatStats(
       return {
         maxHp: 180,
         baseDamage: 24,
-        baseAttackSpeedMs: 600,
+        baseAttackSpeedMs: 100,
         baseAttackRange: 60,
       };
     case "mage":
       return {
         maxHp: 110,
         baseDamage: 18,
-        baseAttackSpeedMs: 820,
+        baseAttackSpeedMs: 100,
         baseAttackRange: 360,
       };
     default:
       return {
         maxHp: 180,
         baseDamage: 24,
-        baseAttackSpeedMs: 600,
+        baseAttackSpeedMs: 100,
         baseAttackRange: 60,
       };
   }
@@ -336,20 +577,4 @@ export function computeAdjustedEnemyExperience(
     baseExperience * getEnemyExperienceMultiplier(enemyLevel, playerLevel),
   );
   return Math.max(1, scaled);
-}
-
-function buildDefaultLevelProgressionTable(): LevelProgressionRow[] {
-  const rows: LevelProgressionRow[] = [];
-  for (let level = 1; level <= MAX_CHARACTER_LEVEL; level += 1) {
-    const isMax = level === MAX_CHARACTER_LEVEL;
-    rows.push({
-      level,
-      xpToNextLevel: isMax
-        ? null
-        : Math.max(25, Math.round(75 + level * level * 5.5 + level * 36)),
-      hpMultiplier: Math.round((1 + (level - 1) * 0.05) * 1000) / 1000,
-      damageMultiplier: Math.round((1 + (level - 1) * 0.1) * 1000) / 1000,
-    });
-  }
-  return rows;
 }

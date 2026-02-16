@@ -1,0 +1,193 @@
+{
+  "id": "world_02_dusty_canyons",
+  "name": "Dusty Canyons",
+  "width": 2400,
+  "height": 1500,
+  "background": {
+    "color": "#b07d2a",
+    "gridSize": 100
+  },
+  "combat": {
+    "allowCombat": true,
+    "pvpEnabled": false
+  },
+  "playerSpawnId": "sp_canyons_start",
+  "spawnPoints": [
+    {
+      "id": "sp_canyons_start",
+      "x": 160,
+      "y": 750
+    },
+    {
+      "id": "sp_canyons_mid",
+      "x": 1320,
+      "y": 750
+    }
+  ],
+  "collisions": [
+    {
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "width": 2400,
+      "height": 60
+    },
+    {
+      "type": "rect",
+      "x": 0,
+      "y": 1440,
+      "width": 2400,
+      "height": 60
+    },
+    {
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "width": 60,
+      "height": 1500
+    },
+    {
+      "type": "rect",
+      "x": 2340,
+      "y": 0,
+      "width": 60,
+      "height": 1500
+    }
+  ],
+  "regions": [
+    {
+      "id": "r_dc_01_rim",
+      "name": "Canyon Rim (Lv 11-14)",
+      "shape": {
+        "type": "rect",
+        "x": 60,
+        "y": 60,
+        "width": 800,
+        "height": 1380
+      }
+    },
+    {
+      "id": "r_dc_02_pass",
+      "name": "Narrow Pass (Lv 14-18)",
+      "shape": {
+        "type": "rect",
+        "x": 860,
+        "y": 60,
+        "width": 900,
+        "height": 1380
+      }
+    },
+    {
+      "id": "r_dc_03_sinkhole",
+      "name": "Sinkhole Approach (Lv 18-20)",
+      "shape": {
+        "type": "rect",
+        "x": 1760,
+        "y": 60,
+        "width": 580,
+        "height": 1380
+      }
+    }
+  ],
+  "portals": [
+    {
+      "id": "p_dc_to_greenfields",
+      "name": "Back to Greenfields",
+      "shape": {
+        "type": "rect",
+        "x": 60,
+        "y": 680,
+        "width": 80,
+        "height": 160
+      },
+      "targetWorldId": "world_01_greenfields",
+      "targetSpawnId": "sp_greenfields_mid",
+      "exitOffset": {
+        "x": 20,
+        "y": 0
+      }
+    },
+    {
+      "id": "p_dc_to_frostmarch",
+      "name": "Path to Frostmarch",
+      "shape": {
+        "type": "rect",
+        "x": 2260,
+        "y": 680,
+        "width": 80,
+        "height": 160
+      },
+      "targetWorldId": "world_03_frostmarch",
+      "targetSpawnId": "sp_frostmarch_start",
+      "exitOffset": {
+        "x": 20,
+        "y": 0
+      }
+    }
+  ],
+  "enemySpawners": [
+    {
+      "id": "s_dc_scorp_1",
+      "archetypeId": "e_012_scorpion",
+      "x": 340,
+      "y": 420,
+      "spawnRadius": 180,
+      "maxAlive": 6,
+      "respawnSeconds": 9
+    },
+    {
+      "id": "s_dc_scorp_2",
+      "archetypeId": "e_012_scorpion",
+      "x": 500,
+      "y": 1100,
+      "spawnRadius": 180,
+      "maxAlive": 6,
+      "respawnSeconds": 9
+    },
+    {
+      "id": "s_dc_maraud_1",
+      "archetypeId": "e_015_marauder",
+      "x": 1120,
+      "y": 440,
+      "spawnRadius": 180,
+      "maxAlive": 5,
+      "respawnSeconds": 10
+    },
+    {
+      "id": "s_dc_maraud_2",
+      "archetypeId": "e_015_marauder",
+      "x": 1280,
+      "y": 1100,
+      "spawnRadius": 180,
+      "maxAlive": 5,
+      "respawnSeconds": 10
+    },
+    {
+      "id": "s_dc_golem_1",
+      "archetypeId": "e_018_rock_golem",
+      "x": 1960,
+      "y": 500,
+      "spawnRadius": 160,
+      "maxAlive": 3,
+      "respawnSeconds": 14
+    },
+    {
+      "id": "s_dc_sharp_1",
+      "archetypeId": "e_019_sharpshooter",
+      "x": 2080,
+      "y": 1040,
+      "spawnRadius": 180,
+      "maxAlive": 3,
+      "respawnSeconds": 14
+    },
+    {
+      "id": "s_dc_boss_wyrm",
+      "archetypeId": "e_020_sand_wyrm",
+      "x": 2200,
+      "y": 750,
+      "spawnRadius": 100,
+      "maxAlive": 1,
+      "respawnSeconds": 70
+    }
+  ]
+}
