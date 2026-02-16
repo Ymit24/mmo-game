@@ -2,9 +2,13 @@ import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import {
+  type AttackPatternId,
+  type CharacterClass,
   MAX_CHARACTER_LEVEL,
   USER_ROLES,
+  type WeaponStyle,
   getLevelProgressionTable,
+  resolveWeaponAttackConfig,
 } from "@mmo/shared";
 
 const ENEMY_ARCHETYPE_PROGRESSION_SEEDS = [
@@ -908,6 +912,32 @@ function backfillItemDefinitionAttackDefaults(db: Database): void {
      WHERE type <> 'weapon'`,
   ).run();
 
+  const weaponRows = db
+    .query<
+      {
+        id: string;
+        class_requirement: CharacterClass | null;
+        weapon_style: WeaponStyle | null;
+        attack_pattern_id: AttackPatternId | null;
+        attack_damage_multiplier: number | null;
+        attack_projectile_count: number | null;
+        attack_spread_degrees: number | null;
+        attack_burst_count: number | null;
+        attack_burst_interval_ms: number | null;
+        attack_aoe_radius: number | null;
+        attack_aoe_delay_ms: number | null;
+      },
+      []
+    >(
+      `SELECT id, class_requirement, weapon_style, attack_pattern_id,
+              attack_damage_multiplier, attack_projectile_count,
+              attack_spread_degrees, attack_burst_count,
+              attack_burst_interval_ms, attack_aoe_radius, attack_aoe_delay_ms
+       FROM item_definitions
+       WHERE type = 'weapon'`,
+    )
+    .all();
+
   const apply = db.query(
     `UPDATE item_definitions
      SET weapon_style = ?2,
@@ -922,114 +952,44 @@ function backfillItemDefinitionAttackDefaults(db: Database): void {
      WHERE id = ?1`,
   );
 
-  apply.run("training_sword", "sword", "sword_cleave", 1, 1, 0, 1, 0, 0, 0);
-  apply.run("iron_broadsword", "sword", "sword_whirl", 0.9, 1, 0, 1, 0, 88, 0);
-  apply.run(
-    "runed_greatsword",
-    "sword",
-    "sword_spinblade",
-    0.55,
-    1,
-    0,
-    1,
-    0,
-    0,
-    0,
-  );
-  apply.run(
-    "dragonbone_blade",
-    "sword",
-    "sword_spinblade",
-    0.55,
-    1,
-    0,
-    1,
-    0,
-    0,
-    0,
-  );
-  apply.run("training_wand", "wand", "wand_multishot", 1, 3, 22, 1, 0, 0, 0);
-  apply.run("adept_focus_wand", "wand", "wand_burst", 0.36, 1, 0, 3, 70, 0, 0);
-  apply.run(
-    "stormweave_rod",
-    "staff",
-    "staff_ground_aoe",
-    0.95,
-    1,
-    0,
-    1,
-    0,
-    72,
-    180,
-  );
-  apply.run(
-    "arcane_scepter",
-    "staff",
-    "staff_ground_aoe",
-    0.95,
-    1,
-    0,
-    1,
-    0,
-    84,
-    180,
-  );
-  apply.run("splitfire_wand", "wand", "wand_multishot", 1, 3, 26, 1, 0, 0, 0);
-  apply.run(
-    "emberbranch_staff",
-    "staff",
-    "staff_ground_aoe",
-    0.95,
-    1,
-    0,
-    1,
-    0,
-    74,
-    180,
-  );
-  apply.run(
-    "starcall_staff",
-    "staff",
-    "staff_ground_aoe",
-    0.95,
-    1,
-    0,
-    1,
-    0,
-    90,
-    180,
-  );
-  apply.run(
-    "vanguard_pike",
-    "sword",
-    "sword_spinblade",
-    0.55,
-    1,
-    0,
-    1,
-    0,
-    0,
-    0,
-  );
+  for (const row of weaponRows) {
+    const resolved = resolveWeaponAttackConfig(
+      {
+        id: row.id,
+        name: row.id,
+        iconKey: row.id,
+        type: "weapon",
+        classRequirement: row.class_requirement,
+        minLevelToEquip: null,
+        weaponDamageFlat: 0,
+        weaponRangeFlat: 0,
+        weaponSpeedPercent: 0,
+        weaponStyle: row.weapon_style,
+        attackPatternId: row.attack_pattern_id,
+        attackDamageMultiplier: row.attack_damage_multiplier,
+        attackProjectileCount: row.attack_projectile_count,
+        attackSpreadDegrees: row.attack_spread_degrees,
+        attackBurstCount: row.attack_burst_count,
+        attackBurstIntervalMs: row.attack_burst_interval_ms,
+        attackAoeRadius: row.attack_aoe_radius,
+        attackAoeDelayMs: row.attack_aoe_delay_ms,
+      },
+      row.class_requirement ?? "knight",
+    );
 
-  db.query(
-    `UPDATE item_definitions
-     SET weapon_style = CASE
-       WHEN class_requirement = 'mage' THEN 'wand'
-       ELSE 'sword'
-     END
-     WHERE type = 'weapon'
-       AND weapon_style IS NULL`,
-  ).run();
-  db.query(
-    `UPDATE item_definitions
-     SET attack_pattern_id = CASE
-       WHEN class_requirement = 'mage' THEN 'wand_multishot'
-       ELSE 'sword_cleave'
-     END
-     WHERE type = 'weapon'
-       AND attack_pattern_id IS NULL`,
-  ).run();
+    apply.run(
+      row.id,
+      resolved.weaponStyle,
+      resolved.attackPatternId,
+      resolved.damageMultiplier,
+      resolved.projectileCount,
+      resolved.spreadDegrees,
+      resolved.burstCount,
+      resolved.burstIntervalMs,
+      resolved.aoeRadius,
+      resolved.aoeDelayMs,
+    );
+  }
 }
 
 function ensureEnemyArchetypeProgressionColumns(db: Database): void {

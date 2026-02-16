@@ -412,6 +412,47 @@ describe("database bootstrap", () => {
     db.close();
   });
 
+  test("bootstrap preserves existing weapon attack tuning values", () => {
+    const db = createDatabase(":memory:");
+
+    db.query(
+      `UPDATE item_definitions
+       SET attack_pattern_id = ?1,
+           attack_damage_multiplier = ?2,
+           attack_burst_count = ?3,
+           attack_burst_interval_ms = ?4
+       WHERE id = ?5`,
+    ).run("wand_burst", 0.73, 5, 120, "training_sword");
+
+    bootstrapDatabase(db);
+
+    const tuned = db
+      .query<
+        {
+          attack_pattern_id: string | null;
+          attack_damage_multiplier: number | null;
+          attack_burst_count: number | null;
+          attack_burst_interval_ms: number | null;
+        },
+        []
+      >(
+        `SELECT attack_pattern_id, attack_damage_multiplier,
+                attack_burst_count, attack_burst_interval_ms
+         FROM item_definitions
+         WHERE id = 'training_sword'
+         LIMIT 1`,
+      )
+      .get();
+
+    expect(tuned).toEqual({
+      attack_pattern_id: "wand_burst",
+      attack_damage_multiplier: 0.73,
+      attack_burst_count: 5,
+      attack_burst_interval_ms: 120,
+    });
+    db.close();
+  });
+
   test("enemy archetype table exposes level and xp reward columns", () => {
     const db = createDatabase(":memory:");
 

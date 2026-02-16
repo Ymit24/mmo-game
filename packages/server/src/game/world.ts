@@ -532,6 +532,59 @@ function resolveAttackConfig(
   );
 }
 
+function readSessionWeaponModifiers(
+  session: RealtimeSession,
+): Partial<WeaponStatModifiers> {
+  return {
+    damageFlat: session.characterWeaponDamageFlat ?? undefined,
+    rangeFlat: session.characterWeaponRangeFlat ?? undefined,
+    speedPercent: session.characterWeaponSpeedPercent ?? undefined,
+  };
+}
+
+function writeSessionWeaponModifiers(
+  session: RealtimeSession,
+  modifiers: WeaponStatModifiers,
+): void {
+  session.characterWeaponDamageFlat = modifiers.damageFlat;
+  session.characterWeaponRangeFlat = modifiers.rangeFlat;
+  session.characterWeaponSpeedPercent = modifiers.speedPercent;
+}
+
+function readSessionAttackConfig(
+  session: RealtimeSession,
+): Partial<ResolvedWeaponAttackConfig> {
+  return {
+    weaponStyle: session.characterWeaponStyle ?? undefined,
+    attackPatternId: session.characterAttackPatternId ?? undefined,
+    damageMultiplier: session.characterAttackDamageMultiplier ?? undefined,
+    projectileCount: session.characterAttackProjectileCount ?? undefined,
+    spreadDegrees: session.characterAttackSpreadDegrees ?? undefined,
+    burstCount: session.characterAttackBurstCount ?? undefined,
+    burstIntervalMs: session.characterAttackBurstIntervalMs ?? undefined,
+    aoeRadius: session.characterAttackAoeRadius ?? undefined,
+    aoeDelayMs: session.characterAttackAoeDelayMs ?? undefined,
+    maxTargetHitsPerAttack:
+      session.characterAttackMaxTargetHitsPerAttack ?? undefined,
+  };
+}
+
+function writeSessionAttackConfig(
+  session: RealtimeSession,
+  attack: ResolvedWeaponAttackConfig,
+): void {
+  session.characterWeaponStyle = attack.weaponStyle;
+  session.characterAttackPatternId = attack.attackPatternId;
+  session.characterAttackDamageMultiplier = attack.damageMultiplier;
+  session.characterAttackProjectileCount = attack.projectileCount;
+  session.characterAttackSpreadDegrees = attack.spreadDegrees;
+  session.characterAttackBurstCount = attack.burstCount;
+  session.characterAttackBurstIntervalMs = attack.burstIntervalMs;
+  session.characterAttackAoeRadius = attack.aoeRadius;
+  session.characterAttackAoeDelayMs = attack.aoeDelayMs;
+  session.characterAttackMaxTargetHitsPerAttack = attack.maxTargetHitsPerAttack;
+}
+
 function computeEffectiveCombatStatsForLevel(
   baseStats: CharacterBaseCombatStats,
   level: number,
@@ -2331,48 +2384,25 @@ class WorldInstance {
 
   private syncPlayerSessionProgress(player: PlayerState): void {
     const xpToNextLevel = getXpToNextLevelForLevel(player.level);
-    player.socket.data.session.characterCurrentHealth = player.currentHealth;
-    player.socket.data.session.characterMaxHealth = player.maxHealth;
-    player.socket.data.session.characterBaseDamage = player.baseDamage;
-    player.socket.data.session.characterBaseAttackSpeedMs =
-      player.baseAttackSpeedMs;
-    player.socket.data.session.characterBaseAttackRange =
-      player.baseAttackRange;
-    player.socket.data.session.characterRawMaxHealth = player.rawMaxHealth;
-    player.socket.data.session.characterRawBaseDamage = player.rawBaseDamage;
-    player.socket.data.session.characterRawBaseAttackSpeedMs =
-      player.rawBaseAttackSpeedMs;
-    player.socket.data.session.characterRawBaseAttackRange =
-      player.rawBaseAttackRange;
-    player.socket.data.session.characterWeaponDamageFlat =
-      player.weaponDamageFlat;
-    player.socket.data.session.characterWeaponRangeFlat =
-      player.weaponRangeFlat;
-    player.socket.data.session.characterWeaponSpeedPercent =
-      player.weaponSpeedPercent;
-    player.socket.data.session.characterWeaponStyle =
-      player.attackConfig.weaponStyle;
-    player.socket.data.session.characterAttackPatternId =
-      player.attackConfig.attackPatternId;
-    player.socket.data.session.characterAttackDamageMultiplier =
-      player.attackConfig.damageMultiplier;
-    player.socket.data.session.characterAttackProjectileCount =
-      player.attackConfig.projectileCount;
-    player.socket.data.session.characterAttackSpreadDegrees =
-      player.attackConfig.spreadDegrees;
-    player.socket.data.session.characterAttackBurstCount =
-      player.attackConfig.burstCount;
-    player.socket.data.session.characterAttackBurstIntervalMs =
-      player.attackConfig.burstIntervalMs;
-    player.socket.data.session.characterAttackAoeRadius =
-      player.attackConfig.aoeRadius;
-    player.socket.data.session.characterAttackAoeDelayMs =
-      player.attackConfig.aoeDelayMs;
-    player.socket.data.session.characterAttackMaxTargetHitsPerAttack =
-      player.attackConfig.maxTargetHitsPerAttack;
-    player.socket.data.session.characterLevel = player.level;
-    player.socket.data.session.characterXp = player.xp;
-    player.socket.data.session.characterXpToNextLevel = xpToNextLevel;
+    const session = player.socket.data.session;
+    session.characterCurrentHealth = player.currentHealth;
+    session.characterMaxHealth = player.maxHealth;
+    session.characterBaseDamage = player.baseDamage;
+    session.characterBaseAttackSpeedMs = player.baseAttackSpeedMs;
+    session.characterBaseAttackRange = player.baseAttackRange;
+    session.characterRawMaxHealth = player.rawMaxHealth;
+    session.characterRawBaseDamage = player.rawBaseDamage;
+    session.characterRawBaseAttackSpeedMs = player.rawBaseAttackSpeedMs;
+    session.characterRawBaseAttackRange = player.rawBaseAttackRange;
+    writeSessionWeaponModifiers(session, {
+      damageFlat: player.weaponDamageFlat,
+      rangeFlat: player.weaponRangeFlat,
+      speedPercent: player.weaponSpeedPercent,
+    });
+    writeSessionAttackConfig(session, player.attackConfig);
+    session.characterLevel = player.level;
+    session.characterXp = player.xp;
+    session.characterXpToNextLevel = xpToNextLevel;
   }
 
   private emitFloatingText(
@@ -2611,114 +2641,69 @@ export class WorldManager {
     colorHex: string,
     options?: JoinWorldOptions,
   ): Vector2 | null {
+    const session = socket.data.session;
     const instance = this.getOrCreate(worldId);
     if (!instance) {
       return null;
     }
 
-    const currentWorldId = socket.data.session.worldId;
+    const currentWorldId = session.worldId;
     if (currentWorldId) {
       this.leaveWorld(socket);
     }
 
     const player = instance.addPlayer(
-      socket.data.session.connectionId,
+      session.connectionId,
       characterId,
       nickname,
       characterClass,
       colorHex,
       socket,
       options?.combatStats ?? {
-        currentHealth: socket.data.session.characterCurrentHealth ?? undefined,
-        maxHealth: socket.data.session.characterMaxHealth ?? undefined,
-        baseDamage: socket.data.session.characterBaseDamage ?? undefined,
-        baseAttackSpeedMs:
-          socket.data.session.characterBaseAttackSpeedMs ?? undefined,
-        baseAttackRange:
-          socket.data.session.characterBaseAttackRange ?? undefined,
+        currentHealth: session.characterCurrentHealth ?? undefined,
+        maxHealth: session.characterMaxHealth ?? undefined,
+        baseDamage: session.characterBaseDamage ?? undefined,
+        baseAttackSpeedMs: session.characterBaseAttackSpeedMs ?? undefined,
+        baseAttackRange: session.characterBaseAttackRange ?? undefined,
       },
       options?.baseStats ?? {
-        maxHp: socket.data.session.characterRawMaxHealth ?? undefined,
-        baseDamage: socket.data.session.characterRawBaseDamage ?? undefined,
-        baseAttackSpeedMs:
-          socket.data.session.characterRawBaseAttackSpeedMs ?? undefined,
-        baseAttackRange:
-          socket.data.session.characterRawBaseAttackRange ?? undefined,
+        maxHp: session.characterRawMaxHealth ?? undefined,
+        baseDamage: session.characterRawBaseDamage ?? undefined,
+        baseAttackSpeedMs: session.characterRawBaseAttackSpeedMs ?? undefined,
+        baseAttackRange: session.characterRawBaseAttackRange ?? undefined,
       },
       options?.progression ?? {
-        level: socket.data.session.characterLevel ?? undefined,
-        xp: socket.data.session.characterXp ?? undefined,
+        level: session.characterLevel ?? undefined,
+        xp: session.characterXp ?? undefined,
       },
-      options?.weaponModifiers ?? {
-        damageFlat: socket.data.session.characterWeaponDamageFlat ?? undefined,
-        rangeFlat: socket.data.session.characterWeaponRangeFlat ?? undefined,
-        speedPercent:
-          socket.data.session.characterWeaponSpeedPercent ?? undefined,
-      },
-      options?.attackConfig ?? {
-        weaponStyle: socket.data.session.characterWeaponStyle ?? undefined,
-        attackPatternId:
-          socket.data.session.characterAttackPatternId ?? undefined,
-        damageMultiplier:
-          socket.data.session.characterAttackDamageMultiplier ?? undefined,
-        projectileCount:
-          socket.data.session.characterAttackProjectileCount ?? undefined,
-        spreadDegrees:
-          socket.data.session.characterAttackSpreadDegrees ?? undefined,
-        burstCount: socket.data.session.characterAttackBurstCount ?? undefined,
-        burstIntervalMs:
-          socket.data.session.characterAttackBurstIntervalMs ?? undefined,
-        aoeRadius: socket.data.session.characterAttackAoeRadius ?? undefined,
-        aoeDelayMs: socket.data.session.characterAttackAoeDelayMs ?? undefined,
-        maxTargetHitsPerAttack:
-          socket.data.session.characterAttackMaxTargetHitsPerAttack ??
-          undefined,
-      },
+      options?.weaponModifiers ?? readSessionWeaponModifiers(session),
+      options?.attackConfig ?? readSessionAttackConfig(session),
       options?.spawnOverride,
     );
     const spawn = player.position;
-    socket.data.session.worldId = worldId;
-    socket.data.session.characterId = characterId;
-    socket.data.session.characterNickname = nickname;
-    socket.data.session.characterClass = characterClass;
-    socket.data.session.characterColorHex = colorHex;
-    socket.data.session.characterCurrentHealth = player.currentHealth;
-    socket.data.session.characterMaxHealth = player.maxHealth;
-    socket.data.session.characterBaseDamage = player.baseDamage;
-    socket.data.session.characterBaseAttackSpeedMs = player.baseAttackSpeedMs;
-    socket.data.session.characterBaseAttackRange = player.baseAttackRange;
-    socket.data.session.characterRawMaxHealth = player.rawMaxHealth;
-    socket.data.session.characterRawBaseDamage = player.rawBaseDamage;
-    socket.data.session.characterRawBaseAttackSpeedMs =
-      player.rawBaseAttackSpeedMs;
-    socket.data.session.characterRawBaseAttackRange = player.rawBaseAttackRange;
-    socket.data.session.characterWeaponDamageFlat = player.weaponDamageFlat;
-    socket.data.session.characterWeaponRangeFlat = player.weaponRangeFlat;
-    socket.data.session.characterWeaponSpeedPercent = player.weaponSpeedPercent;
-    socket.data.session.characterWeaponStyle = player.attackConfig.weaponStyle;
-    socket.data.session.characterAttackPatternId =
-      player.attackConfig.attackPatternId;
-    socket.data.session.characterAttackDamageMultiplier =
-      player.attackConfig.damageMultiplier;
-    socket.data.session.characterAttackProjectileCount =
-      player.attackConfig.projectileCount;
-    socket.data.session.characterAttackSpreadDegrees =
-      player.attackConfig.spreadDegrees;
-    socket.data.session.characterAttackBurstCount =
-      player.attackConfig.burstCount;
-    socket.data.session.characterAttackBurstIntervalMs =
-      player.attackConfig.burstIntervalMs;
-    socket.data.session.characterAttackAoeRadius =
-      player.attackConfig.aoeRadius;
-    socket.data.session.characterAttackAoeDelayMs =
-      player.attackConfig.aoeDelayMs;
-    socket.data.session.characterAttackMaxTargetHitsPerAttack =
-      player.attackConfig.maxTargetHitsPerAttack;
-    socket.data.session.characterLevel = player.level;
-    socket.data.session.characterXp = player.xp;
-    socket.data.session.characterXpToNextLevel = getXpToNextLevelForLevel(
-      player.level,
-    );
+    session.worldId = worldId;
+    session.characterId = characterId;
+    session.characterNickname = nickname;
+    session.characterClass = characterClass;
+    session.characterColorHex = colorHex;
+    session.characterCurrentHealth = player.currentHealth;
+    session.characterMaxHealth = player.maxHealth;
+    session.characterBaseDamage = player.baseDamage;
+    session.characterBaseAttackSpeedMs = player.baseAttackSpeedMs;
+    session.characterBaseAttackRange = player.baseAttackRange;
+    session.characterRawMaxHealth = player.rawMaxHealth;
+    session.characterRawBaseDamage = player.rawBaseDamage;
+    session.characterRawBaseAttackSpeedMs = player.rawBaseAttackSpeedMs;
+    session.characterRawBaseAttackRange = player.rawBaseAttackRange;
+    writeSessionWeaponModifiers(session, {
+      damageFlat: player.weaponDamageFlat,
+      rangeFlat: player.weaponRangeFlat,
+      speedPercent: player.weaponSpeedPercent,
+    });
+    writeSessionAttackConfig(session, player.attackConfig);
+    session.characterLevel = player.level;
+    session.characterXp = player.xp;
+    session.characterXpToNextLevel = getXpToNextLevelForLevel(player.level);
 
     socket.send(
       stringifyServerMessage({
@@ -2742,61 +2727,39 @@ export class WorldManager {
   }
 
   leaveWorld(socket: ServerWebSocket<RealtimeSocketData>): void {
-    const { connectionId, characterId, worldId } = socket.data.session;
+    const session = socket.data.session;
+    const { connectionId, characterId, worldId } = session;
     if (!characterId || !worldId) {
       return;
     }
 
     const instance = this.instances.get(worldId);
     if (!instance) {
-      socket.data.session.worldId = null;
+      session.worldId = null;
       return;
     }
 
     const removed = instance.removePlayer(characterId, connectionId);
-    socket.data.session.worldId = null;
+    session.worldId = null;
     if (removed) {
-      socket.data.session.characterCurrentHealth = removed.currentHealth;
-      socket.data.session.characterMaxHealth = removed.maxHealth;
-      socket.data.session.characterBaseDamage = removed.baseDamage;
-      socket.data.session.characterBaseAttackSpeedMs =
-        removed.baseAttackSpeedMs;
-      socket.data.session.characterBaseAttackRange = removed.baseAttackRange;
-      socket.data.session.characterRawMaxHealth = removed.rawMaxHealth;
-      socket.data.session.characterRawBaseDamage = removed.rawBaseDamage;
-      socket.data.session.characterRawBaseAttackSpeedMs =
-        removed.rawBaseAttackSpeedMs;
-      socket.data.session.characterRawBaseAttackRange =
-        removed.rawBaseAttackRange;
-      socket.data.session.characterWeaponDamageFlat = removed.weaponDamageFlat;
-      socket.data.session.characterWeaponRangeFlat = removed.weaponRangeFlat;
-      socket.data.session.characterWeaponSpeedPercent =
-        removed.weaponSpeedPercent;
-      socket.data.session.characterWeaponStyle =
-        removed.attackConfig.weaponStyle;
-      socket.data.session.characterAttackPatternId =
-        removed.attackConfig.attackPatternId;
-      socket.data.session.characterAttackDamageMultiplier =
-        removed.attackConfig.damageMultiplier;
-      socket.data.session.characterAttackProjectileCount =
-        removed.attackConfig.projectileCount;
-      socket.data.session.characterAttackSpreadDegrees =
-        removed.attackConfig.spreadDegrees;
-      socket.data.session.characterAttackBurstCount =
-        removed.attackConfig.burstCount;
-      socket.data.session.characterAttackBurstIntervalMs =
-        removed.attackConfig.burstIntervalMs;
-      socket.data.session.characterAttackAoeRadius =
-        removed.attackConfig.aoeRadius;
-      socket.data.session.characterAttackAoeDelayMs =
-        removed.attackConfig.aoeDelayMs;
-      socket.data.session.characterAttackMaxTargetHitsPerAttack =
-        removed.attackConfig.maxTargetHitsPerAttack;
-      socket.data.session.characterLevel = removed.level;
-      socket.data.session.characterXp = removed.xp;
-      socket.data.session.characterXpToNextLevel = getXpToNextLevelForLevel(
-        removed.level,
-      );
+      session.characterCurrentHealth = removed.currentHealth;
+      session.characterMaxHealth = removed.maxHealth;
+      session.characterBaseDamage = removed.baseDamage;
+      session.characterBaseAttackSpeedMs = removed.baseAttackSpeedMs;
+      session.characterBaseAttackRange = removed.baseAttackRange;
+      session.characterRawMaxHealth = removed.rawMaxHealth;
+      session.characterRawBaseDamage = removed.rawBaseDamage;
+      session.characterRawBaseAttackSpeedMs = removed.rawBaseAttackSpeedMs;
+      session.characterRawBaseAttackRange = removed.rawBaseAttackRange;
+      writeSessionWeaponModifiers(session, {
+        damageFlat: removed.weaponDamageFlat,
+        rangeFlat: removed.weaponRangeFlat,
+        speedPercent: removed.weaponSpeedPercent,
+      });
+      writeSessionAttackConfig(session, removed.attackConfig);
+      session.characterLevel = removed.level;
+      session.characterXp = removed.xp;
+      session.characterXpToNextLevel = getXpToNextLevelForLevel(removed.level);
     }
 
     if (instance.size === 0) {
@@ -2849,46 +2812,16 @@ export class WorldManager {
     modifiers: Partial<WeaponStatModifiers>,
     attackConfig?: Partial<ResolvedWeaponAttackConfig>,
   ): void {
+    const session = socket.data.session;
     const normalized = resolveWeaponModifiers(modifiers);
     const attack = resolveAttackConfig(
-      socket.data.session.characterClass ?? "knight",
-      attackConfig ?? {
-        weaponStyle: socket.data.session.characterWeaponStyle ?? undefined,
-        attackPatternId:
-          socket.data.session.characterAttackPatternId ?? undefined,
-        damageMultiplier:
-          socket.data.session.characterAttackDamageMultiplier ?? undefined,
-        projectileCount:
-          socket.data.session.characterAttackProjectileCount ?? undefined,
-        spreadDegrees:
-          socket.data.session.characterAttackSpreadDegrees ?? undefined,
-        burstCount: socket.data.session.characterAttackBurstCount ?? undefined,
-        burstIntervalMs:
-          socket.data.session.characterAttackBurstIntervalMs ?? undefined,
-        aoeRadius: socket.data.session.characterAttackAoeRadius ?? undefined,
-        aoeDelayMs: socket.data.session.characterAttackAoeDelayMs ?? undefined,
-        maxTargetHitsPerAttack:
-          socket.data.session.characterAttackMaxTargetHitsPerAttack ??
-          undefined,
-      },
+      session.characterClass ?? "knight",
+      attackConfig ?? readSessionAttackConfig(session),
     );
-    const { connectionId, characterId, worldId } = socket.data.session;
+    const { connectionId, characterId, worldId } = session;
 
-    socket.data.session.characterWeaponDamageFlat = normalized.damageFlat;
-    socket.data.session.characterWeaponRangeFlat = normalized.rangeFlat;
-    socket.data.session.characterWeaponSpeedPercent = normalized.speedPercent;
-    socket.data.session.characterWeaponStyle = attack.weaponStyle;
-    socket.data.session.characterAttackPatternId = attack.attackPatternId;
-    socket.data.session.characterAttackDamageMultiplier =
-      attack.damageMultiplier;
-    socket.data.session.characterAttackProjectileCount = attack.projectileCount;
-    socket.data.session.characterAttackSpreadDegrees = attack.spreadDegrees;
-    socket.data.session.characterAttackBurstCount = attack.burstCount;
-    socket.data.session.characterAttackBurstIntervalMs = attack.burstIntervalMs;
-    socket.data.session.characterAttackAoeRadius = attack.aoeRadius;
-    socket.data.session.characterAttackAoeDelayMs = attack.aoeDelayMs;
-    socket.data.session.characterAttackMaxTargetHitsPerAttack =
-      attack.maxTargetHitsPerAttack;
+    writeSessionWeaponModifiers(session, normalized);
+    writeSessionAttackConfig(session, attack);
 
     if (!characterId || !worldId) {
       return;
@@ -2909,9 +2842,9 @@ export class WorldManager {
       return;
     }
 
-    socket.data.session.characterBaseDamage = updated.baseDamage;
-    socket.data.session.characterBaseAttackSpeedMs = updated.baseAttackSpeedMs;
-    socket.data.session.characterBaseAttackRange = updated.baseAttackRange;
+    session.characterBaseDamage = updated.baseDamage;
+    session.characterBaseAttackSpeedMs = updated.baseAttackSpeedMs;
+    session.characterBaseAttackRange = updated.baseAttackRange;
   }
 
   createPlayerDropLootBag(
@@ -3056,6 +2989,7 @@ export class WorldManager {
     socket: ServerWebSocket<RealtimeSocketData>,
     portal: PortalTrigger,
   ): void {
+    const session = socket.data.session;
     const {
       characterId,
       worldId,
@@ -3071,22 +3005,9 @@ export class WorldManager {
       characterRawBaseDamage,
       characterRawBaseAttackSpeedMs,
       characterRawBaseAttackRange,
-      characterWeaponDamageFlat,
-      characterWeaponRangeFlat,
-      characterWeaponSpeedPercent,
-      characterWeaponStyle,
-      characterAttackPatternId,
-      characterAttackDamageMultiplier,
-      characterAttackProjectileCount,
-      characterAttackSpreadDegrees,
-      characterAttackBurstCount,
-      characterAttackBurstIntervalMs,
-      characterAttackAoeRadius,
-      characterAttackAoeDelayMs,
-      characterAttackMaxTargetHitsPerAttack,
       characterLevel,
       characterXp,
-    } = socket.data.session;
+    } = session;
     if (
       !characterId ||
       !worldId ||
@@ -3143,24 +3064,8 @@ export class WorldManager {
           level: characterLevel ?? undefined,
           xp: characterXp ?? undefined,
         },
-        weaponModifiers: {
-          damageFlat: characterWeaponDamageFlat ?? undefined,
-          rangeFlat: characterWeaponRangeFlat ?? undefined,
-          speedPercent: characterWeaponSpeedPercent ?? undefined,
-        },
-        attackConfig: {
-          weaponStyle: characterWeaponStyle ?? undefined,
-          attackPatternId: characterAttackPatternId ?? undefined,
-          damageMultiplier: characterAttackDamageMultiplier ?? undefined,
-          projectileCount: characterAttackProjectileCount ?? undefined,
-          spreadDegrees: characterAttackSpreadDegrees ?? undefined,
-          burstCount: characterAttackBurstCount ?? undefined,
-          burstIntervalMs: characterAttackBurstIntervalMs ?? undefined,
-          aoeRadius: characterAttackAoeRadius ?? undefined,
-          aoeDelayMs: characterAttackAoeDelayMs ?? undefined,
-          maxTargetHitsPerAttack:
-            characterAttackMaxTargetHitsPerAttack ?? undefined,
-        },
+        weaponModifiers: readSessionWeaponModifiers(session),
+        attackConfig: readSessionAttackConfig(session),
         spawnOverride: {
           x: targetSpawn.x + portal.exitOffset.x,
           y: targetSpawn.y + portal.exitOffset.y,
@@ -3173,6 +3078,7 @@ export class WorldManager {
     socket: ServerWebSocket<RealtimeSocketData>,
     characterId: string,
   ): void {
+    const session = socket.data.session;
     const {
       worldId,
       characterId: sessionCharacterId,
@@ -3184,22 +3090,9 @@ export class WorldManager {
       characterRawBaseDamage,
       characterRawBaseAttackSpeedMs,
       characterRawBaseAttackRange,
-      characterWeaponDamageFlat,
-      characterWeaponRangeFlat,
-      characterWeaponSpeedPercent,
-      characterWeaponStyle,
-      characterAttackPatternId,
-      characterAttackDamageMultiplier,
-      characterAttackProjectileCount,
-      characterAttackSpreadDegrees,
-      characterAttackBurstCount,
-      characterAttackBurstIntervalMs,
-      characterAttackAoeRadius,
-      characterAttackAoeDelayMs,
-      characterAttackMaxTargetHitsPerAttack,
       characterLevel,
       characterXp,
-    } = socket.data.session;
+    } = session;
     if (
       !worldId ||
       !sessionCharacterId ||
@@ -3237,14 +3130,10 @@ export class WorldManager {
     const scaledStats = computeEffectiveCombatStatsForLevel(
       baseStats,
       normalizedProgression.level,
-      resolveWeaponModifiers({
-        damageFlat: characterWeaponDamageFlat ?? undefined,
-        rangeFlat: characterWeaponRangeFlat ?? undefined,
-        speedPercent: characterWeaponSpeedPercent ?? undefined,
-      }),
+      resolveWeaponModifiers(readSessionWeaponModifiers(session)),
     );
     const maxHealth = Math.max(1, characterMaxHealth ?? scaledStats.maxHealth);
-    socket.data.session.characterCurrentHealth = maxHealth;
+    session.characterCurrentHealth = maxHealth;
 
     socket.send(
       stringifyServerMessage({
@@ -3286,24 +3175,8 @@ export class WorldManager {
           level: normalizedProgression.level,
           xp: normalizedProgression.xp,
         },
-        weaponModifiers: {
-          damageFlat: characterWeaponDamageFlat ?? undefined,
-          rangeFlat: characterWeaponRangeFlat ?? undefined,
-          speedPercent: characterWeaponSpeedPercent ?? undefined,
-        },
-        attackConfig: {
-          weaponStyle: characterWeaponStyle ?? undefined,
-          attackPatternId: characterAttackPatternId ?? undefined,
-          damageMultiplier: characterAttackDamageMultiplier ?? undefined,
-          projectileCount: characterAttackProjectileCount ?? undefined,
-          spreadDegrees: characterAttackSpreadDegrees ?? undefined,
-          burstCount: characterAttackBurstCount ?? undefined,
-          burstIntervalMs: characterAttackBurstIntervalMs ?? undefined,
-          aoeRadius: characterAttackAoeRadius ?? undefined,
-          aoeDelayMs: characterAttackAoeDelayMs ?? undefined,
-          maxTargetHitsPerAttack:
-            characterAttackMaxTargetHitsPerAttack ?? undefined,
-        },
+        weaponModifiers: readSessionWeaponModifiers(session),
+        attackConfig: readSessionAttackConfig(session),
       },
     );
   }
