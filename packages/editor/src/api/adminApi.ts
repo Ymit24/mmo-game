@@ -1,9 +1,17 @@
 const BASE = "/api/admin";
+const ADMIN_BEARER_TOKEN =
+  import.meta.env.VITE_ADMIN_API_BEARER_TOKEN?.trim() ?? "";
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const headers = new Headers(options?.headers);
+  headers.set("Content-Type", "application/json");
+  if (ADMIN_BEARER_TOKEN) {
+    headers.set("Authorization", `Bearer ${ADMIN_BEARER_TOKEN}`);
+  }
+
   const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json", ...options?.headers },
     ...options,
+    headers,
   });
 
   if (res.status === 204) {
@@ -82,8 +90,15 @@ export interface MapData {
   name: string;
   width: number;
   height: number;
-  background: string;
-  combatRules?: Record<string, unknown>;
+  background: {
+    color: string;
+    gridSize: number;
+  };
+  combat: {
+    allowCombat: boolean;
+    pvpEnabled: boolean;
+  };
+  playerSpawnId: string;
   spawnPoints: Array<Record<string, unknown>>;
   collisions: Array<Record<string, unknown>>;
   regions: Array<Record<string, unknown>>;

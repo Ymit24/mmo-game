@@ -77,14 +77,25 @@ const MIN_ZOOM = 0.05;
 const MAX_ZOOM = 6;
 const TRACKPAD_ZOOM_SENSITIVITY = 0.008;
 const WHEEL_ZOOM_SENSITIVITY = 0.002;
+const DEFAULT_BACKGROUND_COLOR = "#0a0a12";
+const DEFAULT_BACKGROUND_GRID_SIZE = 48;
+const DEFAULT_PORTAL_EXIT_OFFSET = { x: 44, y: 0 };
 
 const NEW_MAP_TEMPLATE: MapData = {
   id: "",
   name: "New Map",
   width: 2000,
   height: 2000,
-  background: "#0a0a12",
-  spawnPoints: [],
+  background: {
+    color: DEFAULT_BACKGROUND_COLOR,
+    gridSize: DEFAULT_BACKGROUND_GRID_SIZE,
+  },
+  combat: {
+    allowCombat: false,
+    pvpEnabled: false,
+  },
+  playerSpawnId: "spawn-0",
+  spawnPoints: [{ id: "spawn-0", x: GRID_SIZE, y: GRID_SIZE }],
   collisions: [],
   regions: [],
   portals: [],
@@ -102,9 +113,91 @@ const NEW_MAP_TEMPLATE: MapData = {
  * denormalizeMapData() → called before saving back to API
  * ─────────────────────────────────────────────────────────────── */
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function toFiniteNumber(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function normalizeBackground(background: unknown): {
+  color: string;
+  gridSize: number;
+} {
+  if (typeof background === "string") {
+    return { color: background, gridSize: DEFAULT_BACKGROUND_GRID_SIZE };
+  }
+
+  if (isRecord(background)) {
+    return {
+      color:
+        typeof background.color === "string"
+          ? background.color
+          : DEFAULT_BACKGROUND_COLOR,
+      gridSize: toFiniteNumber(
+        background.gridSize,
+        DEFAULT_BACKGROUND_GRID_SIZE,
+      ),
+    };
+  }
+
+  return {
+    color: DEFAULT_BACKGROUND_COLOR,
+    gridSize: DEFAULT_BACKGROUND_GRID_SIZE,
+  };
+}
+
+function normalizeCombat(combat: unknown): {
+  allowCombat: boolean;
+  pvpEnabled: boolean;
+} {
+  if (!isRecord(combat)) {
+    return { allowCombat: false, pvpEnabled: false };
+  }
+
+  return {
+    allowCombat:
+      typeof combat.allowCombat === "boolean" ? combat.allowCombat : false,
+    pvpEnabled:
+      typeof combat.pvpEnabled === "boolean" ? combat.pvpEnabled : false,
+  };
+}
+
+function normalizeExitOffset(value: unknown): { x: number; y: number } {
+  if (!isRecord(value)) {
+    return { ...DEFAULT_PORTAL_EXIT_OFFSET };
+  }
+
+  return {
+    x: toFiniteNumber(value.x, DEFAULT_PORTAL_EXIT_OFFSET.x),
+    y: toFiniteNumber(value.y, DEFAULT_PORTAL_EXIT_OFFSET.y),
+  };
+}
+
 function normalizeMapData(raw: MapData): MapData {
+  const spawnPoints = (raw.spawnPoints ?? []).map(
+    (sp: Record<string, unknown>, index) => ({
+      id:
+        typeof sp.id === "string" && sp.id.length > 0
+          ? sp.id
+          : `spawn-${index}`,
+      x: toFiniteNumber(sp.x, 0),
+      y: toFiniteNumber(sp.y, 0),
+    }),
+  );
+
+  const playerSpawnId =
+    typeof raw.playerSpawnId === "string" && raw.playerSpawnId.length > 0
+      ? raw.playerSpawnId
+      : (spawnPoints[0]?.id ?? "spawn-0");
+
   return {
     ...raw,
+    background: normalizeBackground(raw.background),
+    combat: normalizeCombat(raw.combat),
+    playerSpawnId,
+    spawnPoints,
     portals: (raw.portals ?? []).map((p: Record<string, unknown>) => {
       const shape = p.shape as
         | { x: number; y: number; width: number; height: number }
@@ -119,8 +212,7 @@ function normalizeMapData(raw: MapData): MapData {
         targetMapId:
           (p.targetMapId as string) ?? (p.targetWorldId as string) ?? "",
         targetSpawnId: (p.targetSpawnId as string) ?? "",
-        // Preserve extra fields for round-tripping
-        ...(p.exitOffset ? { exitOffset: p.exitOffset } : {}),
+        exitOffset: normalizeExitOffset(p.exitOffset),
       };
     }),
     regions: (raw.regions ?? []).map((r: Record<string, unknown>) => {
@@ -160,8 +252,29 @@ function normalizeMapData(raw: MapData): MapData {
 }
 
 function denormalizeMapData(editor: MapData): MapData {
+  const background = normalizeBackground(editor.background);
+  const combat = normalizeCombat(editor.combat);
+  const spawnPoints = (editor.spawnPoints ?? []).map(
+    (sp: Record<string, unknown>, index) => ({
+      id:
+        typeof sp.id === "string" && sp.id.length > 0
+          ? sp.id
+          : `spawn-${index}`,
+      x: toFiniteNumber(sp.x, 0),
+      y: toFiniteNumber(sp.y, 0),
+    }),
+  );
+  const playerSpawnId =
+    typeof editor.playerSpawnId === "string" && editor.playerSpawnId.length > 0
+      ? editor.playerSpawnId
+      : (spawnPoints[0]?.id ?? "spawn-0");
+
   return {
     ...editor,
+    background,
+    combat,
+    playerSpawnId,
+    spawnPoints,
     portals: (editor.portals ?? []).map((p: Record<string, unknown>) => ({
       id: p.id,
       name: p.name,
@@ -174,11 +287,12 @@ function denormalizeMapData(editor: MapData): MapData {
       },
       targetWorldId: p.targetMapId,
       targetSpawnId: p.targetSpawnId,
-      ...(p.exitOffset ? { exitOffset: p.exitOffset } : {}),
+      exitOffset: normalizeExitOffset(p.exitOffset),
     })),
     regions: (editor.regions ?? []).map((r: Record<string, unknown>) => ({
       id: r.id,
       name: r.name,
+      type: typeof r.type === "string" ? r.type : "safe",
       shape: {
         type: "rect",
         x: r.x,
@@ -449,8 +563,11 @@ function renderCanvas(
   ctx.translate(-cx * zoom, -cy * zoom);
   ctx.scale(zoom, zoom);
 
+  const mapBackground = normalizeBackground(mapData.background);
+  const gridSize = Math.max(1, Math.round(mapBackground.gridSize));
+
   // Map background fill
-  ctx.fillStyle = mapData.background || "#0a0a12";
+  ctx.fillStyle = mapBackground.color || DEFAULT_BACKGROUND_COLOR;
   ctx.fillRect(0, 0, mapData.width, mapData.height);
 
   // Grid (only render when reasonably zoomed in)
@@ -458,17 +575,17 @@ function renderCanvas(
     const gridAlpha = Math.min(0.4, (zoom - 0.15) * 1.5);
     ctx.strokeStyle = `rgba(42, 42, 58, ${gridAlpha})`;
     ctx.lineWidth = 0.5 / zoom;
-    const startX = Math.max(0, Math.floor(cx / GRID_SIZE) * GRID_SIZE);
-    const startY = Math.max(0, Math.floor(cy / GRID_SIZE) * GRID_SIZE);
+    const startX = Math.max(0, Math.floor(cx / gridSize) * gridSize);
+    const startY = Math.max(0, Math.floor(cy / gridSize) * gridSize);
     const endX = Math.min(mapData.width, cx + rect.width / zoom);
     const endY = Math.min(mapData.height, cy + rect.height / zoom);
 
     ctx.beginPath();
-    for (let gx = startX; gx <= endX; gx += GRID_SIZE) {
+    for (let gx = startX; gx <= endX; gx += gridSize) {
       ctx.moveTo(gx, startY);
       ctx.lineTo(gx, endY);
     }
-    for (let gy = startY; gy <= endY; gy += GRID_SIZE) {
+    for (let gy = startY; gy <= endY; gy += gridSize) {
       ctx.moveTo(startX, gy);
       ctx.lineTo(endX, gy);
     }
@@ -1154,6 +1271,7 @@ export function MapsPage() {
                 height,
                 targetMapId: "",
                 targetSpawnId: "",
+                exitOffset: { ...DEFAULT_PORTAL_EXIT_OFFSET },
               },
             ],
           });
@@ -1318,10 +1436,7 @@ export function MapsPage() {
 
   /* ── Map dimension update ───────────────────────────────────── */
   const updateMapDimension = useCallback(
-    (
-      field: "width" | "height" | "name" | "background",
-      value: string | number,
-    ) => {
+    (field: "width" | "height" | "name", value: string | number) => {
       setMapData((prev) => {
         if (!prev) return prev;
         return { ...prev, [field]: value };
@@ -1330,6 +1445,40 @@ export function MapsPage() {
     },
     [],
   );
+
+  const updateBackgroundColor = useCallback((color: string) => {
+    setMapData((prev) => {
+      if (!prev) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        background: {
+          ...normalizeBackground(prev.background),
+          color,
+        },
+      };
+    });
+    setDirty(true);
+  }, []);
+
+  const updateBackgroundGridSize = useCallback((gridSize: number) => {
+    setMapData((prev) => {
+      if (!prev) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        background: {
+          ...normalizeBackground(prev.background),
+          gridSize: Math.max(1, Math.round(gridSize)),
+        },
+      };
+    });
+    setDirty(true);
+  }, []);
 
   const cursorStyle = getCursorStyle(tool, interactionRef.current, spaceHeld);
 
@@ -1593,16 +1742,27 @@ export function MapsPage() {
                   <span className="text-muted text-[10px] uppercase">BG</span>
                   <input
                     type="color"
-                    value={mapData.background}
-                    onChange={(e) =>
-                      updateMapDimension("background", e.target.value)
-                    }
+                    value={normalizeBackground(mapData.background).color}
+                    onChange={(e) => updateBackgroundColor(e.target.value)}
                   />
                   <input
                     type="text"
-                    value={mapData.background}
+                    value={normalizeBackground(mapData.background).color}
+                    onChange={(e) => updateBackgroundColor(e.target.value)}
+                    className="w-20 text-[11px] px-1.5 py-0.5"
+                  />
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-muted text-[10px] uppercase">Grid</span>
+                  <input
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={normalizeBackground(mapData.background).gridSize}
                     onChange={(e) =>
-                      updateMapDimension("background", e.target.value)
+                      updateBackgroundGridSize(
+                        Number(e.target.value) || DEFAULT_BACKGROUND_GRID_SIZE,
+                      )
                     }
                     className="w-20 text-[11px] px-1.5 py-0.5"
                   />
@@ -1633,7 +1793,9 @@ export function MapsPage() {
                 <span>
                   {mapData.width} x {mapData.height}
                 </span>
-                <span>Grid: {GRID_SIZE}px</span>
+                <span>
+                  Grid: {normalizeBackground(mapData.background).gridSize}px
+                </span>
                 <span className="flex-1" />
                 <span>Space+Drag = Pan</span>
                 <span>Scroll = Zoom</span>

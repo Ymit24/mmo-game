@@ -1,8 +1,9 @@
 import type { Database } from "bun:sqlite";
-import type { CharacterClass } from "@mmo/shared";
+import { type CharacterClass, parseWorldMap } from "@mmo/shared";
 import { guardAdminRequest } from "./guard";
 import {
   deleteMapFile,
+  isValidMapId,
   listMapFiles,
   readMapFile,
   writeMapFile,
@@ -38,6 +39,53 @@ function strOrNull(val: unknown): string | null {
 
 function numOrNull(val: unknown): number | null {
   return typeof val === "number" ? val : null;
+}
+
+function parseAllowedCorsOrigins(): Set<string> {
+  const raw = process.env.ADMIN_API_ALLOWED_ORIGINS;
+  if (!raw) {
+    return new Set();
+  }
+
+  return new Set(
+    raw
+      .split(",")
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0),
+  );
+}
+
+function getAllowedCorsOrigin(
+  request: Request,
+  url: URL,
+  allowedOrigins: Set<string>,
+): string | null {
+  const requestOrigin = request.headers.get("origin");
+  if (!requestOrigin) {
+    return null;
+  }
+
+  if (requestOrigin === url.origin) {
+    return requestOrigin;
+  }
+
+  return allowedOrigins.has(requestOrigin) ? requestOrigin : null;
+}
+
+function applyCorsHeaders(response: Response, origin: string | null): void {
+  if (!origin) {
+    return;
+  }
+
+  response.headers.set("Access-Control-Allow-Origin", origin);
+  response.headers.set("Vary", "Origin");
+}
+
+function validateMapIdOrResponse(mapId: string): Response | null {
+  if (!isValidMapId(mapId)) {
+    return json(400, { error: "Invalid map ID." });
+  }
+  return null;
 }
 
 // ─── Enemy Archetypes ────────────────────────────────────────────────
@@ -642,6 +690,11 @@ function handleListMaps(): Response {
 }
 
 function handleGetMap(mapId: string): Response {
+  const invalidMapId = validateMapIdOrResponse(mapId);
+  if (invalidMapId) {
+    return invalidMapId;
+  }
+
   const data = readMapFile(mapId);
   if (!data) {
     return json(404, { error: "Map not found." });
@@ -653,13 +706,26 @@ async function handleSaveMap(
   request: Request,
   mapId: string,
 ): Promise<Response> {
+  const invalidMapId = validateMapIdOrResponse(mapId);
+  if (invalidMapId) {
+    return invalidMapId;
+  }
+
   const body = (await readJsonBody(request)) as Record<string, unknown> | null;
   if (!body) {
     return json(400, { error: "Invalid payload." });
   }
 
-  // Ensure the id in the body matches the route param
-  const mapData = { ...body, id: mapId };
+  // Ensure the id in the body matches the route param and validate schema
+  let mapData: unknown;
+  try {
+    mapData = parseWorldMap({ ...body, id: mapId }, `admin:${mapId}`);
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Invalid world map payload.";
+    return json(400, { error: message });
+  }
+
   const success = writeMapFile(mapId, mapData);
   if (!success) {
     return json(500, { error: "Failed to write map file." });
@@ -673,19 +739,39 @@ async function handleCreateMap(request: Request): Promise<Response> {
     return json(400, { error: "Invalid payload. Map ID required." });
   }
 
-  const existing = readMapFile(body.id as string);
+  const mapId = body.id as string;
+  const invalidMapId = validateMapIdOrResponse(mapId);
+  if (invalidMapId) {
+    return invalidMapId;
+  }
+
+  const existing = readMapFile(mapId);
   if (existing) {
     return json(409, { error: "Map with this ID already exists." });
   }
 
-  const success = writeMapFile(body.id as string, body);
+  let mapData: unknown;
+  try {
+    mapData = parseWorldMap(body, `admin:${mapId}`);
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Invalid world map payload.";
+    return json(400, { error: message });
+  }
+
+  const success = writeMapFile(mapId, mapData);
   if (!success) {
     return json(500, { error: "Failed to write map file." });
   }
-  return json(201, { map: body });
+  return json(201, { map: mapData });
 }
 
 function handleDeleteMap(mapId: string): Response {
+  const invalidMapId = validateMapIdOrResponse(mapId);
+  if (invalidMapId) {
+    return invalidMapId;
+  }
+
   const success = deleteMapFile(mapId);
   if (!success) {
     return json(404, { error: "Map not found." });
@@ -703,22 +789,37 @@ export async function handleAdminRequest(
   // Strip /admin prefix
   const path = url.pathname.slice("/admin".length);
   const method = request.method;
+  const allowedOrigins = parseAllowedCorsOrigins();
+  const allowedOrigin = getAllowedCorsOrigin(request, url, allowedOrigins);
+  const requestOrigin = request.headers.get("origin");
+  const isCrossOriginRequest = !!requestOrigin && requestOrigin !== url.origin;
 
-  // Defense-in-depth: reject in production even if routes are accidentally wired
-  const blocked = guardAdminRequest();
+  // Defense-in-depth: reject if disabled/unauthorized even if routes are accidentally wired
+  const blocked = guardAdminRequest(request);
   if (blocked) {
+    applyCorsHeaders(blocked, allowedOrigin);
     return blocked;
   }
 
-  // CORS for editor dev server
   if (method === "OPTIONS") {
-    return new Response(null, {
+    if (isCrossOriginRequest && !allowedOrigin) {
+      return json(403, { error: "Origin not allowed." });
+    }
+
+    const preflightResponse = new Response(null, {
       status: 204,
       headers: {
-        "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
+        "Access-Control-Allow-Headers": "Authorization, Content-Type",
       },
+    });
+    applyCorsHeaders(preflightResponse, allowedOrigin);
+    return preflightResponse;
+  }
+
+  if (isCrossOriginRequest && !allowedOrigin) {
+    return new Response(null, {
+      status: 403,
     });
   }
 
@@ -815,7 +916,7 @@ export async function handleAdminRequest(
   }
 
   if (response) {
-    response.headers.set("Access-Control-Allow-Origin", "*");
+    applyCorsHeaders(response, allowedOrigin);
   }
 
   return response;

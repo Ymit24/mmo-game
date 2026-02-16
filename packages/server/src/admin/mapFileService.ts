@@ -5,7 +5,9 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { basename, isAbsolute, relative, resolve } from "node:path";
+
+const MAP_ID_PATTERN = /^[a-z0-9][a-z0-9:_-]{0,63}$/;
 
 /**
  * Resolves the directory containing shared map JSON files.
@@ -19,18 +21,34 @@ function mapIdToFilename(mapId: string): string {
   return `${mapId.replace(/:/g, "-")}.json`;
 }
 
-function filenameToMapId(filename: string): string | null {
-  if (!filename.endsWith(".json")) {
+function isPathInsideDirectory(path: string, directory: string): boolean {
+  const relativePath = relative(directory, path);
+  return (
+    relativePath.length > 0 &&
+    !relativePath.startsWith("..") &&
+    !isAbsolute(relativePath)
+  );
+}
+
+function resolveMapPath(mapsDir: string, filename: string): string | null {
+  const filePath = resolve(mapsDir, filename);
+  if (!isPathInsideDirectory(filePath, mapsDir)) {
     return null;
   }
-  const raw = basename(filename, ".json");
-  try {
-    const content = readFileSync(join(getMapsDirectory(), filename), "utf-8");
-    const parsed = JSON.parse(content) as { id?: string };
-    return typeof parsed.id === "string" ? parsed.id : raw;
-  } catch {
-    return raw;
-  }
+  return filePath;
+}
+
+function readJsonFile(filePath: string): unknown {
+  return JSON.parse(readFileSync(filePath, "utf-8"));
+}
+
+export function isValidMapId(mapId: string): boolean {
+  return (
+    MAP_ID_PATTERN.test(mapId) &&
+    !mapId.includes("..") &&
+    !mapId.includes("/") &&
+    !mapId.includes("\\")
+  );
 }
 
 export interface MapFileSummary {
@@ -49,9 +67,13 @@ export function listMapFiles(): MapFileSummary[] {
   const summaries: MapFileSummary[] = [];
 
   for (const file of files) {
+    const filePath = resolveMapPath(mapsDir, file);
+    if (!filePath) {
+      continue;
+    }
+
     try {
-      const content = readFileSync(join(mapsDir, file), "utf-8");
-      const parsed = JSON.parse(content) as { id?: string; name?: string };
+      const parsed = readJsonFile(filePath) as { id?: string; name?: string };
       summaries.push({
         id: typeof parsed.id === "string" ? parsed.id : basename(file, ".json"),
         name: typeof parsed.name === "string" ? parsed.name : file,
@@ -66,6 +88,10 @@ export function listMapFiles(): MapFileSummary[] {
 }
 
 export function readMapFile(mapId: string): unknown | null {
+  if (!isValidMapId(mapId)) {
+    return null;
+  }
+
   const mapsDir = getMapsDirectory();
   if (!existsSync(mapsDir)) {
     return null;
@@ -73,9 +99,13 @@ export function readMapFile(mapId: string): unknown | null {
 
   const files = readdirSync(mapsDir).filter((f) => f.endsWith(".json"));
   for (const file of files) {
+    const filePath = resolveMapPath(mapsDir, file);
+    if (!filePath) {
+      continue;
+    }
+
     try {
-      const content = readFileSync(join(mapsDir, file), "utf-8");
-      const parsed = JSON.parse(content) as { id?: string };
+      const parsed = readJsonFile(filePath) as { id?: string };
       if (parsed.id === mapId) {
         return parsed;
       }
@@ -88,6 +118,10 @@ export function readMapFile(mapId: string): unknown | null {
 }
 
 export function writeMapFile(mapId: string, data: unknown): boolean {
+  if (!isValidMapId(mapId)) {
+    return false;
+  }
+
   const mapsDir = getMapsDirectory();
   if (!existsSync(mapsDir)) {
     return false;
@@ -98,9 +132,13 @@ export function writeMapFile(mapId: string, data: unknown): boolean {
   let targetFile: string | null = null;
 
   for (const file of files) {
+    const filePath = resolveMapPath(mapsDir, file);
+    if (!filePath) {
+      continue;
+    }
+
     try {
-      const content = readFileSync(join(mapsDir, file), "utf-8");
-      const parsed = JSON.parse(content) as { id?: string };
+      const parsed = readJsonFile(filePath) as { id?: string };
       if (parsed.id === mapId) {
         targetFile = file;
         break;
@@ -114,13 +152,21 @@ export function writeMapFile(mapId: string, data: unknown): boolean {
     targetFile = mapIdToFilename(mapId);
   }
 
-  const filePath = join(mapsDir, targetFile);
+  const filePath = resolveMapPath(mapsDir, targetFile);
+  if (!filePath) {
+    return false;
+  }
+
   const jsonContent = JSON.stringify(data, null, 2);
   writeFileSync(filePath, `${jsonContent}\n`, "utf-8");
   return true;
 }
 
 export function deleteMapFile(mapId: string): boolean {
+  if (!isValidMapId(mapId)) {
+    return false;
+  }
+
   const mapsDir = getMapsDirectory();
   if (!existsSync(mapsDir)) {
     return false;
@@ -128,11 +174,15 @@ export function deleteMapFile(mapId: string): boolean {
 
   const files = readdirSync(mapsDir).filter((f) => f.endsWith(".json"));
   for (const file of files) {
+    const filePath = resolveMapPath(mapsDir, file);
+    if (!filePath) {
+      continue;
+    }
+
     try {
-      const content = readFileSync(join(mapsDir, file), "utf-8");
-      const parsed = JSON.parse(content) as { id?: string };
+      const parsed = readJsonFile(filePath) as { id?: string };
       if (parsed.id === mapId) {
-        unlinkSync(join(mapsDir, file));
+        unlinkSync(filePath);
         return true;
       }
     } catch {

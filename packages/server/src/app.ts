@@ -69,7 +69,7 @@ export function createApp(options: CreateAppOptions = {}): AppInstance {
       return handleDeleteCharacter(request, db, config, characterId);
     }
 
-    // Admin routes – only registered outside production
+    // Admin routes – only registered when explicitly enabled
     if (url.pathname.startsWith("/admin/") || url.pathname === "/admin") {
       if (!isAdminApiEnabled()) {
         return json(404, { error: "Not found." });
