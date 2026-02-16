@@ -5,8 +5,8 @@ import {
   PLAYER_COLLIDER_SIZE,
   type PlayerInputState,
   type ServerToClientMessage,
-  WORLD_MAPS_BY_ID,
   WILDS_BETA_MAP,
+  WORLD_MAPS_BY_ID,
   findSpawnPoint,
   positionCollidesWithMap,
 } from "@mmo/shared";
@@ -1712,12 +1712,14 @@ describe("world manager", () => {
 
       await wait(550);
       const beforeLockoutExpires = latestWorldSnapshot(socket);
-      const enemyABeforeLockoutExpires = beforeLockoutExpires?.payload.enemies.find(
-        (enemy) => enemy.id === "enemy-spinlock-a",
-      );
-      const enemyBBeforeLockoutExpires = beforeLockoutExpires?.payload.enemies.find(
-        (enemy) => enemy.id === "enemy-spinlock-b",
-      );
+      const enemyABeforeLockoutExpires =
+        beforeLockoutExpires?.payload.enemies.find(
+          (enemy) => enemy.id === "enemy-spinlock-a",
+        );
+      const enemyBBeforeLockoutExpires =
+        beforeLockoutExpires?.payload.enemies.find(
+          (enemy) => enemy.id === "enemy-spinlock-b",
+        );
       expect(enemyABeforeLockoutExpires).toBeDefined();
       expect(enemyBBeforeLockoutExpires).toBeDefined();
       if (!enemyABeforeLockoutExpires || !enemyBBeforeLockoutExpires) {
@@ -1732,12 +1734,14 @@ describe("world manager", () => {
 
       await wait(600);
       const afterLockoutExpires = latestWorldSnapshot(socket);
-      const enemyAAfterLockoutExpires = afterLockoutExpires?.payload.enemies.find(
-        (enemy) => enemy.id === "enemy-spinlock-a",
-      );
-      const enemyBAfterLockoutExpires = afterLockoutExpires?.payload.enemies.find(
-        (enemy) => enemy.id === "enemy-spinlock-b",
-      );
+      const enemyAAfterLockoutExpires =
+        afterLockoutExpires?.payload.enemies.find(
+          (enemy) => enemy.id === "enemy-spinlock-a",
+        );
+      const enemyBAfterLockoutExpires =
+        afterLockoutExpires?.payload.enemies.find(
+          (enemy) => enemy.id === "enemy-spinlock-b",
+        );
       expect(enemyAAfterLockoutExpires).toBeDefined();
       expect(enemyBAfterLockoutExpires).toBeDefined();
       if (!enemyAAfterLockoutExpires || !enemyBAfterLockoutExpires) {
@@ -1835,7 +1839,9 @@ describe("world manager", () => {
       });
       await wait(150);
       const firstSnapshot = latestWorldSnapshot(socket);
-      expect(firstSnapshot?.payload.projectiles.length).toBeGreaterThanOrEqual(1);
+      expect(firstSnapshot?.payload.projectiles.length).toBeGreaterThanOrEqual(
+        1,
+      );
 
       socket.sent = [];
       await wait(100);
@@ -1845,7 +1851,8 @@ describe("world manager", () => {
       });
       const deniedTooSoon = parseMessages(socket).find(
         (message) =>
-          message.type === "combat.attackDenied" && message.reason === "cooldown",
+          message.type === "combat.attackDenied" &&
+          message.reason === "cooldown",
       );
       expect(deniedTooSoon?.type).toBe("combat.attackDenied");
 
@@ -1858,7 +1865,8 @@ describe("world manager", () => {
 
       const denied = parseMessages(socket).find(
         (message) =>
-          message.type === "combat.attackDenied" && message.reason === "cooldown",
+          message.type === "combat.attackDenied" &&
+          message.reason === "cooldown",
       );
       expect(denied).toBeUndefined();
       await wait(150);
@@ -1873,7 +1881,9 @@ describe("world manager", () => {
       });
       await wait(150);
       const thirdSnapshot = latestWorldSnapshot(socket);
-      expect(thirdSnapshot?.payload.projectiles.length).toBeGreaterThanOrEqual(2);
+      expect(thirdSnapshot?.payload.projectiles.length).toBeGreaterThanOrEqual(
+        2,
+      );
     } finally {
       WORLD_MAPS_BY_ID.delete(testMapId);
       Math.random = originalRandom;

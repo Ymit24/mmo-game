@@ -867,10 +867,7 @@ class WorldInstance {
           this.spawnSpinbladeProjectile(player, direction);
           player.nextSpinbladeCastAtMs =
             now +
-            Math.max(
-              player.baseAttackSpeedMs,
-              SPINBLADE_CAST_COOLDOWN_MIN_MS,
-            );
+            Math.max(player.baseAttackSpeedMs, SPINBLADE_CAST_COOLDOWN_MIN_MS);
         }
         break;
       case "sword_whirl":

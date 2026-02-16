@@ -924,8 +924,30 @@ function backfillItemDefinitionAttackDefaults(db: Database): void {
 
   apply.run("training_sword", "sword", "sword_cleave", 1, 1, 0, 1, 0, 0, 0);
   apply.run("iron_broadsword", "sword", "sword_whirl", 0.9, 1, 0, 1, 0, 88, 0);
-  apply.run("runed_greatsword", "sword", "sword_spinblade", 0.55, 1, 0, 1, 0, 0, 0);
-  apply.run("dragonbone_blade", "sword", "sword_spinblade", 0.55, 1, 0, 1, 0, 0, 0);
+  apply.run(
+    "runed_greatsword",
+    "sword",
+    "sword_spinblade",
+    0.55,
+    1,
+    0,
+    1,
+    0,
+    0,
+    0,
+  );
+  apply.run(
+    "dragonbone_blade",
+    "sword",
+    "sword_spinblade",
+    0.55,
+    1,
+    0,
+    1,
+    0,
+    0,
+    0,
+  );
   apply.run("training_wand", "wand", "wand_multishot", 1, 3, 22, 1, 0, 0, 0);
   apply.run("adept_focus_wand", "wand", "wand_burst", 0.36, 1, 0, 3, 70, 0, 0);
   apply.run(
@@ -977,7 +999,18 @@ function backfillItemDefinitionAttackDefaults(db: Database): void {
     90,
     180,
   );
-  apply.run("vanguard_pike", "sword", "sword_spinblade", 0.55, 1, 0, 1, 0, 0, 0);
+  apply.run(
+    "vanguard_pike",
+    "sword",
+    "sword_spinblade",
+    0.55,
+    1,
+    0,
+    1,
+    0,
+    0,
+    0,
+  );
 
   db.query(
     `UPDATE item_definitions
