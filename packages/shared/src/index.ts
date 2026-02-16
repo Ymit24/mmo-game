@@ -1,3 +1,5 @@
+import type { UserRole } from "./auth/roles";
+
 export interface AuthCredentials {
   email: string;
   password: string;
@@ -6,6 +8,7 @@ export interface AuthCredentials {
 export interface AuthUser {
   id: string;
   email: string;
+  role: UserRole;
 }
 
 export interface AuthSuccessResponse {
@@ -19,6 +22,7 @@ export interface AuthErrorResponse {
 }
 
 export * from "./auth/credentials";
+export * from "./auth/roles";
 export * from "./characters";
 export * from "./enemies";
 export * from "./items";

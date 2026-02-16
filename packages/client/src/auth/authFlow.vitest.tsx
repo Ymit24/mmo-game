@@ -31,6 +31,7 @@ function makeSuccessResponse(
     user: {
       id: "user-1",
       email: "player@example.com",
+      role: "user",
     },
     ...overrides,
   };
@@ -142,7 +143,7 @@ describe("auth flow", () => {
       AUTH_SESSION_STORAGE_KEY,
       JSON.stringify({
         token: "expired-token",
-        user: { id: "user-1", email: "player@example.com" },
+        user: { id: "user-1", email: "player@example.com", role: "user" },
         expiresAtEpochMs: Date.now() - 5_000,
       }),
     );

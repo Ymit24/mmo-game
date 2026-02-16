@@ -24,7 +24,7 @@
 - Package scope: `packages/server` only.
 - Entrypoint: `packages/server/src/index.ts` (uses app factory in `packages/server/src/app.ts`).
 - Routes:
-  - `POST /auth/signup` with JSON `{ email, password }` -> `201` with `{ token, expiresInSeconds, user: { id, email } }`.
+  - `POST /auth/signup` with JSON `{ email, password }` -> `201` with `{ token, expiresInSeconds, user: { id, email, role } }`.
   - `POST /auth/signin` with JSON `{ email, password }` -> `200` with same response shape.
 - Validation:
   - Email is normalized to lowercase/trimmed.
@@ -35,15 +35,18 @@
 - JWT:
   - Access-token only (no refresh token yet).
   - HS256 via `jose`.
-  - Claims include `sub` (user id) and `email`, with `iat/exp`.
+  - Claims include `sub` (user id) and `role` (`user` | `admin`), with `iat/exp`.
   - Default expiry is 24h (`86400` seconds).
 - Required/important env:
   - `JWT_SECRET` (must be at least 32 chars).
   - Optional: `JWT_EXPIRES_IN_SECONDS`, `AUTH_DB_PATH`, `JWT_ISSUER`, `JWT_AUDIENCE`.
 - DB:
   - SQLite via `bun:sqlite`.
-  - `users` table: `id`, `email` (unique), `password_hash`, `last_used_character_id`, timestamps.
+  - `users` table: `id`, `email` (unique), `password_hash`, `role` (`user` default), `last_used_character_id`, timestamps.
   - Password hashes use Argon2id (`Bun.password.hash/verify`).
+- Admin role management:
+  - Signup always creates `role=user`; no self-service admin path.
+  - Admin promotion is server-local CLI only: `admin promote --email <existing-account-email> [--db-path <path>]`.
 - Not implemented yet:
   - Refresh/session rotation, password reset, email verification.
 
@@ -91,7 +94,7 @@
   - Route protection via `packages/client/src/auth/RequireAuth.tsx`.
 - Session persistence:
   - JWT session stored in `localStorage` key `mmo.auth.session.v1`.
-  - Stored payload: `{ token, user, expiresAtEpochMs }`.
+  - Stored payload: `{ token, user: { id, email, role }, expiresAtEpochMs }`.
   - Expired/malformed sessions are cleared on load.
 - API integration:
   - Client calls `POST /auth/signin` and `POST /auth/signup` through `packages/client/src/lib/api/authApi.ts`.

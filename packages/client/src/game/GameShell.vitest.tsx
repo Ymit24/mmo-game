@@ -186,6 +186,7 @@ describe("GameShell inventory UI", () => {
       user: {
         id: "user-1",
         email: "user@example.com",
+        role: "user",
       },
       expiresAtEpochMs: Date.now() + 60_000,
     });

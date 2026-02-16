@@ -73,6 +73,36 @@ describe("database bootstrap", () => {
     db.close();
   });
 
+  test("users table exposes role column with default user", () => {
+    const db = createDatabase(":memory:");
+    const columns = db
+      .query<{ name: string }, []>("PRAGMA table_info(users);")
+      .all()
+      .map((column) => column.name);
+    expect(columns).toContain("role");
+
+    const now = new Date().toISOString();
+    db.query(
+      `INSERT INTO users (
+        id,
+        email,
+        password_hash,
+        created_at,
+        updated_at
+      ) VALUES (?1, ?2, ?3, ?4, ?5)`,
+    ).run("u-role-1", "rolecheck@example.com", "hash", now, now);
+    const row = db
+      .query<{ role: string }, []>(
+        `SELECT role
+         FROM users
+         WHERE id = 'u-role-1'
+         LIMIT 1`,
+      )
+      .get();
+    expect(row?.role).toBe("user");
+    db.close();
+  });
+
   test("creates item definition and character inventory tables", () => {
     const db = createDatabase(":memory:");
 
