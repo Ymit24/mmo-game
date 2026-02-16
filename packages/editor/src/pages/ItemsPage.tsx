@@ -157,7 +157,7 @@ export function ItemsPage() {
             Select an item or create a new one
           </div>
         ) : (
-          <div className="max-w-xl animate-fade-in">
+          <div className="animate-fade-in">
             <div className="flex items-center justify-between mb-6">
               <div>
                 <h2 className="text-text-bright text-lg font-display">

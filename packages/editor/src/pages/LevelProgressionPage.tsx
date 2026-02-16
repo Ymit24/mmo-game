@@ -118,7 +118,7 @@ export function LevelProgressionPage() {
 
         {!loading && !error && tab === "table" && (
           <div className="p-6">
-            <table className="editor-table max-w-3xl">
+            <table className="editor-table">
               <thead>
                 <tr>
                   <th className="w-16">Level</th>
@@ -199,7 +199,7 @@ export function LevelProgressionPage() {
         )}
 
         {!loading && !error && tab === "charts" && (
-          <div className="p-6 flex flex-col gap-6 max-w-4xl">
+          <div className="p-6 flex flex-col gap-6">
             <CurveChart
               title="XP Required Per Level"
               data={progression.map((r) => ({

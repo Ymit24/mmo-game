@@ -1,10 +1,16 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   type EnemyArchetype,
+  type ItemDefinition,
+  type LootEntry,
+  type LootTable,
   createEnemy,
   deleteEnemy,
+  getLootTable,
   listEnemies,
+  listItems,
   updateEnemy,
+  upsertLootTable,
 } from "../api/adminApi";
 import { useAsyncData } from "../hooks/useAsyncData";
 
@@ -28,19 +34,50 @@ const EMPTY_ENEMY: Omit<EnemyArchetype, "id"> & { id: string } = {
   colorHex: "#ff4444",
 };
 
+type DetailTab = "stats" | "loot";
+
 export function EnemiesPage() {
   const { data: enemies, loading, error, refetch } = useAsyncData(listEnemies);
+  const { data: items } = useAsyncData(listItems);
   const [selected, setSelected] = useState<EnemyArchetype | null>(null);
   const [editing, setEditing] = useState<EnemyArchetype | null>(null);
   const [isNew, setIsNew] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [detailTab, setDetailTab] = useState<DetailTab>("stats");
+
+  // Loot table state
+  const [lootTable, setLootTable] = useState<LootTable | null>(null);
+  const [loadingLoot, setLoadingLoot] = useState(false);
+  const [lootDirty, setLootDirty] = useState(false);
+  const [savingLoot, setSavingLoot] = useState(false);
+  const [lootError, setLootError] = useState<string | null>(null);
+
+  // Load loot table when enemy is selected
+  useEffect(() => {
+    if (!selected) {
+      setLootTable(null);
+      return;
+    }
+    setLoadingLoot(true);
+    setLootError(null);
+    getLootTable(selected.id)
+      .then((table) => {
+        setLootTable(table);
+        setLootDirty(false);
+      })
+      .catch((err) => {
+        setLootError(err instanceof Error ? err.message : "Failed to load");
+      })
+      .finally(() => setLoadingLoot(false));
+  }, [selected]);
 
   const handleSelect = useCallback((enemy: EnemyArchetype) => {
     setSelected(enemy);
     setEditing({ ...enemy });
     setIsNew(false);
     setSaveError(null);
+    setDetailTab("stats");
   }, []);
 
   const handleNew = useCallback(() => {
@@ -49,6 +86,7 @@ export function EnemiesPage() {
     setEditing(newEnemy);
     setIsNew(true);
     setSaveError(null);
+    setDetailTab("stats");
   }, []);
 
   const handleSave = useCallback(async () => {
@@ -93,6 +131,81 @@ export function EnemiesPage() {
     },
     [],
   );
+
+  // Loot table handlers
+  const handleSaveLoot = useCallback(async () => {
+    if (!selected || !lootTable) return;
+    setSavingLoot(true);
+    setLootError(null);
+    try {
+      const result = await upsertLootTable(selected.id, {
+        dropChance: lootTable.dropChance,
+        entries: lootTable.entries,
+      });
+      setLootTable(result);
+      setLootDirty(false);
+    } catch (err) {
+      setLootError(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setSavingLoot(false);
+    }
+  }, [selected, lootTable]);
+
+  const updateDropChance = useCallback((value: number) => {
+    setLootTable((prev) => (prev ? { ...prev, dropChance: value } : prev));
+    setLootDirty(true);
+  }, []);
+
+  const addLootEntry = useCallback(() => {
+    if (!items?.length) return;
+    const firstItem = items[0];
+    if (!firstItem) return;
+    setLootTable((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        entries: [
+          ...prev.entries,
+          {
+            id: crypto.randomUUID(),
+            itemDefinitionId: firstItem.id,
+            weight: 1,
+            classAffinity: null,
+          },
+        ],
+      };
+    });
+    setLootDirty(true);
+  }, [items]);
+
+  const removeLootEntry = useCallback((entryId: string) => {
+    setLootTable((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        entries: prev.entries.filter((e) => e.id !== entryId),
+      };
+    });
+    setLootDirty(true);
+  }, []);
+
+  const updateLootEntry = useCallback(
+    (entryId: string, field: keyof LootEntry, value: unknown) => {
+      setLootTable((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          entries: prev.entries.map((e) =>
+            e.id === entryId ? { ...e, [field]: value } : e,
+          ),
+        };
+      });
+      setLootDirty(true);
+    },
+    [],
+  );
+
+  const totalWeight = lootTable?.entries.reduce((s, e) => s + e.weight, 0) ?? 0;
 
   return (
     <div className="flex flex-1 overflow-hidden">
@@ -149,8 +262,9 @@ export function EnemiesPage() {
             Select an enemy or create a new one
           </div>
         ) : (
-          <div className="max-w-2xl animate-fade-in">
-            <div className="flex items-center justify-between mb-6">
+          <div className="animate-fade-in">
+            {/* Header */}
+            <div className="flex items-center justify-between mb-4">
               <div>
                 <h2 className="text-text-bright text-lg font-display">
                   {isNew ? "New Enemy" : editing.name}
@@ -186,247 +300,540 @@ export function EnemiesPage() {
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-4">
-              {/* Identity */}
-              <FieldGroup label="Identity" span={2}>
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="ID">
-                    <input
-                      type="text"
-                      value={editing.id}
-                      onChange={(e) => updateField("id", e.target.value)}
-                      disabled={!isNew}
-                      className="w-full disabled:opacity-40"
-                    />
-                  </Field>
-                  <Field label="Name">
-                    <input
-                      type="text"
-                      value={editing.name}
-                      onChange={(e) => updateField("name", e.target.value)}
-                      className="w-full"
-                    />
-                  </Field>
-                </div>
-              </FieldGroup>
+            {/* Tabs: Stats / Loot */}
+            {!isNew && (
+              <div className="flex border-b border-border mb-5">
+                <button
+                  type="button"
+                  className={`px-4 py-2 text-[11px] uppercase tracking-wider transition-colors border-b-2 -mb-px ${
+                    detailTab === "stats"
+                      ? "border-b-vec-green text-vec-green"
+                      : "border-b-transparent text-muted hover:text-text"
+                  }`}
+                  onClick={() => setDetailTab("stats")}
+                >
+                  Stats
+                </button>
+                <button
+                  type="button"
+                  className={`px-4 py-2 text-[11px] uppercase tracking-wider transition-colors border-b-2 -mb-px flex items-center gap-2 ${
+                    detailTab === "loot"
+                      ? "border-b-vec-gold text-vec-gold"
+                      : "border-b-transparent text-muted hover:text-text"
+                  }`}
+                  onClick={() => setDetailTab("loot")}
+                >
+                  Loot Table
+                  {lootDirty && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-vec-amber" />
+                  )}
+                </button>
+              </div>
+            )}
 
-              {/* Core Stats */}
-              <FieldGroup label="Core Stats">
-                <Field label="Level">
-                  <input
-                    type="number"
-                    min={1}
-                    value={editing.level}
-                    onChange={(e) =>
-                      updateField("level", Number(e.target.value))
-                    }
-                    className="w-full"
-                  />
-                </Field>
-                <Field label="XP Reward">
-                  <input
-                    type="number"
-                    min={0}
-                    value={editing.xpReward}
-                    onChange={(e) =>
-                      updateField("xpReward", Number(e.target.value))
-                    }
-                    className="w-full"
-                  />
-                </Field>
-                <Field label="Max Health">
-                  <input
-                    type="number"
-                    min={1}
-                    value={editing.maxHealth}
-                    onChange={(e) =>
-                      updateField("maxHealth", Number(e.target.value))
-                    }
-                    className="w-full"
-                  />
-                </Field>
-                <Field label="Damage">
-                  <input
-                    type="number"
-                    min={0}
-                    value={editing.damage}
-                    onChange={(e) =>
-                      updateField("damage", Number(e.target.value))
-                    }
-                    className="w-full"
-                  />
-                </Field>
-                <Field label="Speed">
-                  <input
-                    type="number"
-                    min={0}
-                    value={editing.speed}
-                    onChange={(e) =>
-                      updateField("speed", Number(e.target.value))
-                    }
-                    className="w-full"
-                  />
-                </Field>
-              </FieldGroup>
-
-              {/* AI Behavior */}
-              <FieldGroup label="AI Behavior">
-                <Field label="Detection Radius">
-                  <input
-                    type="number"
-                    min={0}
-                    value={editing.detectionRadius}
-                    onChange={(e) =>
-                      updateField("detectionRadius", Number(e.target.value))
-                    }
-                    className="w-full"
-                  />
-                </Field>
-                <Field label="Leash Radius">
-                  <input
-                    type="number"
-                    min={0}
-                    value={editing.leashRadius}
-                    onChange={(e) =>
-                      updateField("leashRadius", Number(e.target.value))
-                    }
-                    className="w-full"
-                  />
-                </Field>
-                <Field label="Attack Speed (ms)">
-                  <input
-                    type="number"
-                    min={100}
-                    step={50}
-                    value={editing.attackSpeedMs}
-                    onChange={(e) =>
-                      updateField("attackSpeedMs", Number(e.target.value))
-                    }
-                    className="w-full"
-                  />
-                </Field>
-              </FieldGroup>
-
-              {/* Combat */}
-              <FieldGroup label="Combat" span={2}>
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="Melee Range">
-                    <div className="flex items-center gap-3">
-                      <input
-                        type="number"
-                        min={0}
-                        value={editing.meleeRange}
-                        onChange={(e) =>
-                          updateField("meleeRange", Number(e.target.value))
-                        }
-                        className="flex-1"
-                      />
-                      <label className="flex items-center gap-2 text-xs text-muted cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={editing.canMelee}
-                          onChange={(e) =>
-                            updateField("canMelee", e.target.checked)
-                          }
-                          className="accent-vec-green"
-                        />
-                        Enabled
-                      </label>
-                    </div>
-                  </Field>
-                  <Field label="Ranged Range">
-                    <div className="flex items-center gap-3">
-                      <input
-                        type="number"
-                        min={0}
-                        value={editing.rangedRange}
-                        onChange={(e) =>
-                          updateField("rangedRange", Number(e.target.value))
-                        }
-                        className="flex-1"
-                      />
-                      <label className="flex items-center gap-2 text-xs text-muted cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={editing.canRanged}
-                          onChange={(e) =>
-                            updateField("canRanged", e.target.checked)
-                          }
-                          className="accent-vec-green"
-                        />
-                        Enabled
-                      </label>
-                    </div>
-                  </Field>
-                </div>
-              </FieldGroup>
-
-              {/* Visuals */}
-              <FieldGroup label="Visuals" span={2}>
-                <div className="grid grid-cols-3 gap-3 items-end">
-                  <Field label="Width">
-                    <input
-                      type="number"
-                      min={1}
-                      value={editing.visualWidth}
-                      onChange={(e) =>
-                        updateField("visualWidth", Number(e.target.value))
-                      }
-                      className="w-full"
-                    />
-                  </Field>
-                  <Field label="Height">
-                    <input
-                      type="number"
-                      min={1}
-                      value={editing.visualHeight}
-                      onChange={(e) =>
-                        updateField("visualHeight", Number(e.target.value))
-                      }
-                      className="w-full"
-                    />
-                  </Field>
-                  <Field label="Color">
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="color"
-                        value={editing.colorHex}
-                        onChange={(e) =>
-                          updateField("colorHex", e.target.value)
-                        }
-                      />
+            {/* Stats Tab */}
+            {(isNew || detailTab === "stats") && (
+              <div className="grid grid-cols-2 gap-4 xl:grid-cols-3">
+                {/* Identity */}
+                <FieldGroup label="Identity" span={2}>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="ID">
                       <input
                         type="text"
-                        value={editing.colorHex}
-                        onChange={(e) =>
-                          updateField("colorHex", e.target.value)
-                        }
-                        className="flex-1"
+                        value={editing.id}
+                        onChange={(e) => updateField("id", e.target.value)}
+                        disabled={!isNew}
+                        className="w-full disabled:opacity-40"
                       />
-                    </div>
+                    </Field>
+                    <Field label="Name">
+                      <input
+                        type="text"
+                        value={editing.name}
+                        onChange={(e) => updateField("name", e.target.value)}
+                        className="w-full"
+                      />
+                    </Field>
+                  </div>
+                </FieldGroup>
+
+                {/* Core Stats */}
+                <FieldGroup label="Core Stats">
+                  <Field label="Level">
+                    <input
+                      type="number"
+                      min={1}
+                      value={editing.level}
+                      onChange={(e) =>
+                        updateField("level", Number(e.target.value))
+                      }
+                      className="w-full"
+                    />
                   </Field>
-                </div>
-                {/* Preview */}
-                <div className="mt-4 flex items-center gap-4">
-                  <div className="text-xs text-muted uppercase">Preview:</div>
-                  <div
-                    className="border border-border"
-                    style={{
-                      width: Math.min(editing.visualWidth * 2, 120),
-                      height: Math.min(editing.visualHeight * 2, 120),
-                      backgroundColor: editing.colorHex,
-                      boxShadow: `0 0 12px ${editing.colorHex}44`,
-                    }}
-                  />
-                </div>
-              </FieldGroup>
-            </div>
+                  <Field label="XP Reward">
+                    <input
+                      type="number"
+                      min={0}
+                      value={editing.xpReward}
+                      onChange={(e) =>
+                        updateField("xpReward", Number(e.target.value))
+                      }
+                      className="w-full"
+                    />
+                  </Field>
+                  <Field label="Max Health">
+                    <input
+                      type="number"
+                      min={1}
+                      value={editing.maxHealth}
+                      onChange={(e) =>
+                        updateField("maxHealth", Number(e.target.value))
+                      }
+                      className="w-full"
+                    />
+                  </Field>
+                  <Field label="Damage">
+                    <input
+                      type="number"
+                      min={0}
+                      value={editing.damage}
+                      onChange={(e) =>
+                        updateField("damage", Number(e.target.value))
+                      }
+                      className="w-full"
+                    />
+                  </Field>
+                  <Field label="Speed">
+                    <input
+                      type="number"
+                      min={0}
+                      value={editing.speed}
+                      onChange={(e) =>
+                        updateField("speed", Number(e.target.value))
+                      }
+                      className="w-full"
+                    />
+                  </Field>
+                </FieldGroup>
+
+                {/* AI Behavior */}
+                <FieldGroup label="AI Behavior">
+                  <Field label="Detection Radius">
+                    <input
+                      type="number"
+                      min={0}
+                      value={editing.detectionRadius}
+                      onChange={(e) =>
+                        updateField("detectionRadius", Number(e.target.value))
+                      }
+                      className="w-full"
+                    />
+                  </Field>
+                  <Field label="Leash Radius">
+                    <input
+                      type="number"
+                      min={0}
+                      value={editing.leashRadius}
+                      onChange={(e) =>
+                        updateField("leashRadius", Number(e.target.value))
+                      }
+                      className="w-full"
+                    />
+                  </Field>
+                  <Field label="Attack Speed (ms)">
+                    <input
+                      type="number"
+                      min={100}
+                      step={50}
+                      value={editing.attackSpeedMs}
+                      onChange={(e) =>
+                        updateField("attackSpeedMs", Number(e.target.value))
+                      }
+                      className="w-full"
+                    />
+                  </Field>
+                </FieldGroup>
+
+                {/* Combat */}
+                <FieldGroup label="Combat" span={2}>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="Melee Range">
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="number"
+                          min={0}
+                          value={editing.meleeRange}
+                          onChange={(e) =>
+                            updateField("meleeRange", Number(e.target.value))
+                          }
+                          className="flex-1"
+                        />
+                        <label className="flex items-center gap-2 text-xs text-muted cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={editing.canMelee}
+                            onChange={(e) =>
+                              updateField("canMelee", e.target.checked)
+                            }
+                            className="accent-vec-green"
+                          />
+                          Enabled
+                        </label>
+                      </div>
+                    </Field>
+                    <Field label="Ranged Range">
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="number"
+                          min={0}
+                          value={editing.rangedRange}
+                          onChange={(e) =>
+                            updateField("rangedRange", Number(e.target.value))
+                          }
+                          className="flex-1"
+                        />
+                        <label className="flex items-center gap-2 text-xs text-muted cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={editing.canRanged}
+                            onChange={(e) =>
+                              updateField("canRanged", e.target.checked)
+                            }
+                            className="accent-vec-green"
+                          />
+                          Enabled
+                        </label>
+                      </div>
+                    </Field>
+                  </div>
+                </FieldGroup>
+
+                {/* Visuals */}
+                <FieldGroup label="Visuals" span={2}>
+                  <div className="grid grid-cols-3 gap-3 items-end">
+                    <Field label="Width">
+                      <input
+                        type="number"
+                        min={1}
+                        value={editing.visualWidth}
+                        onChange={(e) =>
+                          updateField("visualWidth", Number(e.target.value))
+                        }
+                        className="w-full"
+                      />
+                    </Field>
+                    <Field label="Height">
+                      <input
+                        type="number"
+                        min={1}
+                        value={editing.visualHeight}
+                        onChange={(e) =>
+                          updateField("visualHeight", Number(e.target.value))
+                        }
+                        className="w-full"
+                      />
+                    </Field>
+                    <Field label="Color">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="color"
+                          value={editing.colorHex}
+                          onChange={(e) =>
+                            updateField("colorHex", e.target.value)
+                          }
+                        />
+                        <input
+                          type="text"
+                          value={editing.colorHex}
+                          onChange={(e) =>
+                            updateField("colorHex", e.target.value)
+                          }
+                          className="flex-1"
+                        />
+                      </div>
+                    </Field>
+                  </div>
+                  {/* Preview */}
+                  <div className="mt-4 flex items-center gap-4">
+                    <div className="text-xs text-muted uppercase">Preview:</div>
+                    <div
+                      className="border border-border"
+                      style={{
+                        width: Math.min(editing.visualWidth * 2, 120),
+                        height: Math.min(editing.visualHeight * 2, 120),
+                        backgroundColor: editing.colorHex,
+                        boxShadow: `0 0 12px ${editing.colorHex}44`,
+                      }}
+                    />
+                  </div>
+                </FieldGroup>
+              </div>
+            )}
+
+            {/* Loot Tab */}
+            {!isNew && detailTab === "loot" && (
+              <LootSection
+                lootTable={lootTable}
+                loadingLoot={loadingLoot}
+                lootError={lootError}
+                lootDirty={lootDirty}
+                savingLoot={savingLoot}
+                items={items ?? []}
+                totalWeight={totalWeight}
+                onSave={handleSaveLoot}
+                onUpdateDropChance={updateDropChance}
+                onAddEntry={addLootEntry}
+                onRemoveEntry={removeLootEntry}
+                onUpdateEntry={updateLootEntry}
+              />
+            )}
           </div>
         )}
       </div>
     </div>
   );
 }
+
+/* ─── Loot Section ──────────────────────────────────────────────── */
+
+function LootSection({
+  lootTable,
+  loadingLoot,
+  lootError,
+  lootDirty,
+  savingLoot,
+  items,
+  totalWeight,
+  onSave,
+  onUpdateDropChance,
+  onAddEntry,
+  onRemoveEntry,
+  onUpdateEntry,
+}: {
+  lootTable: LootTable | null;
+  loadingLoot: boolean;
+  lootError: string | null;
+  lootDirty: boolean;
+  savingLoot: boolean;
+  items: ItemDefinition[];
+  totalWeight: number;
+  onSave: () => void;
+  onUpdateDropChance: (value: number) => void;
+  onAddEntry: () => void;
+  onRemoveEntry: (entryId: string) => void;
+  onUpdateEntry: (
+    entryId: string,
+    field: keyof LootEntry,
+    value: unknown,
+  ) => void;
+}) {
+  if (loadingLoot) {
+    return (
+      <div className="text-muted text-xs py-8 text-center">
+        Loading loot table...
+      </div>
+    );
+  }
+
+  if (!lootTable) {
+    return (
+      <div className="text-danger text-xs py-8 text-center">
+        {lootError ?? "Failed to load loot table"}
+      </div>
+    );
+  }
+
+  return (
+    <div className="animate-fade-in">
+      {/* Save bar */}
+      <div className="flex items-center justify-end gap-3 mb-4">
+        {lootDirty && (
+          <span className="text-vec-amber text-[10px] uppercase tracking-wider">
+            Unsaved
+          </span>
+        )}
+        <button
+          type="button"
+          className="btn-primary text-[11px]"
+          onClick={onSave}
+          disabled={savingLoot}
+        >
+          {savingLoot ? "Saving..." : "Save Loot"}
+        </button>
+      </div>
+
+      {lootError && (
+        <div className="mb-4 p-3 border border-danger/30 bg-danger/5 text-danger text-xs">
+          {lootError}
+        </div>
+      )}
+
+      {/* Drop Chance */}
+      <div className="editor-panel p-4 mb-4">
+        <h3 className="text-vec-green-dim text-[10px] uppercase tracking-widest mb-3">
+          Drop Chance
+        </h3>
+        <div className="flex items-center gap-4">
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.01}
+            value={lootTable.dropChance}
+            onChange={(e) => onUpdateDropChance(Number(e.target.value))}
+            className="flex-1"
+          />
+          <span className="text-text-bright text-sm w-16 text-right">
+            {(lootTable.dropChance * 100).toFixed(0)}%
+          </span>
+        </div>
+      </div>
+
+      {/* Probability visualization */}
+      {lootTable.entries.length > 0 && totalWeight > 0 && (
+        <div className="editor-panel p-4 mb-4">
+          <h3 className="text-vec-green-dim text-[10px] uppercase tracking-widest mb-3">
+            Drop Distribution
+          </h3>
+          <div className="flex h-6 overflow-hidden border border-border">
+            {lootTable.entries.map((entry, i) => {
+              const pct = (entry.weight / totalWeight) * 100;
+              const hue = (i * 137) % 360;
+              return (
+                <div
+                  key={entry.id}
+                  className="h-full relative group"
+                  style={{
+                    width: `${pct}%`,
+                    backgroundColor: `hsl(${hue}, 60%, 45%)`,
+                    minWidth: "2px",
+                  }}
+                >
+                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 bg-surface border border-border px-2 py-1 text-[10px] text-text-bright whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-10">
+                    {items.find((it) => it.id === entry.itemDefinitionId)
+                      ?.name ?? entry.itemDefinitionId}{" "}
+                    ({pct.toFixed(1)}%)
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Entries */}
+      <div className="editor-panel p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-vec-green-dim text-[10px] uppercase tracking-widest">
+            Loot Entries
+          </h3>
+          <button
+            type="button"
+            className="btn-primary text-[11px] px-3 py-1"
+            onClick={onAddEntry}
+          >
+            + Add
+          </button>
+        </div>
+
+        {lootTable.entries.length === 0 ? (
+          <div className="text-muted text-xs py-4 text-center">
+            No loot entries. Click + Add to create one.
+          </div>
+        ) : (
+          <table className="editor-table">
+            <thead>
+              <tr>
+                <th>Item</th>
+                <th className="w-24">Weight</th>
+                <th className="w-20">Prob.</th>
+                <th className="w-28">Class Affinity</th>
+                <th className="w-16" />
+              </tr>
+            </thead>
+            <tbody>
+              {lootTable.entries.map((entry) => {
+                const pct =
+                  totalWeight > 0
+                    ? ((entry.weight / totalWeight) * 100).toFixed(1)
+                    : "0.0";
+                return (
+                  <tr key={entry.id} className="cursor-default">
+                    <td>
+                      <select
+                        value={entry.itemDefinitionId}
+                        onChange={(e) =>
+                          onUpdateEntry(
+                            entry.id,
+                            "itemDefinitionId",
+                            e.target.value,
+                          )
+                        }
+                        className="w-full bg-deep border border-border text-xs"
+                      >
+                        {items.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.name} ({item.type})
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td>
+                      <input
+                        type="number"
+                        min={1}
+                        value={entry.weight}
+                        onChange={(e) =>
+                          onUpdateEntry(
+                            entry.id,
+                            "weight",
+                            Number(e.target.value) || 1,
+                          )
+                        }
+                        className="w-full text-xs"
+                      />
+                    </td>
+                    <td className="text-vec-cyan text-xs text-center">
+                      {pct}%
+                    </td>
+                    <td>
+                      <select
+                        value={entry.classAffinity ?? ""}
+                        onChange={(e) =>
+                          onUpdateEntry(
+                            entry.id,
+                            "classAffinity",
+                            e.target.value || null,
+                          )
+                        }
+                        className="w-full bg-deep border border-border text-xs"
+                      >
+                        <option value="">Any</option>
+                        <option value="knight">Knight</option>
+                        <option value="mage">Mage</option>
+                      </select>
+                    </td>
+                    <td className="text-center">
+                      <button
+                        type="button"
+                        className="text-danger/60 hover:text-danger text-xs transition-colors"
+                        onClick={() => onRemoveEntry(entry.id)}
+                      >
+                        Remove
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ─── Shared field components ───────────────────────────────────── */
 
 function FieldGroup({
   label,

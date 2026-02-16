@@ -3,7 +3,6 @@ import { NavLink, Outlet } from "react-router-dom";
 const NAV_ITEMS = [
   { to: "/enemies", label: "Enemies", icon: "\u2694" },
   { to: "/items", label: "Items", icon: "\u2666" },
-  { to: "/loot", label: "Loot Tables", icon: "\u2737" },
   { to: "/levels", label: "Levels", icon: "\u25B2" },
   { to: "/maps", label: "Maps", icon: "\u25A6" },
 ] as const;

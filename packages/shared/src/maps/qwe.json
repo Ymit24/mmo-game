@@ -1,0 +1,12 @@
+{
+  "id": "qwe",
+  "name": "qwe",
+  "width": 2000,
+  "height": 2000,
+  "background": "#0a0a12",
+  "spawnPoints": [],
+  "collisions": [],
+  "regions": [],
+  "portals": [],
+  "enemySpawners": []
+}

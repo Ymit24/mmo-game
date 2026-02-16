@@ -9,7 +9,9 @@ import {
 } from "../api/adminApi";
 import { useAsyncData } from "../hooks/useAsyncData";
 
-interface Viewport {
+/* ─── Types ─────────────────────────────────────────────────────── */
+
+interface Camera {
   x: number;
   y: number;
   zoom: number;
@@ -23,16 +25,41 @@ type ToolMode =
   | "spawner"
   | "region";
 
-const TOOL_CONFIG: Record<ToolMode, { label: string; color: string }> = {
-  select: { label: "Select", color: "#a0a8b8" },
-  collision: { label: "Collision", color: "#ff2244" },
-  spawn: { label: "Spawn Pt", color: "#00ff41" },
-  portal: { label: "Portal", color: "#00e5ff" },
-  spawner: { label: "Spawner", color: "#ff9500" },
-  region: { label: "Region", color: "#ffd700" },
+type InteractionState =
+  | { kind: "idle" }
+  | { kind: "panning"; lastScreenX: number; lastScreenY: number }
+  | {
+      kind: "drawing";
+      startWorldX: number;
+      startWorldY: number;
+      currentWorldX: number;
+      currentWorldY: number;
+    }
+  | {
+      kind: "dragging";
+      entityType: string;
+      entityIndex: number;
+      offsetX: number;
+      offsetY: number;
+    };
+
+const TOOL_CONFIG: Record<
+  ToolMode,
+  { label: string; shortcut: string; color: string }
+> = {
+  select: { label: "Select", shortcut: "V", color: "#a0a8b8" },
+  collision: { label: "Collision", shortcut: "C", color: "#ff2244" },
+  spawn: { label: "Spawn Pt", shortcut: "S", color: "#00ff41" },
+  portal: { label: "Portal", shortcut: "P", color: "#00e5ff" },
+  spawner: { label: "Spawner", shortcut: "E", color: "#ff9500" },
+  region: { label: "Region", shortcut: "R", color: "#ffd700" },
 };
 
 const GRID_SIZE = 32;
+const MIN_ZOOM = 0.05;
+const MAX_ZOOM = 6;
+const TRACKPAD_ZOOM_SENSITIVITY = 0.008;
+const WHEEL_ZOOM_SENSITIVITY = 0.002;
 
 const NEW_MAP_TEMPLATE: MapData = {
   id: "",
@@ -47,6 +74,380 @@ const NEW_MAP_TEMPLATE: MapData = {
   enemySpawners: [],
 };
 
+/* ─── Helpers ───────────────────────────────────────────────────── */
+
+function snapToGrid(val: number): number {
+  return Math.round(val / GRID_SIZE) * GRID_SIZE;
+}
+
+function screenToWorld(
+  screenX: number,
+  screenY: number,
+  canvasRect: DOMRect,
+  camera: Camera,
+): { x: number; y: number } {
+  return {
+    x: (screenX - canvasRect.left) / camera.zoom + camera.x,
+    y: (screenY - canvasRect.top) / camera.zoom + camera.y,
+  };
+}
+
+function getCursorStyle(
+  tool: ToolMode,
+  interaction: InteractionState,
+  spaceHeld: boolean,
+): string {
+  if (interaction.kind === "panning") return "grabbing";
+  if (interaction.kind === "dragging") return "grabbing";
+  if (spaceHeld) return "grab";
+  if (tool === "select") return "default";
+  return "crosshair";
+}
+
+function findEntityAt(
+  mapData: MapData,
+  wx: number,
+  wy: number,
+  zoom: number,
+): { type: string; index: number } | null {
+  const hitPadding = 8 / zoom;
+
+  // Check spawn points first (small targets - most specific)
+  for (let i = mapData.spawnPoints.length - 1; i >= 0; i--) {
+    const sp = mapData.spawnPoints[i] as { x: number; y: number } | undefined;
+    if (!sp) continue;
+    const dist = Math.hypot(wx - sp.x, wy - sp.y);
+    if (dist < 16 / zoom + hitPadding) return { type: "spawn", index: i };
+  }
+
+  // Spawners (center dot hit test)
+  for (let i = mapData.enemySpawners.length - 1; i >= 0; i--) {
+    const es = mapData.enemySpawners[i] as
+      | { x: number; y: number; radius?: number }
+      | undefined;
+    if (!es) continue;
+    const dist = Math.hypot(wx - es.x, wy - es.y);
+    if (dist < (es.radius ?? 50) + hitPadding)
+      return { type: "spawner", index: i };
+  }
+
+  // Portals
+  for (let i = mapData.portals.length - 1; i >= 0; i--) {
+    const p = mapData.portals[i] as
+      | { x: number; y: number; width: number; height: number }
+      | undefined;
+    if (!p) continue;
+    if (
+      wx >= p.x - hitPadding &&
+      wx <= p.x + p.width + hitPadding &&
+      wy >= p.y - hitPadding &&
+      wy <= p.y + p.height + hitPadding
+    ) {
+      return { type: "portal", index: i };
+    }
+  }
+
+  // Regions
+  for (let i = mapData.regions.length - 1; i >= 0; i--) {
+    const r = mapData.regions[i] as
+      | { x: number; y: number; width: number; height: number }
+      | undefined;
+    if (!r) continue;
+    if (
+      wx >= r.x - hitPadding &&
+      wx <= r.x + r.width + hitPadding &&
+      wy >= r.y - hitPadding &&
+      wy <= r.y + r.height + hitPadding
+    ) {
+      return { type: "region", index: i };
+    }
+  }
+
+  // Collisions
+  for (let i = mapData.collisions.length - 1; i >= 0; i--) {
+    const c = mapData.collisions[i] as
+      | { x: number; y: number; width: number; height: number }
+      | undefined;
+    if (!c) continue;
+    if (
+      wx >= c.x - hitPadding &&
+      wx <= c.x + c.width + hitPadding &&
+      wy >= c.y - hitPadding &&
+      wy <= c.y + c.height + hitPadding
+    ) {
+      return { type: "collision", index: i };
+    }
+  }
+
+  return null;
+}
+
+function getEntityPosition(
+  mapData: MapData,
+  type: string,
+  index: number,
+): { x: number; y: number } | null {
+  let arr: Array<Record<string, unknown>> = [];
+  if (type === "collision")
+    arr = mapData.collisions as Array<Record<string, unknown>>;
+  else if (type === "region")
+    arr = mapData.regions as Array<Record<string, unknown>>;
+  else if (type === "portal")
+    arr = mapData.portals as Array<Record<string, unknown>>;
+  else if (type === "spawn")
+    arr = mapData.spawnPoints as Array<Record<string, unknown>>;
+  else if (type === "spawner")
+    arr = mapData.enemySpawners as Array<Record<string, unknown>>;
+  const ent = arr[index];
+  if (!ent || typeof ent.x !== "number" || typeof ent.y !== "number")
+    return null;
+  return { x: ent.x, y: ent.y };
+}
+
+function entityFieldName(type: string): string {
+  if (type === "collision") return "collisions";
+  if (type === "region") return "regions";
+  if (type === "portal") return "portals";
+  if (type === "spawn") return "spawnPoints";
+  return "enemySpawners";
+}
+
+/* ─── Canvas renderer ───────────────────────────────────────────── */
+
+function renderCanvas(
+  canvas: HTMLCanvasElement,
+  container: HTMLDivElement,
+  mapData: MapData,
+  camera: Camera,
+  selectedEntity: { type: string; index: number } | null,
+  interaction: InteractionState,
+  tool: ToolMode,
+) {
+  const dpr = window.devicePixelRatio || 1;
+  const rect = container.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  canvas.style.width = `${rect.width}px`;
+  canvas.style.height = `${rect.height}px`;
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, rect.width, rect.height);
+
+  const { x: cx, y: cy, zoom } = camera;
+
+  // Off-canvas background
+  ctx.fillStyle = "#020204";
+  ctx.fillRect(0, 0, rect.width, rect.height);
+
+  ctx.save();
+  ctx.translate(-cx * zoom, -cy * zoom);
+  ctx.scale(zoom, zoom);
+
+  // Map background fill
+  ctx.fillStyle = mapData.background || "#0a0a12";
+  ctx.fillRect(0, 0, mapData.width, mapData.height);
+
+  // Grid (only render when reasonably zoomed in)
+  if (zoom > 0.15) {
+    const gridAlpha = Math.min(0.4, (zoom - 0.15) * 1.5);
+    ctx.strokeStyle = `rgba(42, 42, 58, ${gridAlpha})`;
+    ctx.lineWidth = 0.5 / zoom;
+    const startX = Math.max(0, Math.floor(cx / GRID_SIZE) * GRID_SIZE);
+    const startY = Math.max(0, Math.floor(cy / GRID_SIZE) * GRID_SIZE);
+    const endX = Math.min(mapData.width, cx + rect.width / zoom);
+    const endY = Math.min(mapData.height, cy + rect.height / zoom);
+
+    ctx.beginPath();
+    for (let gx = startX; gx <= endX; gx += GRID_SIZE) {
+      ctx.moveTo(gx, startY);
+      ctx.lineTo(gx, endY);
+    }
+    for (let gy = startY; gy <= endY; gy += GRID_SIZE) {
+      ctx.moveTo(startX, gy);
+      ctx.lineTo(endX, gy);
+    }
+    ctx.stroke();
+  }
+
+  // Map bounds
+  ctx.strokeStyle = "rgba(0, 255, 65, 0.25)";
+  ctx.lineWidth = 2 / zoom;
+  ctx.setLineDash([8 / zoom, 4 / zoom]);
+  ctx.strokeRect(0, 0, mapData.width, mapData.height);
+  ctx.setLineDash([]);
+
+  // Collisions
+  ctx.fillStyle = "rgba(255, 34, 68, 0.2)";
+  ctx.strokeStyle = "rgba(255, 34, 68, 0.6)";
+  ctx.lineWidth = 1 / zoom;
+  for (const coll of mapData.collisions) {
+    const c = coll as { x: number; y: number; width: number; height: number };
+    ctx.fillRect(c.x, c.y, c.width, c.height);
+    ctx.strokeRect(c.x, c.y, c.width, c.height);
+  }
+
+  // Regions
+  ctx.lineWidth = 1 / zoom;
+  for (const reg of mapData.regions) {
+    const r = reg as {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      id?: string;
+    };
+    ctx.fillStyle = "rgba(255, 215, 0, 0.08)";
+    ctx.strokeStyle = "rgba(255, 215, 0, 0.5)";
+    ctx.fillRect(r.x, r.y, r.width, r.height);
+    ctx.strokeRect(r.x, r.y, r.width, r.height);
+    if (r.id) {
+      ctx.fillStyle = "rgba(255, 215, 0, 0.7)";
+      ctx.font = `${11 / zoom}px "Share Tech Mono"`;
+      ctx.fillText(r.id, r.x + 4, r.y + 14 / zoom);
+    }
+  }
+
+  // Portals
+  for (const portal of mapData.portals) {
+    const p = portal as {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      id?: string;
+    };
+    ctx.fillStyle = "rgba(0, 229, 255, 0.15)";
+    ctx.strokeStyle = "rgba(0, 229, 255, 0.7)";
+    ctx.lineWidth = 1.5 / zoom;
+    ctx.fillRect(p.x, p.y, p.width, p.height);
+    ctx.strokeRect(p.x, p.y, p.width, p.height);
+    if (p.id) {
+      ctx.fillStyle = "rgba(0, 229, 255, 0.9)";
+      ctx.font = `${10 / zoom}px "Share Tech Mono"`;
+      ctx.fillText(p.id, p.x + 3, p.y + 12 / zoom);
+    }
+  }
+
+  // Spawn points
+  for (const sp of mapData.spawnPoints) {
+    const s = sp as { x: number; y: number; id?: string };
+    const size = 12 / zoom;
+    ctx.fillStyle = "rgba(0, 255, 65, 0.8)";
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, size / 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#00ff41";
+    ctx.lineWidth = 1.5 / zoom;
+    ctx.stroke();
+    if (s.id) {
+      ctx.fillStyle = "#00ff41";
+      ctx.font = `${9 / zoom}px "Share Tech Mono"`;
+      ctx.fillText(s.id, s.x + size, s.y + 3 / zoom);
+    }
+  }
+
+  // Enemy spawners
+  for (const spawner of mapData.enemySpawners) {
+    const es = spawner as {
+      x: number;
+      y: number;
+      radius?: number;
+      archetypeId?: string;
+    };
+    const r = es.radius ?? 50;
+    ctx.fillStyle = "rgba(255, 149, 0, 0.08)";
+    ctx.strokeStyle = "rgba(255, 149, 0, 0.5)";
+    ctx.lineWidth = 1 / zoom;
+    ctx.beginPath();
+    ctx.arc(es.x, es.y, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "rgba(255, 149, 0, 0.9)";
+    ctx.beginPath();
+    ctx.arc(es.x, es.y, 4 / zoom, 0, Math.PI * 2);
+    ctx.fill();
+    if (es.archetypeId) {
+      ctx.fillStyle = "rgba(255, 149, 0, 0.8)";
+      ctx.font = `${9 / zoom}px "Share Tech Mono"`;
+      ctx.fillText(es.archetypeId, es.x + 8 / zoom, es.y - 8 / zoom);
+    }
+  }
+
+  // Drawing preview
+  if (interaction.kind === "drawing") {
+    const { startWorldX, startWorldY, currentWorldX, currentWorldY } =
+      interaction;
+    ctx.setLineDash([4 / zoom, 4 / zoom]);
+    ctx.strokeStyle = TOOL_CONFIG[tool]?.color ?? "#ffffff";
+    ctx.fillStyle = `${TOOL_CONFIG[tool]?.color ?? "#ffffff"}22`;
+    ctx.lineWidth = 1.5 / zoom;
+    const dx = Math.min(startWorldX, currentWorldX);
+    const dy = Math.min(startWorldY, currentWorldY);
+    const dw = Math.abs(currentWorldX - startWorldX);
+    const dh = Math.abs(currentWorldY - startWorldY);
+    ctx.fillRect(dx, dy, dw, dh);
+    ctx.strokeRect(dx, dy, dw, dh);
+    ctx.setLineDash([]);
+  }
+
+  // Selected entity highlight
+  if (selectedEntity && mapData) {
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 2 / zoom;
+    ctx.setLineDash([6 / zoom, 3 / zoom]);
+
+    let arr: Array<Record<string, unknown>> = [];
+    if (selectedEntity.type === "collision")
+      arr = mapData.collisions as Array<Record<string, unknown>>;
+    else if (selectedEntity.type === "region")
+      arr = mapData.regions as Array<Record<string, unknown>>;
+    else if (selectedEntity.type === "portal")
+      arr = mapData.portals as Array<Record<string, unknown>>;
+    else if (selectedEntity.type === "spawn")
+      arr = mapData.spawnPoints as Array<Record<string, unknown>>;
+    else if (selectedEntity.type === "spawner")
+      arr = mapData.enemySpawners as Array<Record<string, unknown>>;
+
+    const ent = arr[selectedEntity.index];
+    if (ent) {
+      if ("width" in ent && "height" in ent) {
+        ctx.strokeRect(
+          ent.x as number,
+          ent.y as number,
+          ent.width as number,
+          ent.height as number,
+        );
+      } else if ("radius" in ent) {
+        ctx.beginPath();
+        ctx.arc(
+          ent.x as number,
+          ent.y as number,
+          ent.radius as number,
+          0,
+          Math.PI * 2,
+        );
+        ctx.stroke();
+      } else {
+        const size = 16 / zoom;
+        ctx.strokeRect(
+          (ent.x as number) - size / 2,
+          (ent.y as number) - size / 2,
+          size,
+          size,
+        );
+      }
+    }
+    ctx.setLineDash([]);
+  }
+
+  ctx.restore();
+}
+
+/* ─── Main component ────────────────────────────────────────────── */
+
 export function MapsPage() {
   const { data: mapList, loading, error, refetch } = useAsyncData(listMaps);
   const [selectedMapId, setSelectedMapId] = useState<string | null>(null);
@@ -56,25 +457,32 @@ export function MapsPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [tool, setTool] = useState<ToolMode>("select");
-  const [viewport, setViewport] = useState<Viewport>({
-    x: 0,
-    y: 0,
-    zoom: 1,
-  });
+  const [camera, setCamera] = useState<Camera>({ x: 0, y: 0, zoom: 0.5 });
   const [selectedEntity, setSelectedEntity] = useState<{
     type: string;
     index: number;
   } | null>(null);
   const [isCreatingNew, setIsCreatingNew] = useState(false);
   const [newMapId, setNewMapId] = useState("");
+  const [spaceHeld, setSpaceHeld] = useState(false);
+  const [showDimensions, setShowDimensions] = useState(false);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const isPanningRef = useRef(false);
-  const panStartRef = useRef({ x: 0, y: 0 });
-  const isDrawingRef = useRef(false);
-  const drawStartRef = useRef({ x: 0, y: 0 });
-  const drawCurrentRef = useRef({ x: 0, y: 0 });
+  const interactionRef = useRef<InteractionState>({ kind: "idle" });
+  const cameraRef = useRef(camera);
+  const mapDataRef = useRef(mapData);
+  const toolRef = useRef(tool);
+  const spaceHeldRef = useRef(false);
+  const selectedEntityRef = useRef(selectedEntity);
+  const rafRef = useRef<number>(0);
+
+  // Keep refs in sync
+  cameraRef.current = camera;
+  mapDataRef.current = mapData;
+  toolRef.current = tool;
+  spaceHeldRef.current = spaceHeld;
+  selectedEntityRef.current = selectedEntity;
 
   // Load map data
   useEffect(() => {
@@ -88,7 +496,23 @@ export function MapsPage() {
       .then((data) => {
         setMapData(data);
         setDirty(false);
-        setViewport({ x: 0, y: 0, zoom: 0.5 });
+        // Center the map in view
+        const container = containerRef.current;
+        if (container) {
+          const rect = container.getBoundingClientRect();
+          const fitZoom = Math.min(
+            (rect.width * 0.8) / data.width,
+            (rect.height * 0.8) / data.height,
+            1,
+          );
+          setCamera({
+            x: data.width / 2 - rect.width / (2 * fitZoom),
+            y: data.height / 2 - rect.height / (2 * fitZoom),
+            zoom: fitZoom,
+          });
+        } else {
+          setCamera({ x: 0, y: 0, zoom: 0.5 });
+        }
         setSelectedEntity(null);
       })
       .catch((err) => {
@@ -97,422 +521,387 @@ export function MapsPage() {
       .finally(() => setLoadingMap(false));
   }, [selectedMapId]);
 
-  // Canvas rendering
+  // Canvas render loop
   useEffect(() => {
     const canvas = canvasRef.current;
     const container = containerRef.current;
     if (!canvas || !container || !mapData) return;
 
-    const dpr = window.devicePixelRatio || 1;
-    const rect = container.getBoundingClientRect();
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
-    canvas.style.width = `${rect.width}px`;
-    canvas.style.height = `${rect.height}px`;
+    const render = () => {
+      const currentMap = mapDataRef.current;
+      if (!currentMap) return;
+      renderCanvas(
+        canvas,
+        container,
+        currentMap,
+        cameraRef.current,
+        selectedEntityRef.current,
+        interactionRef.current,
+        toolRef.current,
+      );
+      rafRef.current = requestAnimationFrame(render);
+    };
 
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    ctx.scale(dpr, dpr);
-    ctx.clearRect(0, 0, rect.width, rect.height);
-
-    const { x: vx, y: vy, zoom } = viewport;
-
-    // Background
-    ctx.fillStyle = mapData.background || "#0a0a12";
-    ctx.fillRect(0, 0, rect.width, rect.height);
-
-    ctx.save();
-    ctx.translate(-vx * zoom, -vy * zoom);
-    ctx.scale(zoom, zoom);
-
-    // Grid
-    ctx.strokeStyle = "rgba(42, 42, 58, 0.4)";
-    ctx.lineWidth = 0.5 / zoom;
-    const gridStep = GRID_SIZE;
-    const startX = Math.floor(vx / gridStep) * gridStep;
-    const startY = Math.floor(vy / gridStep) * gridStep;
-    const endX = vx + rect.width / zoom;
-    const endY = vy + rect.height / zoom;
-    for (let gx = startX; gx <= endX; gx += gridStep) {
-      ctx.beginPath();
-      ctx.moveTo(gx, startY);
-      ctx.lineTo(gx, endY);
-      ctx.stroke();
-    }
-    for (let gy = startY; gy <= endY; gy += gridStep) {
-      ctx.beginPath();
-      ctx.moveTo(startX, gy);
-      ctx.lineTo(endX, gy);
-      ctx.stroke();
-    }
-
-    // Map bounds
-    ctx.strokeStyle = "rgba(0, 255, 65, 0.3)";
-    ctx.lineWidth = 2 / zoom;
-    ctx.strokeRect(0, 0, mapData.width, mapData.height);
-
-    // Collisions
-    ctx.fillStyle = "rgba(255, 34, 68, 0.2)";
-    ctx.strokeStyle = "rgba(255, 34, 68, 0.6)";
-    ctx.lineWidth = 1 / zoom;
-    for (const coll of mapData.collisions) {
-      const c = coll as { x: number; y: number; width: number; height: number };
-      ctx.fillRect(c.x, c.y, c.width, c.height);
-      ctx.strokeRect(c.x, c.y, c.width, c.height);
-    }
-
-    // Regions
-    ctx.lineWidth = 1 / zoom;
-    for (const reg of mapData.regions) {
-      const r = reg as {
-        x: number;
-        y: number;
-        width: number;
-        height: number;
-        id?: string;
-      };
-      ctx.fillStyle = "rgba(255, 215, 0, 0.08)";
-      ctx.strokeStyle = "rgba(255, 215, 0, 0.5)";
-      ctx.fillRect(r.x, r.y, r.width, r.height);
-      ctx.strokeRect(r.x, r.y, r.width, r.height);
-      if (r.id) {
-        ctx.fillStyle = "rgba(255, 215, 0, 0.7)";
-        ctx.font = `${11 / zoom}px "Share Tech Mono"`;
-        ctx.fillText(r.id, r.x + 4, r.y + 14 / zoom);
-      }
-    }
-
-    // Portals
-    for (const portal of mapData.portals) {
-      const p = portal as {
-        x: number;
-        y: number;
-        width: number;
-        height: number;
-        id?: string;
-      };
-      ctx.fillStyle = "rgba(0, 229, 255, 0.15)";
-      ctx.strokeStyle = "rgba(0, 229, 255, 0.7)";
-      ctx.lineWidth = 1.5 / zoom;
-      ctx.fillRect(p.x, p.y, p.width, p.height);
-      ctx.strokeRect(p.x, p.y, p.width, p.height);
-      if (p.id) {
-        ctx.fillStyle = "rgba(0, 229, 255, 0.9)";
-        ctx.font = `${10 / zoom}px "Share Tech Mono"`;
-        ctx.fillText(p.id, p.x + 3, p.y + 12 / zoom);
-      }
-    }
-
-    // Spawn points
-    for (const sp of mapData.spawnPoints) {
-      const s = sp as { x: number; y: number; id?: string };
-      const size = 12 / zoom;
-      ctx.fillStyle = "rgba(0, 255, 65, 0.8)";
-      ctx.beginPath();
-      ctx.arc(s.x, s.y, size / 2, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = "#00ff41";
-      ctx.lineWidth = 1.5 / zoom;
-      ctx.stroke();
-      if (s.id) {
-        ctx.fillStyle = "#00ff41";
-        ctx.font = `${9 / zoom}px "Share Tech Mono"`;
-        ctx.fillText(s.id, s.x + size, s.y + 3 / zoom);
-      }
-    }
-
-    // Enemy spawners
-    for (const spawner of mapData.enemySpawners) {
-      const es = spawner as {
-        x: number;
-        y: number;
-        radius?: number;
-        archetypeId?: string;
-      };
-      const r = es.radius ?? 50;
-      ctx.fillStyle = "rgba(255, 149, 0, 0.08)";
-      ctx.strokeStyle = "rgba(255, 149, 0, 0.5)";
-      ctx.lineWidth = 1 / zoom;
-      ctx.beginPath();
-      ctx.arc(es.x, es.y, r, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-      // Center dot
-      ctx.fillStyle = "rgba(255, 149, 0, 0.9)";
-      ctx.beginPath();
-      ctx.arc(es.x, es.y, 4 / zoom, 0, Math.PI * 2);
-      ctx.fill();
-      if (es.archetypeId) {
-        ctx.fillStyle = "rgba(255, 149, 0, 0.8)";
-        ctx.font = `${9 / zoom}px "Share Tech Mono"`;
-        ctx.fillText(es.archetypeId, es.x + 8 / zoom, es.y - 8 / zoom);
-      }
-    }
-
-    // Draw preview for current drawing operation
-    if (isDrawingRef.current && tool !== "select") {
-      const ds = drawStartRef.current;
-      const dc = drawCurrentRef.current;
-      ctx.setLineDash([4 / zoom, 4 / zoom]);
-      ctx.strokeStyle = TOOL_CONFIG[tool].color;
-      ctx.lineWidth = 1.5 / zoom;
-
-      if (tool === "collision" || tool === "region" || tool === "portal") {
-        const dx = Math.min(ds.x, dc.x);
-        const dy = Math.min(ds.y, dc.y);
-        const dw = Math.abs(dc.x - ds.x);
-        const dh = Math.abs(dc.y - ds.y);
-        ctx.strokeRect(dx, dy, dw, dh);
-      }
-
-      ctx.setLineDash([]);
-    }
-
-    // Selected entity highlight
-    if (selectedEntity && mapData) {
-      ctx.strokeStyle = "#ffffff";
-      ctx.lineWidth = 2 / zoom;
-      ctx.setLineDash([6 / zoom, 3 / zoom]);
-
-      let arr: Array<Record<string, unknown>> = [];
-      if (selectedEntity.type === "collision")
-        arr = mapData.collisions as Array<Record<string, unknown>>;
-      else if (selectedEntity.type === "region")
-        arr = mapData.regions as Array<Record<string, unknown>>;
-      else if (selectedEntity.type === "portal")
-        arr = mapData.portals as Array<Record<string, unknown>>;
-      else if (selectedEntity.type === "spawn")
-        arr = mapData.spawnPoints as Array<Record<string, unknown>>;
-      else if (selectedEntity.type === "spawner")
-        arr = mapData.enemySpawners as Array<Record<string, unknown>>;
-
-      const ent = arr[selectedEntity.index];
-      if (ent) {
-        if ("width" in ent && "height" in ent) {
-          ctx.strokeRect(
-            ent.x as number,
-            ent.y as number,
-            ent.width as number,
-            ent.height as number,
-          );
-        } else if ("radius" in ent) {
-          ctx.beginPath();
-          ctx.arc(
-            ent.x as number,
-            ent.y as number,
-            ent.radius as number,
-            0,
-            Math.PI * 2,
-          );
-          ctx.stroke();
-        } else {
-          const size = 16 / zoom;
-          ctx.strokeRect(
-            (ent.x as number) - size / 2,
-            (ent.y as number) - size / 2,
-            size,
-            size,
-          );
-        }
-      }
-
-      ctx.setLineDash([]);
-    }
-
-    ctx.restore();
-  }, [mapData, viewport, tool, selectedEntity]);
+    rafRef.current = requestAnimationFrame(render);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [mapData]);
 
   // Resize observer
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
     const observer = new ResizeObserver(() => {
-      // Trigger re-render
-      setViewport((v) => ({ ...v }));
+      // Camera ref is always current, RAF loop handles redraw
     });
     observer.observe(container);
     return () => observer.disconnect();
   }, []);
 
-  // World coords from screen
-  const screenToWorld = useCallback(
-    (sx: number, sy: number) => {
-      const canvas = canvasRef.current;
-      if (!canvas) return { x: 0, y: 0 };
-      const rect = canvas.getBoundingClientRect();
-      const wx = viewport.x + (sx - rect.left) / viewport.zoom;
-      const wy = viewport.y + (sy - rect.top) / viewport.zoom;
-      return { x: wx, y: wy };
+  /* ── Zoom-to-cursor ─────────────────────────────────────────── */
+  const zoomToPoint = useCallback(
+    (screenX: number, screenY: number, zoomDelta: number) => {
+      setCamera((prev) => {
+        const canvas = canvasRef.current;
+        if (!canvas) return prev;
+        const rect = canvas.getBoundingClientRect();
+
+        // World position under cursor before zoom
+        const worldX = (screenX - rect.left) / prev.zoom + prev.x;
+        const worldY = (screenY - rect.top) / prev.zoom + prev.y;
+
+        const newZoom = Math.max(
+          MIN_ZOOM,
+          Math.min(MAX_ZOOM, prev.zoom * (1 + zoomDelta)),
+        );
+
+        // Adjust camera so the same world point stays under cursor
+        const newX = worldX - (screenX - rect.left) / newZoom;
+        const newY = worldY - (screenY - rect.top) / newZoom;
+
+        return { x: newX, y: newY, zoom: newZoom };
+      });
     },
-    [viewport],
+    [],
   );
 
-  const snapToGrid = useCallback((val: number) => {
-    return Math.round(val / GRID_SIZE) * GRID_SIZE;
+  /* ── Wheel handler (zoom + pan) ─────────────────────────────── */
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      e.preventDefault();
+
+      // Pinch-to-zoom (trackpad) or ctrl+wheel
+      if (e.ctrlKey || e.metaKey) {
+        const sensitivity =
+          Math.abs(e.deltaY) < 10
+            ? TRACKPAD_ZOOM_SENSITIVITY
+            : WHEEL_ZOOM_SENSITIVITY;
+        const zoomDelta = -e.deltaY * sensitivity;
+        zoomToPoint(e.clientX, e.clientY, zoomDelta);
+        return;
+      }
+
+      // Two-finger scroll = pan
+      setCamera((prev) => ({
+        ...prev,
+        x: prev.x + e.deltaX / prev.zoom,
+        y: prev.y + e.deltaY / prev.zoom,
+      }));
+    };
+
+    container.addEventListener("wheel", handleWheel, { passive: false });
+    return () => container.removeEventListener("wheel", handleWheel);
+  }, [zoomToPoint]);
+
+  /* ── Pointer handlers ───────────────────────────────────────── */
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+    const canvas = canvasRef.current;
+    const map = mapDataRef.current;
+    if (!canvas || !map) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const cam = cameraRef.current;
+
+    // Middle-click or space+click = pan
+    if (e.button === 1 || (e.button === 0 && spaceHeldRef.current)) {
+      interactionRef.current = {
+        kind: "panning",
+        lastScreenX: e.clientX,
+        lastScreenY: e.clientY,
+      };
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      e.preventDefault();
+      return;
+    }
+
+    if (e.button !== 0) return;
+
+    const world = screenToWorld(e.clientX, e.clientY, rect, cam);
+    const currentTool = toolRef.current;
+
+    if (currentTool === "select") {
+      const found = findEntityAt(map, world.x, world.y, cam.zoom);
+      setSelectedEntity(found);
+
+      // If we found an entity, start dragging
+      if (found) {
+        const pos = getEntityPosition(map, found.type, found.index);
+        if (pos) {
+          interactionRef.current = {
+            kind: "dragging",
+            entityType: found.type,
+            entityIndex: found.index,
+            offsetX: world.x - pos.x,
+            offsetY: world.y - pos.y,
+          };
+          (e.target as HTMLElement).setPointerCapture(e.pointerId);
+        }
+      }
+      return;
+    }
+
+    if (currentTool === "spawn") {
+      const newSpawn = {
+        id: `spawn-${map.spawnPoints.length}`,
+        x: snapToGrid(world.x),
+        y: snapToGrid(world.y),
+      };
+      setMapData((prev) =>
+        prev ? { ...prev, spawnPoints: [...prev.spawnPoints, newSpawn] } : prev,
+      );
+      setDirty(true);
+      return;
+    }
+
+    if (currentTool === "spawner") {
+      const newSpawner = {
+        id: `spawner-${map.enemySpawners.length}`,
+        x: snapToGrid(world.x),
+        y: snapToGrid(world.y),
+        radius: 100,
+        archetypeId: "slime_scout",
+        maxCount: 3,
+        respawnMs: 10000,
+      };
+      setMapData((prev) =>
+        prev
+          ? { ...prev, enemySpawners: [...prev.enemySpawners, newSpawner] }
+          : prev,
+      );
+      setDirty(true);
+      return;
+    }
+
+    // Rectangle drawing tools
+    if (
+      currentTool === "collision" ||
+      currentTool === "region" ||
+      currentTool === "portal"
+    ) {
+      const snappedX = snapToGrid(world.x);
+      const snappedY = snapToGrid(world.y);
+      interactionRef.current = {
+        kind: "drawing",
+        startWorldX: snappedX,
+        startWorldY: snappedY,
+        currentWorldX: snappedX,
+        currentWorldY: snappedY,
+      };
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    }
   }, []);
 
-  // Mouse handlers
-  const handleMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      if (e.button === 1 || (e.button === 0 && e.altKey)) {
-        // Middle click or alt+click: pan
-        isPanningRef.current = true;
-        panStartRef.current = { x: e.clientX, y: e.clientY };
-        e.preventDefault();
-        return;
-      }
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    const interaction = interactionRef.current;
 
-      if (e.button !== 0 || !mapData) return;
+    if (interaction.kind === "panning") {
+      const dx = e.clientX - interaction.lastScreenX;
+      const dy = e.clientY - interaction.lastScreenY;
+      interaction.lastScreenX = e.clientX;
+      interaction.lastScreenY = e.clientY;
+      setCamera((prev) => ({
+        ...prev,
+        x: prev.x - dx / prev.zoom,
+        y: prev.y - dy / prev.zoom,
+      }));
+      return;
+    }
 
-      const world = screenToWorld(e.clientX, e.clientY);
+    if (interaction.kind === "drawing") {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      const world = screenToWorld(
+        e.clientX,
+        e.clientY,
+        rect,
+        cameraRef.current,
+      );
+      interaction.currentWorldX = snapToGrid(world.x);
+      interaction.currentWorldY = snapToGrid(world.y);
+      return;
+    }
 
-      if (tool === "select") {
-        // Try to find entity under cursor
-        const found = findEntityAt(mapData, world.x, world.y);
-        setSelectedEntity(found);
-        return;
-      }
+    if (interaction.kind === "dragging") {
+      const canvas = canvasRef.current;
+      const map = mapDataRef.current;
+      if (!canvas || !map) return;
+      const rect = canvas.getBoundingClientRect();
+      const world = screenToWorld(
+        e.clientX,
+        e.clientY,
+        rect,
+        cameraRef.current,
+      );
+      const newX = snapToGrid(world.x - interaction.offsetX);
+      const newY = snapToGrid(world.y - interaction.offsetY);
 
-      if (tool === "spawn") {
-        // Place spawn point immediately
-        const newSpawn = {
-          id: `spawn-${mapData.spawnPoints.length}`,
-          x: snapToGrid(world.x),
-          y: snapToGrid(world.y),
-        };
-        setMapData((prev) =>
-          prev
-            ? { ...prev, spawnPoints: [...prev.spawnPoints, newSpawn] }
-            : prev,
-        );
-        setDirty(true);
-        return;
-      }
-
-      if (tool === "spawner") {
-        const newSpawner = {
-          id: `spawner-${mapData.enemySpawners.length}`,
-          x: snapToGrid(world.x),
-          y: snapToGrid(world.y),
-          radius: 100,
-          archetypeId: "slime_scout",
-          maxCount: 3,
-          respawnMs: 10000,
-        };
-        setMapData((prev) =>
-          prev
-            ? {
-                ...prev,
-                enemySpawners: [...prev.enemySpawners, newSpawner],
-              }
-            : prev,
-        );
-        setDirty(true);
-        return;
-      }
-
-      // Rectangle drawing tools
-      if (tool === "collision" || tool === "region" || tool === "portal") {
-        isDrawingRef.current = true;
-        const snapped = {
-          x: snapToGrid(world.x),
-          y: snapToGrid(world.y),
-        };
-        drawStartRef.current = snapped;
-        drawCurrentRef.current = snapped;
-      }
-    },
-    [mapData, tool, screenToWorld, snapToGrid],
-  );
-
-  const handleMouseMove = useCallback(
-    (e: React.MouseEvent) => {
-      if (isPanningRef.current) {
-        const dx = e.clientX - panStartRef.current.x;
-        const dy = e.clientY - panStartRef.current.y;
-        panStartRef.current = { x: e.clientX, y: e.clientY };
-        setViewport((v) => ({
-          ...v,
-          x: v.x - dx / v.zoom,
-          y: v.y - dy / v.zoom,
-        }));
-        return;
-      }
-
-      if (isDrawingRef.current) {
-        const world = screenToWorld(e.clientX, e.clientY);
-        drawCurrentRef.current = {
-          x: snapToGrid(world.x),
-          y: snapToGrid(world.y),
-        };
-        // Force re-render for preview
-        setViewport((v) => ({ ...v }));
-      }
-    },
-    [screenToWorld, snapToGrid],
-  );
-
-  const handleMouseUp = useCallback(() => {
-    isPanningRef.current = false;
-
-    if (isDrawingRef.current && mapData) {
-      isDrawingRef.current = false;
-      const ds = drawStartRef.current;
-      const dc = drawCurrentRef.current;
-      const x = Math.min(ds.x, dc.x);
-      const y = Math.min(ds.y, dc.y);
-      const width = Math.abs(dc.x - ds.x);
-      const height = Math.abs(dc.y - ds.y);
-
-      if (width < GRID_SIZE || height < GRID_SIZE) return; // too small
-
-      if (tool === "collision") {
-        const newColl = { x, y, width, height };
-        setMapData((prev) =>
-          prev ? { ...prev, collisions: [...prev.collisions, newColl] } : prev,
-        );
-        setDirty(true);
-      } else if (tool === "region") {
-        const newRegion = {
-          id: `region-${mapData.regions.length}`,
-          x,
-          y,
-          width,
-          height,
-          type: "safe",
-        };
-        setMapData((prev) =>
-          prev ? { ...prev, regions: [...prev.regions, newRegion] } : prev,
-        );
-        setDirty(true);
-      } else if (tool === "portal") {
-        const newPortal = {
-          id: `portal-${mapData.portals.length}`,
-          x,
-          y,
-          width,
-          height,
-          targetMapId: "",
-          targetSpawnId: "",
-        };
-        setMapData((prev) =>
-          prev ? { ...prev, portals: [...prev.portals, newPortal] } : prev,
-        );
+      const field = entityFieldName(interaction.entityType);
+      const arr = [...(map[field] as Array<Record<string, unknown>>)];
+      const ent = arr[interaction.entityIndex];
+      if (ent) {
+        arr[interaction.entityIndex] = { ...ent, x: newX, y: newY };
+        const updated = { ...map, [field]: arr };
+        setMapData(updated);
         setDirty(true);
       }
     }
-  }, [mapData, tool]);
-
-  const handleWheel = useCallback((e: React.WheelEvent) => {
-    e.preventDefault();
-    const factor = e.deltaY > 0 ? 0.9 : 1.1;
-    setViewport((v) => ({
-      ...v,
-      zoom: Math.max(0.1, Math.min(4, v.zoom * factor)),
-    }));
   }, []);
 
+  const handlePointerUp = useCallback(() => {
+    const interaction = interactionRef.current;
+
+    if (interaction.kind === "drawing" && mapDataRef.current) {
+      const { startWorldX, startWorldY, currentWorldX, currentWorldY } =
+        interaction;
+      const x = Math.min(startWorldX, currentWorldX);
+      const y = Math.min(startWorldY, currentWorldY);
+      const width = Math.abs(currentWorldX - startWorldX);
+      const height = Math.abs(currentWorldY - startWorldY);
+      const map = mapDataRef.current;
+      const currentTool = toolRef.current;
+
+      if (width >= GRID_SIZE && height >= GRID_SIZE) {
+        if (currentTool === "collision") {
+          setMapData({
+            ...map,
+            collisions: [...map.collisions, { x, y, width, height }],
+          });
+          setDirty(true);
+        } else if (currentTool === "region") {
+          setMapData({
+            ...map,
+            regions: [
+              ...map.regions,
+              {
+                id: `region-${map.regions.length}`,
+                x,
+                y,
+                width,
+                height,
+                type: "safe",
+              },
+            ],
+          });
+          setDirty(true);
+        } else if (currentTool === "portal") {
+          setMapData({
+            ...map,
+            portals: [
+              ...map.portals,
+              {
+                id: `portal-${map.portals.length}`,
+                x,
+                y,
+                width,
+                height,
+                targetMapId: "",
+                targetSpawnId: "",
+              },
+            ],
+          });
+          setDirty(true);
+        }
+      }
+    }
+
+    interactionRef.current = { kind: "idle" };
+  }, []);
+
+  /* ── Keyboard shortcuts ─────────────────────────────────────── */
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if typing in input
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
+      if (e.key === " " && !e.repeat) {
+        e.preventDefault();
+        setSpaceHeld(true);
+        spaceHeldRef.current = true;
+        return;
+      }
+
+      if (e.key === "Delete" || e.key === "Backspace") {
+        const sel = selectedEntityRef.current;
+        const map = mapDataRef.current;
+        if (!sel || !map) return;
+        e.preventDefault();
+        const field = entityFieldName(sel.type);
+        const arr = (map[field] as unknown[]).filter((_, j) => j !== sel.index);
+        setMapData({ ...map, [field]: arr });
+        setSelectedEntity(null);
+        setDirty(true);
+        return;
+      }
+
+      // Tool shortcuts
+      const keyLower = e.key.toLowerCase();
+      for (const [toolKey, config] of Object.entries(TOOL_CONFIG)) {
+        if (config.shortcut.toLowerCase() === keyLower) {
+          setTool(toolKey as ToolMode);
+          return;
+        }
+      }
+
+      // Fit map to view
+      if (keyLower === "0" && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        const container = containerRef.current;
+        const map = mapDataRef.current;
+        if (!container || !map) return;
+        const rect = container.getBoundingClientRect();
+        const fitZoom = Math.min(
+          (rect.width * 0.8) / map.width,
+          (rect.height * 0.8) / map.height,
+          1,
+        );
+        setCamera({
+          x: map.width / 2 - rect.width / (2 * fitZoom),
+          y: map.height / 2 - rect.height / (2 * fitZoom),
+          zoom: fitZoom,
+        });
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === " ") {
+        setSpaceHeld(false);
+        spaceHeldRef.current = false;
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
+  }, []);
+
+  /* ── Save / Create / Delete ─────────────────────────────────── */
   const handleSave = useCallback(async () => {
     if (!mapData || !selectedMapId) return;
     setSaving(true);
@@ -561,44 +950,22 @@ export function MapsPage() {
     }
   }, [selectedMapId, refetch]);
 
-  const deleteSelectedEntity = useCallback(() => {
-    if (!selectedEntity || !mapData) return;
-    const { type, index } = selectedEntity;
-    setMapData((prev) => {
-      if (!prev) return prev;
-      const removeAt = <T,>(arr: T[], i: number) =>
-        arr.filter((_, j) => j !== i);
-      if (type === "collision")
-        return { ...prev, collisions: removeAt(prev.collisions, index) };
-      if (type === "region")
-        return { ...prev, regions: removeAt(prev.regions, index) };
-      if (type === "portal")
-        return { ...prev, portals: removeAt(prev.portals, index) };
-      if (type === "spawn")
-        return { ...prev, spawnPoints: removeAt(prev.spawnPoints, index) };
-      if (type === "spawner")
-        return { ...prev, enemySpawners: removeAt(prev.enemySpawners, index) };
-      return prev;
-    });
-    setSelectedEntity(null);
-    setDirty(true);
-  }, [selectedEntity, mapData]);
+  /* ── Map dimension update ───────────────────────────────────── */
+  const updateMapDimension = useCallback(
+    (
+      field: "width" | "height" | "name" | "background",
+      value: string | number,
+    ) => {
+      setMapData((prev) => {
+        if (!prev) return prev;
+        return { ...prev, [field]: value };
+      });
+      setDirty(true);
+    },
+    [],
+  );
 
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Delete" || e.key === "Backspace") {
-        if (
-          document.activeElement?.tagName === "INPUT" ||
-          document.activeElement?.tagName === "TEXTAREA"
-        )
-          return;
-        deleteSelectedEntity();
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [deleteSelectedEntity]);
+  const cursorStyle = getCursorStyle(tool, interactionRef.current, spaceHeld);
 
   return (
     <div className="flex flex-1 overflow-hidden">
@@ -687,13 +1054,14 @@ export function MapsPage() {
         ) : (
           <>
             {/* Toolbar */}
-            <div className="px-4 py-2 border-b border-border flex items-center gap-2 shrink-0 bg-abyss">
+            <div className="px-3 py-1.5 border-b border-border flex items-center gap-1.5 shrink-0 bg-abyss">
               {/* Tool buttons */}
               {(Object.keys(TOOL_CONFIG) as ToolMode[]).map((t) => (
                 <button
                   key={t}
                   type="button"
-                  className={`px-3 py-1 text-[11px] uppercase tracking-wider border transition-colors ${
+                  title={`${TOOL_CONFIG[t].label} (${TOOL_CONFIG[t].shortcut})`}
+                  className={`px-2.5 py-1 text-[11px] uppercase tracking-wider border transition-colors ${
                     tool === t
                       ? "border-vec-green bg-vec-green/10 text-vec-green"
                       : "border-border text-muted hover:text-text hover:border-border-bright"
@@ -704,12 +1072,26 @@ export function MapsPage() {
                 </button>
               ))}
 
+              <div className="w-px h-5 bg-border mx-1" />
+
+              {/* Map dimensions toggle */}
+              <button
+                type="button"
+                className={`px-2.5 py-1 text-[11px] uppercase tracking-wider border transition-colors ${
+                  showDimensions
+                    ? "border-vec-cyan bg-vec-cyan/10 text-vec-cyan"
+                    : "border-border text-muted hover:text-text hover:border-border-bright"
+                }`}
+                onClick={() => setShowDimensions((v) => !v)}
+              >
+                Dimensions
+              </button>
+
               <div className="flex-1" />
 
-              {/* Map info */}
-              <span className="text-muted text-[10px] mr-2">
-                {mapData.width}x{mapData.height} |{" "}
-                {Math.round(viewport.zoom * 100)}%
+              {/* Zoom indicator */}
+              <span className="text-muted text-[10px] mr-2 tabular-nums">
+                {Math.round(camera.zoom * 100)}%
               </span>
 
               {dirty && (
@@ -721,8 +1103,17 @@ export function MapsPage() {
               {selectedEntity && (
                 <button
                   type="button"
-                  className="btn-danger text-[10px] px-2 py-0.5 mr-2"
-                  onClick={deleteSelectedEntity}
+                  className="btn-danger text-[10px] px-2 py-0.5 mr-1.5"
+                  onClick={() => {
+                    if (!selectedEntity || !mapData) return;
+                    const field = entityFieldName(selectedEntity.type);
+                    const arr = (mapData[field] as unknown[]).filter(
+                      (_, j) => j !== selectedEntity.index,
+                    );
+                    setMapData({ ...mapData, [field]: arr });
+                    setSelectedEntity(null);
+                    setDirty(true);
+                  }}
                 >
                   Del Entity
                 </button>
@@ -730,7 +1121,7 @@ export function MapsPage() {
 
               <button
                 type="button"
-                className="btn-danger text-[10px] px-2 py-0.5 mr-2"
+                className="btn-danger text-[10px] px-2 py-0.5 mr-1.5"
                 onClick={handleDeleteMap}
               >
                 Delete Map
@@ -746,6 +1137,71 @@ export function MapsPage() {
               </button>
             </div>
 
+            {/* Map dimensions panel */}
+            {showDimensions && (
+              <div className="px-4 py-2 border-b border-border bg-surface flex items-center gap-4 flex-wrap shrink-0 animate-fade-in">
+                <span className="text-vec-cyan-dim text-[10px] uppercase tracking-widest">
+                  Map Settings
+                </span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-muted text-[10px] uppercase">Name</span>
+                  <input
+                    type="text"
+                    value={mapData.name}
+                    onChange={(e) => updateMapDimension("name", e.target.value)}
+                    className="w-40 text-[11px] px-1.5 py-0.5"
+                  />
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-muted text-[10px] uppercase">W</span>
+                  <input
+                    type="number"
+                    min={100}
+                    step={100}
+                    value={mapData.width}
+                    onChange={(e) =>
+                      updateMapDimension("width", Number(e.target.value) || 100)
+                    }
+                    className="w-20 text-[11px] px-1.5 py-0.5"
+                  />
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-muted text-[10px] uppercase">H</span>
+                  <input
+                    type="number"
+                    min={100}
+                    step={100}
+                    value={mapData.height}
+                    onChange={(e) =>
+                      updateMapDimension(
+                        "height",
+                        Number(e.target.value) || 100,
+                      )
+                    }
+                    className="w-20 text-[11px] px-1.5 py-0.5"
+                  />
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-muted text-[10px] uppercase">BG</span>
+                  <input
+                    type="color"
+                    value={mapData.background}
+                    onChange={(e) =>
+                      updateMapDimension("background", e.target.value)
+                    }
+                  />
+                  <input
+                    type="text"
+                    value={mapData.background}
+                    onChange={(e) =>
+                      updateMapDimension("background", e.target.value)
+                    }
+                    className="w-20 text-[11px] px-1.5 py-0.5"
+                  />
+                </div>
+              </div>
+            )}
+
             {saveError && (
               <div className="mx-4 mt-2 p-2 border border-danger/30 bg-danger/5 text-danger text-xs">
                 {saveError}
@@ -755,14 +1211,27 @@ export function MapsPage() {
             {/* Canvas */}
             <div
               ref={containerRef}
-              className="flex-1 relative overflow-hidden cursor-crosshair"
-              onMouseDown={handleMouseDown}
-              onMouseMove={handleMouseMove}
-              onMouseUp={handleMouseUp}
-              onMouseLeave={handleMouseUp}
-              onWheel={handleWheel}
+              className="flex-1 relative overflow-hidden"
+              style={{ cursor: cursorStyle }}
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+              onPointerLeave={handlePointerUp}
             >
               <canvas ref={canvasRef} className="absolute inset-0" />
+
+              {/* Status bar overlay */}
+              <div className="absolute bottom-0 left-0 right-0 px-3 py-1 bg-abyss/80 border-t border-border/50 flex items-center gap-4 text-[10px] text-muted pointer-events-none">
+                <span>
+                  {mapData.width} x {mapData.height}
+                </span>
+                <span>Grid: {GRID_SIZE}px</span>
+                <span className="flex-1" />
+                <span>Space+Drag = Pan</span>
+                <span>Scroll = Pan</span>
+                <span>Ctrl+Scroll = Zoom</span>
+                <span>Del = Remove</span>
+              </div>
             </div>
 
             {/* Properties panel */}
@@ -783,64 +1252,7 @@ export function MapsPage() {
   );
 }
 
-function findEntityAt(
-  mapData: MapData,
-  wx: number,
-  wy: number,
-): { type: string; index: number } | null {
-  // Check spawn points first (small targets)
-  for (let i = mapData.spawnPoints.length - 1; i >= 0; i--) {
-    const sp = mapData.spawnPoints[i] as { x: number; y: number } | undefined;
-    if (!sp) continue;
-    const dist = Math.hypot(wx - sp.x, wy - sp.y);
-    if (dist < 16) return { type: "spawn", index: i };
-  }
-
-  // Spawners
-  for (let i = mapData.enemySpawners.length - 1; i >= 0; i--) {
-    const es = mapData.enemySpawners[i] as
-      | { x: number; y: number; radius?: number }
-      | undefined;
-    if (!es) continue;
-    const dist = Math.hypot(wx - es.x, wy - es.y);
-    if (dist < (es.radius ?? 50)) return { type: "spawner", index: i };
-  }
-
-  // Portals
-  for (let i = mapData.portals.length - 1; i >= 0; i--) {
-    const p = mapData.portals[i] as
-      | { x: number; y: number; width: number; height: number }
-      | undefined;
-    if (!p) continue;
-    if (wx >= p.x && wx <= p.x + p.width && wy >= p.y && wy <= p.y + p.height) {
-      return { type: "portal", index: i };
-    }
-  }
-
-  // Regions
-  for (let i = mapData.regions.length - 1; i >= 0; i--) {
-    const r = mapData.regions[i] as
-      | { x: number; y: number; width: number; height: number }
-      | undefined;
-    if (!r) continue;
-    if (wx >= r.x && wx <= r.x + r.width && wy >= r.y && wy <= r.y + r.height) {
-      return { type: "region", index: i };
-    }
-  }
-
-  // Collisions
-  for (let i = mapData.collisions.length - 1; i >= 0; i--) {
-    const c = mapData.collisions[i] as
-      | { x: number; y: number; width: number; height: number }
-      | undefined;
-    if (!c) continue;
-    if (wx >= c.x && wx <= c.x + c.width && wy >= c.y && wy <= c.y + c.height) {
-      return { type: "collision", index: i };
-    }
-  }
-
-  return null;
-}
+/* ─── Properties Panel ──────────────────────────────────────────── */
 
 function PropertiesPanel({
   mapData,
@@ -851,44 +1263,19 @@ function PropertiesPanel({
   entity: { type: string; index: number };
   onChange: (updated: MapData) => void;
 }) {
-  const getArr = (): Array<Record<string, unknown>> => {
-    if (entity.type === "collision")
-      return mapData.collisions as Array<Record<string, unknown>>;
-    if (entity.type === "region")
-      return mapData.regions as Array<Record<string, unknown>>;
-    if (entity.type === "portal")
-      return mapData.portals as Array<Record<string, unknown>>;
-    if (entity.type === "spawn")
-      return mapData.spawnPoints as Array<Record<string, unknown>>;
-    if (entity.type === "spawner")
-      return mapData.enemySpawners as Array<Record<string, unknown>>;
-    return [];
-  };
-
-  const arr = getArr();
+  const field = entityFieldName(entity.type);
+  const arr = mapData[field] as Array<Record<string, unknown>>;
   const data = arr[entity.index];
   if (!data) return null;
 
   const updateProp = (key: string, value: unknown) => {
     const newArr = [...arr];
     newArr[entity.index] = { ...data, [key]: value };
-
-    const field =
-      entity.type === "collision"
-        ? "collisions"
-        : entity.type === "region"
-          ? "regions"
-          : entity.type === "portal"
-            ? "portals"
-            : entity.type === "spawn"
-              ? "spawnPoints"
-              : "enemySpawners";
-
     onChange({ ...mapData, [field]: newArr });
   };
 
   return (
-    <div className="border-t border-border bg-abyss px-4 py-3 shrink-0">
+    <div className="border-t border-border bg-abyss px-4 py-2.5 shrink-0">
       <div className="flex items-center gap-4 flex-wrap">
         <span className="text-vec-green-dim text-[10px] uppercase tracking-widest">
           {entity.type} #{entity.index}
@@ -947,6 +1334,22 @@ function PropertiesPanel({
             onChange={(v) => updateProp("archetypeId", v)}
           />
         )}
+        {data.maxCount !== undefined && (
+          <PropInput
+            label="Max"
+            type="number"
+            value={String(data.maxCount)}
+            onChange={(v) => updateProp("maxCount", Number(v))}
+          />
+        )}
+        {data.respawnMs !== undefined && (
+          <PropInput
+            label="Respawn ms"
+            type="number"
+            value={String(data.respawnMs)}
+            onChange={(v) => updateProp("respawnMs", Number(v))}
+          />
+        )}
         {data.targetMapId !== undefined && (
           <PropInput
             label="Target Map"
@@ -959,6 +1362,13 @@ function PropertiesPanel({
             label="Target Spawn"
             value={String(data.targetSpawnId)}
             onChange={(v) => updateProp("targetSpawnId", v)}
+          />
+        )}
+        {data.type !== undefined && entity.type === "region" && (
+          <PropInput
+            label="Type"
+            value={String(data.type)}
+            onChange={(v) => updateProp("type", v)}
           />
         )}
       </div>
