@@ -1837,7 +1837,19 @@ describe("world manager", () => {
       const firstSnapshot = latestWorldSnapshot(socket);
       expect(firstSnapshot?.payload.projectiles.length).toBeGreaterThanOrEqual(1);
 
-      await wait(700);
+      socket.sent = [];
+      await wait(100);
+      manager.applyAttack(asServerSocket(socket), {
+        type: "player.attack",
+        aim: { x: 220, y: 120 },
+      });
+      const deniedTooSoon = parseMessages(socket).find(
+        (message) =>
+          message.type === "combat.attackDenied" && message.reason === "cooldown",
+      );
+      expect(deniedTooSoon?.type).toBe("combat.attackDenied");
+
+      await wait(280);
       socket.sent = [];
       manager.applyAttack(asServerSocket(socket), {
         type: "player.attack",

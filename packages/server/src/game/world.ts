@@ -55,6 +55,7 @@ const PLAYER_PROJECTILE_TTL_MS = 900;
 const PLAYER_PROJECTILE_RADIUS = 8;
 const SWORD_CLEAVE_ARC_THRESHOLD = 0.45;
 const SPINBLADE_CAST_COOLDOWN_MIN_MS = 2_000;
+const SPINBLADE_SWING_COOLDOWN_MS = 300;
 const SPINBLADE_SPEED = 220;
 const SPINBLADE_TTL_MS = 3_200;
 const SPINBLADE_RADIUS = 20;
@@ -854,6 +855,7 @@ class WorldInstance {
         );
         break;
       case "sword_spinblade":
+        attackCooldownMs = SPINBLADE_SWING_COOLDOWN_MS;
         this.applyMeleeAttack(
           player,
           direction,
