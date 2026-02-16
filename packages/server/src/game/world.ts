@@ -105,6 +105,7 @@ interface PlayerState {
   level: number;
   xp: number;
   nextAttackAtMs: number;
+  nextSpinbladeCastAtMs: number;
   pendingRespawn: boolean;
   openedContainerId: string | null;
   socket: ServerWebSocket<RealtimeSocketData>;
@@ -145,7 +146,7 @@ interface ProjectileState {
   colorHex: string;
   style: "orb" | "blade_spin";
   destroyOnHit: boolean;
-  nextDamageAllowedAtMs: number;
+  nextDamageAllowedByTargetAtMs: Map<string, number>;
   attackInstanceId: string | null;
   capSingleTargetPerAttack: boolean;
 }
@@ -705,6 +706,7 @@ class WorldInstance {
       level: resolvedProgression.level,
       xp: resolvedProgression.xp,
       nextAttackAtMs: 0,
+      nextSpinbladeCastAtMs: 0,
       pendingRespawn: false,
       openedContainerId: null,
     };
@@ -852,11 +854,22 @@ class WorldInstance {
         );
         break;
       case "sword_spinblade":
-        attackCooldownMs = Math.max(
-          player.baseAttackSpeedMs,
-          SPINBLADE_CAST_COOLDOWN_MIN_MS,
+        this.applyMeleeAttack(
+          player,
+          direction,
+          SWORD_CLEAVE_ARC_THRESHOLD,
+          1,
+          attackConfig.maxTargetHitsPerAttack,
         );
-        this.spawnSpinbladeProjectile(player, direction);
+        if (now >= player.nextSpinbladeCastAtMs) {
+          this.spawnSpinbladeProjectile(player, direction);
+          player.nextSpinbladeCastAtMs =
+            now +
+            Math.max(
+              player.baseAttackSpeedMs,
+              SPINBLADE_CAST_COOLDOWN_MIN_MS,
+            );
+        }
         break;
       case "sword_whirl":
         target = { x: player.position.x, y: player.position.y };
@@ -1174,13 +1187,7 @@ class WorldInstance {
       projectile.position = nextPosition;
 
       if (projectile.style === "blade_spin") {
-        if (now < projectile.nextDamageAllowedAtMs) {
-          continue;
-        }
-        const hitApplied = this.applySpinbladeProjectileHits(projectile);
-        if (hitApplied) {
-          projectile.nextDamageAllowedAtMs = now + SPINBLADE_HIT_INTERVAL_MS;
-        }
+        this.applySpinbladeProjectileHits(projectile, now);
         continue;
       }
 
@@ -1745,7 +1752,6 @@ class WorldInstance {
     radius?: number;
     style?: "orb" | "blade_spin";
     destroyOnHit?: boolean;
-    nextDamageAllowedAtMs?: number;
     attackInstanceId: string | null;
     capSingleTargetPerAttack: boolean;
   }): void {
@@ -1773,7 +1779,7 @@ class WorldInstance {
       colorHex: input.colorHex,
       style: input.style ?? "orb",
       destroyOnHit: input.destroyOnHit ?? true,
-      nextDamageAllowedAtMs: input.nextDamageAllowedAtMs ?? 0,
+      nextDamageAllowedByTargetAtMs: new Map<string, number>(),
       attackInstanceId: input.attackInstanceId,
       capSingleTargetPerAttack: input.capSingleTargetPerAttack,
     };
@@ -1813,7 +1819,6 @@ class WorldInstance {
       radius: SPINBLADE_RADIUS,
       style: "blade_spin",
       destroyOnHit: false,
-      nextDamageAllowedAtMs: 0,
       attackInstanceId: null,
       capSingleTargetPerAttack: false,
     });
@@ -1969,9 +1974,10 @@ class WorldInstance {
     }
   }
 
-  private applySpinbladeProjectileHits(projectile: ProjectileState): boolean {
-    let hitApplied = false;
-
+  private applySpinbladeProjectileHits(
+    projectile: ProjectileState,
+    now: number,
+  ): void {
     if (this.canPlayerDamageEnemy()) {
       for (const enemy of this.enemies.values()) {
         const halfWidth = enemy.archetype.visualWidth / 2;
@@ -1989,17 +1995,27 @@ class WorldInstance {
           continue;
         }
 
-        hitApplied = true;
+        const targetKey = `enemy:${enemy.id}`;
+        const nextAllowedAt =
+          projectile.nextDamageAllowedByTargetAtMs.get(targetKey) ?? 0;
+        if (now < nextAllowedAt) {
+          continue;
+        }
+
         this.applyDamageToEnemy(
           enemy.id,
           projectile.damage,
           projectile.ownerCharacterId,
         );
+        projectile.nextDamageAllowedByTargetAtMs.set(
+          targetKey,
+          now + SPINBLADE_HIT_INTERVAL_MS,
+        );
       }
     }
 
     if (!this.canPlayerDamagePlayer()) {
-      return hitApplied;
+      return;
     }
 
     for (const player of this.players.values()) {
@@ -2025,11 +2041,19 @@ class WorldInstance {
         continue;
       }
 
-      hitApplied = true;
-      this.applyDamageToPlayer(player, projectile.damage);
-    }
+      const targetKey = `player:${player.id}`;
+      const nextAllowedAt =
+        projectile.nextDamageAllowedByTargetAtMs.get(targetKey) ?? 0;
+      if (now < nextAllowedAt) {
+        continue;
+      }
 
-    return hitApplied;
+      this.applyDamageToPlayer(player, projectile.damage);
+      projectile.nextDamageAllowedByTargetAtMs.set(
+        targetKey,
+        now + SPINBLADE_HIT_INTERVAL_MS,
+      );
+    }
   }
 
   private tryHitEnemyWithProjectile(

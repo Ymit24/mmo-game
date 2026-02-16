@@ -1561,7 +1561,7 @@ describe("world manager", () => {
     }
   });
 
-  test("sword_spinblade applies immediate hit then global 1s lockout before next hit", async () => {
+  test("sword_spinblade applies 1s re-hit lockout per target", async () => {
     const originalRandom = Math.random;
     Math.random = () => 0;
     const testMapId = "spinblade-lockout-test";
@@ -1645,8 +1645,8 @@ describe("world manager", () => {
       if (!instance || !archetype) {
         throw new Error("failed to access test world instance");
       }
-      instance.enemies.set("enemy-spinlock", {
-        id: "enemy-spinlock",
+      instance.enemies.set("enemy-spinlock-a", {
+        id: "enemy-spinlock-a",
         spawnerId: "manual",
         archetype,
         position: { x: 180, y: 120 },
@@ -1657,57 +1657,128 @@ describe("world manager", () => {
         targetCharacterId: null,
         nextAttackAtMs: Date.now() + 1_000,
       });
+      instance.enemies.set("enemy-spinlock-b", {
+        id: "enemy-spinlock-b",
+        spawnerId: "manual",
+        archetype,
+        position: { x: 220, y: 120 },
+        velocity: { x: 0, y: 0 },
+        currentHealth: archetype.maxHealth,
+        state: "idle",
+        spawnAnchor: { x: 220, y: 120 },
+        targetCharacterId: null,
+        nextAttackAtMs: Date.now() + 1_000,
+      });
 
       await wait(160);
       const before = latestWorldSnapshot(socket);
-      const target = before?.payload.enemies.find(
-        (enemy) => enemy.id === "enemy-spinlock",
+      const enemyA = before?.payload.enemies.find(
+        (enemy) => enemy.id === "enemy-spinlock-a",
       );
-      expect(target).toBeDefined();
-      if (!target) {
-        throw new Error("expected a spinblade lockout target");
+      const enemyB = before?.payload.enemies.find(
+        (enemy) => enemy.id === "enemy-spinlock-b",
+      );
+      expect(enemyA).toBeDefined();
+      expect(enemyB).toBeDefined();
+      if (!enemyA || !enemyB) {
+        throw new Error("expected spinblade lockout targets");
       }
 
       socket.sent = [];
       manager.applyAttack(asServerSocket(socket), {
         type: "player.attack",
-        aim: { x: target.position.x, y: target.position.y },
+        aim: { x: 320, y: 120 },
       });
 
       await wait(260);
-      const hitsAfterImmediate = parseMessages(socket).filter(
-        (message) =>
-          message.type === "combat.floatingText" &&
-          message.variant === "damage_enemy",
-      ).length;
-      expect(hitsAfterImmediate).toBeGreaterThan(0);
+      const afterImmediate = latestWorldSnapshot(socket);
+      const enemyAAfterImmediate = afterImmediate?.payload.enemies.find(
+        (enemy) => enemy.id === "enemy-spinlock-a",
+      );
+      const enemyBAfterImmediate = afterImmediate?.payload.enemies.find(
+        (enemy) => enemy.id === "enemy-spinlock-b",
+      );
+      expect(enemyAAfterImmediate).toBeDefined();
+      expect(enemyBAfterImmediate).toBeDefined();
+      if (!enemyAAfterImmediate || !enemyBAfterImmediate) {
+        throw new Error("expected immediate spinblade target snapshots");
+      }
+      expect(enemyAAfterImmediate.currentHealth).toBeLessThan(
+        enemyA.currentHealth,
+      );
+      expect(enemyBAfterImmediate.currentHealth).toBeLessThan(
+        enemyB.currentHealth,
+      );
 
       await wait(550);
-      const hitsBeforeCooldownExpires = parseMessages(socket).filter(
-        (message) =>
-          message.type === "combat.floatingText" &&
-          message.variant === "damage_enemy",
-      ).length;
-      expect(hitsBeforeCooldownExpires).toBe(hitsAfterImmediate);
+      const beforeLockoutExpires = latestWorldSnapshot(socket);
+      const enemyABeforeLockoutExpires = beforeLockoutExpires?.payload.enemies.find(
+        (enemy) => enemy.id === "enemy-spinlock-a",
+      );
+      const enemyBBeforeLockoutExpires = beforeLockoutExpires?.payload.enemies.find(
+        (enemy) => enemy.id === "enemy-spinlock-b",
+      );
+      expect(enemyABeforeLockoutExpires).toBeDefined();
+      expect(enemyBBeforeLockoutExpires).toBeDefined();
+      if (!enemyABeforeLockoutExpires || !enemyBBeforeLockoutExpires) {
+        throw new Error("expected pre-lockout-expiry target snapshots");
+      }
+      expect(enemyABeforeLockoutExpires.currentHealth).toBe(
+        enemyAAfterImmediate.currentHealth,
+      );
+      expect(enemyBBeforeLockoutExpires.currentHealth).toBe(
+        enemyBAfterImmediate.currentHealth,
+      );
 
       await wait(600);
-      const hitsAfterCooldownExpires = parseMessages(socket).filter(
-        (message) =>
-          message.type === "combat.floatingText" &&
-          message.variant === "damage_enemy",
-      ).length;
-      expect(hitsAfterCooldownExpires).toBeGreaterThan(hitsAfterImmediate);
+      const afterLockoutExpires = latestWorldSnapshot(socket);
+      const enemyAAfterLockoutExpires = afterLockoutExpires?.payload.enemies.find(
+        (enemy) => enemy.id === "enemy-spinlock-a",
+      );
+      const enemyBAfterLockoutExpires = afterLockoutExpires?.payload.enemies.find(
+        (enemy) => enemy.id === "enemy-spinlock-b",
+      );
+      expect(enemyAAfterLockoutExpires).toBeDefined();
+      expect(enemyBAfterLockoutExpires).toBeDefined();
+      if (!enemyAAfterLockoutExpires || !enemyBAfterLockoutExpires) {
+        throw new Error("expected post-lockout-expiry target snapshots");
+      }
+      expect(enemyAAfterLockoutExpires.currentHealth).toBeLessThan(
+        enemyABeforeLockoutExpires.currentHealth,
+      );
+      expect(enemyBAfterLockoutExpires.currentHealth).toBeLessThan(
+        enemyBBeforeLockoutExpires.currentHealth,
+      );
     } finally {
       WORLD_MAPS_BY_ID.delete(testMapId);
       Math.random = originalRandom;
     }
   });
 
-  test("sword_spinblade enforces minimum 2s cast cooldown", async () => {
+  test("sword_spinblade projectile cast cooldown is independent from melee swing cadence", async () => {
     const originalRandom = Math.random;
     Math.random = () => 0;
+    const testMapId = "spinblade-cast-cooldown-test";
 
     try {
+      WORLD_MAPS_BY_ID.set(testMapId, {
+        id: testMapId,
+        name: "Spinblade Cast Cooldown Test",
+        width: 1_200,
+        height: 1_000,
+        background: { color: "#0b1020", gridSize: 32 },
+        combat: {
+          allowCombat: true,
+          pvpEnabled: false,
+        },
+        playerSpawnId: "spawn-a",
+        spawnPoints: [{ id: "spawn-a", x: 120, y: 120 }],
+        collisions: [],
+        regions: [],
+        portals: [],
+        enemySpawners: [],
+      });
+
       const archetypes = new Map<string, EnemyArchetype>([
         [
           "slime_scout",
@@ -1734,7 +1805,7 @@ describe("world manager", () => {
 
       manager.joinWorld(
         asServerSocket(socket),
-        WILDS_BETA_MAP.id,
+        testMapId,
         "player-spin-cd",
         "SpinCd",
         "knight",
@@ -1757,44 +1828,42 @@ describe("world manager", () => {
       );
       cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
 
-      await wait(300);
-      const before = latestWorldSnapshot(socket);
-      const target = before?.payload.enemies[0];
-      expect(target).toBeDefined();
-      if (!target) {
-        throw new Error("expected at least one enemy");
-      }
-
       socket.sent = [];
       manager.applyAttack(asServerSocket(socket), {
         type: "player.attack",
-        aim: { x: target.position.x, y: target.position.y },
+        aim: { x: 220, y: 120 },
       });
+      await wait(150);
+      const firstSnapshot = latestWorldSnapshot(socket);
+      expect(firstSnapshot?.payload.projectiles.length).toBeGreaterThanOrEqual(1);
 
       await wait(700);
+      socket.sent = [];
       manager.applyAttack(asServerSocket(socket), {
         type: "player.attack",
-        aim: { x: target.position.x, y: target.position.y },
+        aim: { x: 220, y: 120 },
       });
 
-      const denied = parseMessages(socket)
-        .filter((message) => message.type === "combat.attackDenied")
-        .at(-1);
-      expect(denied?.type).toBe("combat.attackDenied");
-      if (!denied || denied.type !== "combat.attackDenied") {
-        throw new Error("expected cooldown denial before 2s elapsed");
-      }
-      expect(denied.reason).toBe("cooldown");
+      const denied = parseMessages(socket).find(
+        (message) =>
+          message.type === "combat.attackDenied" && message.reason === "cooldown",
+      );
+      expect(denied).toBeUndefined();
+      await wait(150);
+      const secondSnapshot = latestWorldSnapshot(socket);
+      expect(secondSnapshot?.payload.projectiles).toHaveLength(1);
 
       await wait(1_400);
       socket.sent = [];
       manager.applyAttack(asServerSocket(socket), {
         type: "player.attack",
-        aim: { x: target.position.x, y: target.position.y },
+        aim: { x: 220, y: 120 },
       });
-      const performed = latestAttackPerformed(socket);
-      expect(performed?.attackPatternId).toBe("sword_spinblade");
+      await wait(150);
+      const thirdSnapshot = latestWorldSnapshot(socket);
+      expect(thirdSnapshot?.payload.projectiles.length).toBeGreaterThanOrEqual(2);
     } finally {
+      WORLD_MAPS_BY_ID.delete(testMapId);
       Math.random = originalRandom;
     }
   });

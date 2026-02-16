@@ -1531,6 +1531,25 @@ class HubScene extends Phaser.Scene {
     }
 
     if (attackPatternId === "sword_spinblade") {
+      const slash = this.add
+        .rectangle(
+          origin.x + direction.x * 24,
+          origin.y + direction.y * 24,
+          42,
+          12,
+          0xfbbf24,
+          0.2,
+        )
+        .setStrokeStyle(2, 0xffffff, 0.65);
+      slash.setRotation(Math.atan2(direction.y, direction.x));
+      this.tweens.add({
+        targets: slash,
+        alpha: 0,
+        scaleX: 1.2,
+        duration: 130,
+        onComplete: () => slash.destroy(),
+      });
+
       const trailLength = Phaser.Math.Clamp(range * 0.35, 42, 74);
       const launch = this.add
         .rectangle(
@@ -1577,20 +1596,24 @@ class HubScene extends Phaser.Scene {
 
     if (attackPatternId === "sword_whirl") {
       const radius = Phaser.Math.Clamp(aoeRadius ?? 88, 36, 160);
-      const ring = this.add.graphics();
-      ring.lineStyle(3, 0xffd700, 0.9);
-      ring.strokeCircle(origin.x, origin.y, radius * 0.65);
-      ring.lineStyle(1.5, 0xffffff, 0.65);
-      ring.strokeCircle(origin.x, origin.y, radius * 0.45);
+      const outerRing = this.add
+        .circle(origin.x, origin.y, radius * 0.65, 0x000000, 0)
+        .setStrokeStyle(3, 0xffd700, 0.9);
+      const innerRing = this.add
+        .circle(origin.x, origin.y, radius * 0.45, 0x000000, 0)
+        .setStrokeStyle(1.5, 0xffffff, 0.65);
 
       this.tweens.add({
-        targets: ring,
+        targets: [outerRing, innerRing],
         alpha: 0,
-        scaleX: 1.5,
-        scaleY: 1.5,
+        scaleX: 1.35,
+        scaleY: 1.35,
         duration: 170,
         ease: "Cubic.Out",
-        onComplete: () => ring.destroy(),
+        onComplete: () => {
+          outerRing.destroy();
+          innerRing.destroy();
+        },
       });
       return;
     }
