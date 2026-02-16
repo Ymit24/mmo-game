@@ -1451,120 +1451,91 @@ class HubScene extends Phaser.Scene {
     }
 
     if (attackPatternId === "sword_lunge") {
-      const laneLength = Phaser.Math.Clamp(range, 96, 190);
+      const laneLength = Phaser.Math.Clamp(range * 1.05, 112, 210);
       const normal = { x: -direction.y, y: direction.x };
-      const thrust = this.add.graphics().setDepth(1);
-      const shockRing = this.add
-        .circle(
-          origin.x + direction.x * 18,
-          origin.y + direction.y * 18,
-          6,
-          0xfff4d6,
-          0.45,
-        )
-        .setDepth(1);
-
-      const drawImpale = (progress: number, alpha: number) => {
-        thrust.clear();
-
-        const tail = {
-          x: origin.x + direction.x * Phaser.Math.Linear(8, 18, progress),
-          y: origin.y + direction.y * Phaser.Math.Linear(8, 18, progress),
-        };
-        const tip = {
-          x: origin.x + direction.x * (24 + laneLength * progress),
-          y: origin.y + direction.y * (24 + laneLength * progress),
-        };
-        const core = {
-          x: Phaser.Math.Linear(tail.x, tip.x, 0.58),
-          y: Phaser.Math.Linear(tail.y, tip.y, 0.58),
-        };
-
-        const tailHalf = Phaser.Math.Linear(9, 6, progress);
-        const coreHalf = Phaser.Math.Linear(6, 3, progress);
-        const tipHalf = 2;
-
-        const tailLeft = {
-          x: tail.x + normal.x * tailHalf,
-          y: tail.y + normal.y * tailHalf,
-        };
-        const tailRight = {
-          x: tail.x - normal.x * tailHalf,
-          y: tail.y - normal.y * tailHalf,
-        };
-        const coreLeft = {
-          x: core.x + normal.x * coreHalf,
-          y: core.y + normal.y * coreHalf,
-        };
-        const coreRight = {
-          x: core.x - normal.x * coreHalf,
-          y: core.y - normal.y * coreHalf,
-        };
-        const tipLeft = {
-          x: tip.x + normal.x * tipHalf,
-          y: tip.y + normal.y * tipHalf,
-        };
-        const tipRight = {
-          x: tip.x - normal.x * tipHalf,
-          y: tip.y - normal.y * tipHalf,
-        };
-
-        thrust.fillStyle(0xfb923c, alpha * 0.25);
-        thrust.beginPath();
-        thrust.moveTo(tailLeft.x, tailLeft.y);
-        thrust.lineTo(coreLeft.x, coreLeft.y);
-        thrust.lineTo(tipLeft.x, tipLeft.y);
-        thrust.lineTo(tip.x, tip.y);
-        thrust.lineTo(tipRight.x, tipRight.y);
-        thrust.lineTo(coreRight.x, coreRight.y);
-        thrust.lineTo(tailRight.x, tailRight.y);
-        thrust.closePath();
-        thrust.fillPath();
-
-        thrust.lineStyle(2, 0xfff4d6, alpha * 0.92);
-        thrust.beginPath();
-        thrust.moveTo(tail.x, tail.y);
-        thrust.lineTo(tip.x, tip.y);
-        thrust.strokePath();
-
-        const streakHalf = Phaser.Math.Linear(13, 8, progress);
-        const streakLen = Phaser.Math.Linear(24, 14, progress);
-        for (const side of [-1, 1] as const) {
-          const offset = {
-            x: normal.x * streakHalf * side,
-            y: normal.y * streakHalf * side,
-          };
-          thrust.lineStyle(1, 0xfff4d6, alpha * 0.35);
-          thrust.beginPath();
-          thrust.moveTo(tail.x + offset.x, tail.y + offset.y);
-          thrust.lineTo(
-            tail.x + offset.x + direction.x * streakLen,
-            tail.y + offset.y + direction.y * streakLen,
-          );
-          thrust.strokePath();
-        }
+      const angle = Math.atan2(direction.y, direction.x);
+      const baseX = origin.x + direction.x * 24;
+      const baseY = origin.y + direction.y * 24;
+      const endpoint = {
+        x: baseX + direction.x * laneLength,
+        y: baseY + direction.y * laneLength,
       };
 
-      const state = { progress: 0 };
-      drawImpale(0, 1);
+      const rail = this.add.graphics().setDepth(1);
+      rail.lineStyle(2, 0xf8fafc, 0.65);
+      rail.beginPath();
+      rail.moveTo(baseX + normal.x * 5, baseY + normal.y * 5);
+      rail.lineTo(endpoint.x + normal.x * 2, endpoint.y + normal.y * 2);
+      rail.moveTo(baseX - normal.x * 5, baseY - normal.y * 5);
+      rail.lineTo(endpoint.x - normal.x * 2, endpoint.y - normal.y * 2);
+      rail.strokePath();
       this.tweens.add({
-        targets: state,
-        progress: 1,
-        duration: 135,
-        ease: "Expo.Out",
-        onUpdate: () => {
-          const progress = state.progress;
-          drawImpale(progress, 1 - progress * 0.85);
-          shockRing.setPosition(
-            origin.x + direction.x * (18 + laneLength * progress),
-            origin.y + direction.y * (18 + laneLength * progress),
-          );
-          shockRing.setAlpha(Math.max(0, 0.45 - progress * 0.45));
-          shockRing.setScale(Phaser.Math.Linear(1, 2.2, progress));
-        },
+        targets: rail,
+        alpha: 0,
+        duration: 120,
+        ease: "Quad.Out",
+        onComplete: () => rail.destroy(),
+      });
+
+      const spawnGhostBlade = (
+        offset: number,
+        delayMs: number,
+        color: number,
+        travelFactor: number,
+      ) => {
+        this.time.delayedCall(delayMs, () => {
+          const ghost = this.add
+            .rectangle(
+              baseX + normal.x * offset,
+              baseY + normal.y * offset,
+              34,
+              4,
+              color,
+              0.24,
+            )
+            .setRotation(angle)
+            .setDepth(2);
+
+          this.tweens.add({
+            targets: ghost,
+            x: ghost.x + direction.x * laneLength * travelFactor,
+            y: ghost.y + direction.y * laneLength * travelFactor,
+            scaleX: 3.2,
+            alpha: 0,
+            duration: 115,
+            ease: "Cubic.Out",
+            onComplete: () => ghost.destroy(),
+          });
+        });
+      };
+
+      spawnGhostBlade(-9, 0, 0x94a3b8, 0.9);
+      spawnGhostBlade(0, 14, 0xfff4d6, 1);
+      spawnGhostBlade(9, 28, 0xcbd5e1, 0.92);
+
+      const tipFlash = this.add
+        .circle(endpoint.x, endpoint.y, 6, 0xfff4d6, 0.5)
+        .setDepth(3);
+      const tipSlashA = this.add
+        .rectangle(endpoint.x, endpoint.y, 24, 3, 0xfff4d6, 0.48)
+        .setRotation(angle + Phaser.Math.DegToRad(28))
+        .setDepth(3);
+      const tipSlashB = this.add
+        .rectangle(endpoint.x, endpoint.y, 24, 3, 0xfff4d6, 0.48)
+        .setRotation(angle - Phaser.Math.DegToRad(28))
+        .setDepth(3);
+
+      this.tweens.add({
+        targets: [tipFlash, tipSlashA, tipSlashB],
+        alpha: 0,
+        scaleX: 1.75,
+        scaleY: 1.75,
+        duration: 120,
+        ease: "Quad.Out",
         onComplete: () => {
-          thrust.destroy();
-          shockRing.destroy();
+          tipFlash.destroy();
+          tipSlashA.destroy();
+          tipSlashB.destroy();
         },
       });
       return;
