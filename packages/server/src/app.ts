@@ -1,5 +1,7 @@
 import type { Database } from "bun:sqlite";
 
+import { isAdminApiEnabled } from "./admin/guard";
+import { handleAdminRequest } from "./admin/routes";
 import { handleSignin, handleSignup } from "./auth/routes";
 import {
   handleCreateCharacter,
@@ -65,6 +67,17 @@ export function createApp(options: CreateAppOptions = {}): AppInstance {
     ) {
       const characterId = url.pathname.slice("/characters/".length);
       return handleDeleteCharacter(request, db, config, characterId);
+    }
+
+    // Admin routes – only registered when explicitly enabled
+    if (url.pathname.startsWith("/admin/") || url.pathname === "/admin") {
+      if (!isAdminApiEnabled()) {
+        return json(404, { error: "Not found." });
+      }
+      const adminResponse = await handleAdminRequest(request, url, db);
+      if (adminResponse) {
+        return adminResponse;
+      }
     }
 
     return json(404, { error: "Not found." });

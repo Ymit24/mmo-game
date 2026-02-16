@@ -49,6 +49,7 @@ function isRegionTrigger(value: unknown): value is RegionTrigger {
   return (
     typeof value.id === "string" &&
     typeof value.name === "string" &&
+    (value.type === undefined || typeof value.type === "string") &&
     isCollisionShape(value.shape)
   );
 }

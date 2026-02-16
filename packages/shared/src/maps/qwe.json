@@ -1,0 +1,26 @@
+{
+  "id": "qwe",
+  "name": "qwe",
+  "width": 2000,
+  "height": 2000,
+  "background": {
+    "color": "#0a0a12",
+    "gridSize": 48
+  },
+  "combat": {
+    "allowCombat": false,
+    "pvpEnabled": false
+  },
+  "playerSpawnId": "spawn-0",
+  "spawnPoints": [
+    {
+      "id": "spawn-0",
+      "x": 320,
+      "y": 320
+    }
+  ],
+  "collisions": [],
+  "regions": [],
+  "portals": [],
+  "enemySpawners": []
+}

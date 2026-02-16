@@ -17,6 +17,7 @@ export interface SpawnPoint {
 export interface RegionTrigger {
   id: string;
   name: string;
+  type?: string;
   shape: CollisionShape;
 }
 
