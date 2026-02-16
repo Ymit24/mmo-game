@@ -28,6 +28,8 @@ type ToolMode =
   | "spawner"
   | "region";
 
+type ResizeHandle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
+
 type InteractionState =
   | { kind: "idle" }
   | { kind: "panning"; lastScreenX: number; lastScreenY: number }
@@ -44,6 +46,18 @@ type InteractionState =
       entityIndex: number;
       offsetX: number;
       offsetY: number;
+    }
+  | {
+      kind: "resizing";
+      entityType: string;
+      entityIndex: number;
+      handle: ResizeHandle;
+      startX: number;
+      startY: number;
+      startW: number;
+      startH: number;
+      originWorldX: number;
+      originWorldY: number;
     };
 
 const TOOL_CONFIG: Record<
@@ -77,6 +91,123 @@ const NEW_MAP_TEMPLATE: MapData = {
   enemySpawners: [],
 };
 
+/* ─── Map data normalization ────────────────────────────────────
+ *
+ * The raw map JSON files use nested `shape` objects for portals/regions,
+ * `targetWorldId` for portals (not `targetMapId`), and spawner fields
+ * like `spawnRadius`/`maxAlive`/`respawnSeconds`. The editor expects
+ * flat x/y/width/height, `targetMapId`, and `radius`/`maxCount`/`respawnMs`.
+ *
+ * normalizeMapData()  → called after loading from API
+ * denormalizeMapData() → called before saving back to API
+ * ─────────────────────────────────────────────────────────────── */
+
+function normalizeMapData(raw: MapData): MapData {
+  return {
+    ...raw,
+    portals: (raw.portals ?? []).map((p: Record<string, unknown>) => {
+      const shape = p.shape as
+        | { x: number; y: number; width: number; height: number }
+        | undefined;
+      return {
+        id: p.id,
+        name: p.name,
+        x: shape?.x ?? (p.x as number) ?? 0,
+        y: shape?.y ?? (p.y as number) ?? 0,
+        width: shape?.width ?? (p.width as number) ?? 64,
+        height: shape?.height ?? (p.height as number) ?? 64,
+        targetMapId:
+          (p.targetMapId as string) ?? (p.targetWorldId as string) ?? "",
+        targetSpawnId: (p.targetSpawnId as string) ?? "",
+        // Preserve extra fields for round-tripping
+        ...(p.exitOffset ? { exitOffset: p.exitOffset } : {}),
+      };
+    }),
+    regions: (raw.regions ?? []).map((r: Record<string, unknown>) => {
+      const shape = r.shape as
+        | { x: number; y: number; width: number; height: number }
+        | undefined;
+      return {
+        id: r.id,
+        name: r.name,
+        x: shape?.x ?? (r.x as number) ?? 0,
+        y: shape?.y ?? (r.y as number) ?? 0,
+        width: shape?.width ?? (r.width as number) ?? 64,
+        height: shape?.height ?? (r.height as number) ?? 64,
+        type: (r.type as string) ?? "safe",
+      };
+    }),
+    collisions: (raw.collisions ?? []).map((c: Record<string, unknown>) => ({
+      x: (c.x as number) ?? 0,
+      y: (c.y as number) ?? 0,
+      width: (c.width as number) ?? 32,
+      height: (c.height as number) ?? 32,
+    })),
+    enemySpawners: (raw.enemySpawners ?? []).map(
+      (s: Record<string, unknown>) => ({
+        id: s.id,
+        archetypeId: s.archetypeId,
+        x: (s.x as number) ?? 0,
+        y: (s.y as number) ?? 0,
+        radius: (s.radius as number) ?? (s.spawnRadius as number) ?? 100,
+        maxCount: (s.maxCount as number) ?? (s.maxAlive as number) ?? 3,
+        respawnMs:
+          (s.respawnMs as number) ??
+          ((s.respawnSeconds as number) ?? 10) * 1000,
+      }),
+    ),
+  };
+}
+
+function denormalizeMapData(editor: MapData): MapData {
+  return {
+    ...editor,
+    portals: (editor.portals ?? []).map((p: Record<string, unknown>) => ({
+      id: p.id,
+      name: p.name,
+      shape: {
+        type: "rect",
+        x: p.x,
+        y: p.y,
+        width: p.width,
+        height: p.height,
+      },
+      targetWorldId: p.targetMapId,
+      targetSpawnId: p.targetSpawnId,
+      ...(p.exitOffset ? { exitOffset: p.exitOffset } : {}),
+    })),
+    regions: (editor.regions ?? []).map((r: Record<string, unknown>) => ({
+      id: r.id,
+      name: r.name,
+      shape: {
+        type: "rect",
+        x: r.x,
+        y: r.y,
+        width: r.width,
+        height: r.height,
+      },
+    })),
+    collisions: (editor.collisions ?? []).map((c: Record<string, unknown>) => ({
+      type: "rect",
+      x: c.x,
+      y: c.y,
+      width: c.width,
+      height: c.height,
+    })),
+    enemySpawners: (editor.enemySpawners ?? []).map(
+      (s: Record<string, unknown>) => ({
+        id: s.id,
+        archetypeId: s.archetypeId,
+        x: s.x,
+        y: s.y,
+        spawnRadius: s.radius,
+        maxAlive: s.maxCount,
+        respawnSeconds: Math.round(((s.respawnMs as number) ?? 10000) / 1000),
+      }),
+    ),
+  };
+}
+
 /* ─── Helpers ───────────────────────────────────────────────────── */
 
 function snapToGrid(val: number): number {
@@ -102,9 +233,78 @@ function getCursorStyle(
 ): string {
   if (interaction.kind === "panning") return "grabbing";
   if (interaction.kind === "dragging") return "grabbing";
+  if (interaction.kind === "resizing") {
+    return HANDLE_CURSORS[interaction.handle] ?? "nwse-resize";
+  }
   if (spaceHeld) return "grab";
   if (tool === "select") return "default";
   return "crosshair";
+}
+
+const HANDLE_CURSORS: Record<ResizeHandle, string> = {
+  nw: "nwse-resize",
+  n: "ns-resize",
+  ne: "nesw-resize",
+  e: "ew-resize",
+  se: "nwse-resize",
+  s: "ns-resize",
+  sw: "nesw-resize",
+  w: "ew-resize",
+};
+
+const HANDLE_SIZE = 8;
+
+function findResizeHandle(
+  mapData: MapData,
+  entity: { type: string; index: number },
+  wx: number,
+  wy: number,
+  zoom: number,
+): ResizeHandle | null {
+  // Only rect entities support resize
+  if (
+    entity.type !== "collision" &&
+    entity.type !== "region" &&
+    entity.type !== "portal"
+  )
+    return null;
+
+  const field = entityFieldName(entity.type);
+  const arr = mapData[field] as Array<Record<string, unknown>>;
+  const ent = arr[entity.index];
+  if (
+    !ent ||
+    typeof ent.x !== "number" ||
+    typeof ent.y !== "number" ||
+    typeof ent.width !== "number" ||
+    typeof ent.height !== "number"
+  )
+    return null;
+
+  const ex = ent.x as number;
+  const ey = ent.y as number;
+  const ew = ent.width as number;
+  const eh = ent.height as number;
+  const tolerance = Math.max(HANDLE_SIZE / zoom, 6);
+
+  // Check each handle corner/edge midpoint
+  const handles: Array<{ handle: ResizeHandle; hx: number; hy: number }> = [
+    { handle: "nw", hx: ex, hy: ey },
+    { handle: "n", hx: ex + ew / 2, hy: ey },
+    { handle: "ne", hx: ex + ew, hy: ey },
+    { handle: "e", hx: ex + ew, hy: ey + eh / 2 },
+    { handle: "se", hx: ex + ew, hy: ey + eh },
+    { handle: "s", hx: ex + ew / 2, hy: ey + eh },
+    { handle: "sw", hx: ex, hy: ey + eh },
+    { handle: "w", hx: ex, hy: ey + eh / 2 },
+  ];
+
+  for (const { handle, hx, hy } of handles) {
+    if (Math.abs(wx - hx) <= tolerance && Math.abs(wy - hy) <= tolerance) {
+      return handle;
+    }
+  }
+  return null;
 }
 
 function findEntityAt(
@@ -416,13 +616,34 @@ function renderCanvas(
 
     const ent = arr[selectedEntity.index];
     if (ent) {
-      if ("width" in ent && "height" in ent) {
-        ctx.strokeRect(
-          ent.x as number,
-          ent.y as number,
-          ent.width as number,
-          ent.height as number,
-        );
+      const isRect = "width" in ent && "height" in ent;
+      if (isRect) {
+        const ex = ent.x as number;
+        const ey = ent.y as number;
+        const ew = ent.width as number;
+        const eh = ent.height as number;
+        ctx.strokeRect(ex, ey, ew, eh);
+        ctx.setLineDash([]);
+
+        // Draw resize handles
+        const hs = HANDLE_SIZE / zoom;
+        ctx.fillStyle = "#ffffff";
+        ctx.strokeStyle = "#000000";
+        ctx.lineWidth = 1 / zoom;
+        const handlePositions = [
+          { hx: ex, hy: ey },
+          { hx: ex + ew / 2, hy: ey },
+          { hx: ex + ew, hy: ey },
+          { hx: ex + ew, hy: ey + eh / 2 },
+          { hx: ex + ew, hy: ey + eh },
+          { hx: ex + ew / 2, hy: ey + eh },
+          { hx: ex, hy: ey + eh },
+          { hx: ex, hy: ey + eh / 2 },
+        ];
+        for (const { hx, hy } of handlePositions) {
+          ctx.fillRect(hx - hs / 2, hy - hs / 2, hs, hs);
+          ctx.strokeRect(hx - hs / 2, hy - hs / 2, hs, hs);
+        }
       } else if ("radius" in ent) {
         ctx.beginPath();
         ctx.arc(
@@ -433,6 +654,7 @@ function renderCanvas(
           Math.PI * 2,
         );
         ctx.stroke();
+        ctx.setLineDash([]);
       } else {
         const size = 16 / zoom;
         ctx.strokeRect(
@@ -441,9 +663,11 @@ function renderCanvas(
           size,
           size,
         );
+        ctx.setLineDash([]);
       }
+    } else {
+      ctx.setLineDash([]);
     }
-    ctx.setLineDash([]);
   }
 
   ctx.restore();
@@ -497,7 +721,8 @@ export function MapsPage() {
     setLoadingMap(true);
     setSaveError(null);
     getMap(selectedMapId)
-      .then((data) => {
+      .then((raw) => {
+        const data = normalizeMapData(raw);
         setMapData(data);
         setDirty(false);
         // Center the map in view
@@ -655,6 +880,33 @@ export function MapsPage() {
     const currentTool = toolRef.current;
 
     if (currentTool === "select") {
+      // Check if clicking on a resize handle of the currently selected entity
+      const sel = selectedEntityRef.current;
+      if (sel) {
+        const handle = findResizeHandle(map, sel, world.x, world.y, cam.zoom);
+        if (handle) {
+          const field = entityFieldName(sel.type);
+          const arr = map[field] as Array<Record<string, unknown>>;
+          const ent = arr[sel.index];
+          if (ent) {
+            interactionRef.current = {
+              kind: "resizing",
+              entityType: sel.type,
+              entityIndex: sel.index,
+              handle,
+              startX: ent.x as number,
+              startY: ent.y as number,
+              startW: ent.width as number,
+              startH: ent.height as number,
+              originWorldX: world.x,
+              originWorldY: world.y,
+            };
+            (e.target as HTMLElement).setPointerCapture(e.pointerId);
+            return;
+          }
+        }
+      }
+
       const found = findEntityAt(map, world.x, world.y, cam.zoom);
       setSelectedEntity(found);
 
@@ -781,6 +1033,74 @@ export function MapsPage() {
         setDirty(true);
       }
     }
+
+    if (interaction.kind === "resizing") {
+      const canvas = canvasRef.current;
+      const map = mapDataRef.current;
+      if (!canvas || !map) return;
+      const rect = canvas.getBoundingClientRect();
+      const world = screenToWorld(
+        e.clientX,
+        e.clientY,
+        rect,
+        cameraRef.current,
+      );
+
+      const dx = snapToGrid(world.x - interaction.originWorldX);
+      const dy = snapToGrid(world.y - interaction.originWorldY);
+      const { startX, startY, startW, startH, handle } = interaction;
+
+      let newX = startX;
+      let newY = startY;
+      let newW = startW;
+      let newH = startH;
+
+      // Adjust based on which handle is being dragged
+      if (handle === "nw" || handle === "n" || handle === "ne") {
+        newY = startY + dy;
+        newH = startH - dy;
+      }
+      if (handle === "sw" || handle === "s" || handle === "se") {
+        newH = startH + dy;
+      }
+      if (handle === "nw" || handle === "w" || handle === "sw") {
+        newX = startX + dx;
+        newW = startW - dx;
+      }
+      if (handle === "ne" || handle === "e" || handle === "se") {
+        newW = startW + dx;
+      }
+
+      // Enforce minimum size
+      if (newW < GRID_SIZE) {
+        if (handle === "nw" || handle === "w" || handle === "sw") {
+          newX = startX + startW - GRID_SIZE;
+        }
+        newW = GRID_SIZE;
+      }
+      if (newH < GRID_SIZE) {
+        if (handle === "nw" || handle === "n" || handle === "ne") {
+          newY = startY + startH - GRID_SIZE;
+        }
+        newH = GRID_SIZE;
+      }
+
+      const field = entityFieldName(interaction.entityType);
+      const arr = [...(map[field] as Array<Record<string, unknown>>)];
+      const ent = arr[interaction.entityIndex];
+      if (ent) {
+        arr[interaction.entityIndex] = {
+          ...ent,
+          x: newX,
+          y: newY,
+          width: newW,
+          height: newH,
+        };
+        const updated = { ...map, [field]: arr };
+        setMapData(updated);
+        setDirty(true);
+      }
+    }
   }, []);
 
   const handlePointerUp = useCallback(() => {
@@ -810,6 +1130,7 @@ export function MapsPage() {
               ...map.regions,
               {
                 id: `region-${map.regions.length}`,
+                name: `Region ${map.regions.length}`,
                 x,
                 y,
                 width,
@@ -826,6 +1147,7 @@ export function MapsPage() {
               ...map.portals,
               {
                 id: `portal-${map.portals.length}`,
+                name: `Portal ${map.portals.length}`,
                 x,
                 y,
                 width,
@@ -951,7 +1273,7 @@ export function MapsPage() {
     setSaving(true);
     setSaveError(null);
     try {
-      await updateMap(selectedMapId, mapData);
+      await updateMap(selectedMapId, denormalizeMapData(mapData));
       setDirty(false);
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : "Save failed");
@@ -1079,6 +1401,48 @@ export function MapsPage() {
             </button>
           ))}
         </div>
+
+        {/* Map stats dashboard */}
+        {mapData && selectedMapId && (
+          <div className="border-t border-border px-4 py-3 shrink-0">
+            <h3 className="text-vec-green-dim text-[9px] uppercase tracking-widest mb-2">
+              Entities
+            </h3>
+            <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+              <MapStatRow
+                label="Spawns"
+                count={(mapData.spawnPoints ?? []).length}
+                color="var(--color-success)"
+              />
+              <MapStatRow
+                label="Spawners"
+                count={(mapData.enemySpawners ?? []).length}
+                color="var(--color-vec-magenta)"
+              />
+              <MapStatRow
+                label="Collisions"
+                count={(mapData.collisions ?? []).length}
+                color="var(--color-muted)"
+              />
+              <MapStatRow
+                label="Portals"
+                count={(mapData.portals ?? []).length}
+                color="var(--color-vec-cyan)"
+              />
+              <MapStatRow
+                label="Regions"
+                count={(mapData.regions ?? []).length}
+                color="var(--color-vec-green)"
+              />
+            </div>
+            <div className="mt-2 pt-2 border-t border-border/50 flex justify-between text-[10px]">
+              <span className="text-muted">Size</span>
+              <span className="text-text tabular-nums">
+                {mapData.width} x {mapData.height}
+              </span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Right: Canvas editor */}
@@ -1364,6 +1728,14 @@ function PropertiesPanel({
             onChange={(v) => updateProp("id", v)}
           />
         )}
+        {data.name !== undefined && (
+          <PropInput
+            label="Name"
+            value={String(data.name)}
+            onChange={(v) => updateProp("name", v)}
+            wide
+          />
+        )}
         {data.x !== undefined && (
           <PropInput
             label="X"
@@ -1479,11 +1851,13 @@ function PropInput({
   value,
   onChange,
   type = "text",
+  wide = false,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   type?: string;
+  wide?: boolean;
 }) {
   return (
     <div className="flex items-center gap-1.5">
@@ -1492,7 +1866,7 @@ function PropInput({
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-20 text-[11px] px-1.5 py-0.5"
+        className={`${wide ? "w-36" : "w-20"} text-[11px] px-1.5 py-0.5`}
       />
     </div>
   );
@@ -1526,6 +1900,27 @@ function PropSelect({
           </option>
         ))}
       </select>
+    </div>
+  );
+}
+
+/* ─── Map Stat Row ─────────────────────────────────────────────── */
+
+function MapStatRow({
+  label,
+  count,
+  color,
+}: {
+  label: string;
+  count: number;
+  color: string;
+}) {
+  return (
+    <div className="flex items-center justify-between">
+      <span className="text-muted text-[10px]">{label}</span>
+      <span className="text-[11px] tabular-nums font-mono" style={{ color }}>
+        {count}
+      </span>
     </div>
   );
 }

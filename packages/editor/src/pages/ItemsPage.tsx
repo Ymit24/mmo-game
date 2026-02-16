@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   type ItemDefinition,
   createItem,
@@ -29,6 +29,282 @@ const TYPE_COLORS: Record<string, string> = {
   potion: "text-vec-green",
   misc: "text-muted",
 };
+
+/* ─── Weapon SVG Icon ──────────────────────────────────────────── */
+
+function WeaponIcon({
+  iconKey,
+  classReq,
+  size = 32,
+}: {
+  iconKey: string;
+  classReq: string | null;
+  size?: number;
+}) {
+  const isMage = classReq === "mage";
+  const key = iconKey.toLowerCase();
+
+  // Determine weapon style from icon key
+  const isGreatsword =
+    key.includes("great") || key.includes("dragon") || key.includes("broad");
+  const isWand = key.includes("wand") || key.includes("focus");
+  const isRod = key.includes("rod") || key.includes("stormweave");
+  const isScepter = key.includes("scepter");
+  const isStaff = isWand || isRod || isScepter;
+
+  const accentColor = isMage || isStaff ? "#60a5fa" : "#f59e0b";
+  const bladeColor = isMage || isStaff ? "#93c5fd" : "#d4d4d8";
+  const handleColor = isMage || isStaff ? "#6366f1" : "#78716c";
+
+  if (isStaff) {
+    // Wand / Rod / Scepter shape
+    const orbSize = isScepter ? 6 : isRod ? 5 : 4;
+    return (
+      <svg
+        width={size}
+        height={size}
+        viewBox="0 0 32 32"
+        fill="none"
+        role="img"
+        aria-label={iconKey}
+      >
+        {/* Shaft */}
+        <line
+          x1="16"
+          y1="28"
+          x2="16"
+          y2={10}
+          stroke={handleColor}
+          strokeWidth="2.5"
+          strokeLinecap="round"
+        />
+        {/* Orb glow */}
+        <circle
+          cx="16"
+          cy={8}
+          r={orbSize + 2}
+          fill={accentColor}
+          opacity="0.2"
+        />
+        {/* Orb */}
+        <circle cx="16" cy={8} r={orbSize} fill={accentColor} />
+        <circle
+          cx="16"
+          cy={8}
+          r={orbSize}
+          fill="none"
+          stroke={bladeColor}
+          strokeWidth="0.5"
+        />
+        {/* Highlight */}
+        <circle cx="14.5" cy="6.5" r="1.5" fill="white" opacity="0.5" />
+        {/* Crossguard */}
+        {isScepter && (
+          <path
+            d="M12 12 L20 12"
+            stroke={accentColor}
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          />
+        )}
+        {isRod && (
+          <>
+            <circle cx="13" cy="11" r="1.5" fill={accentColor} opacity="0.6" />
+            <circle cx="19" cy="11" r="1.5" fill={accentColor} opacity="0.6" />
+          </>
+        )}
+      </svg>
+    );
+  }
+
+  // Sword shapes
+  const bladeWidth = isGreatsword ? 5 : 3;
+  const bladeTop = isGreatsword ? 4 : 6;
+  const guardWidth = isGreatsword ? 14 : 10;
+
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 32 32"
+      fill="none"
+      role="img"
+      aria-label={iconKey}
+    >
+      {/* Blade glow */}
+      <rect
+        x={16 - bladeWidth / 2 - 1}
+        y={bladeTop - 1}
+        width={bladeWidth + 2}
+        height={22 - bladeTop + 2}
+        rx="1"
+        fill={accentColor}
+        opacity="0.15"
+      />
+      {/* Blade */}
+      <path
+        d={`M${16 - bladeWidth / 2} 20 L${16 - bladeWidth / 2} ${bladeTop + 2} L16 ${bladeTop} L${16 + bladeWidth / 2} ${bladeTop + 2} L${16 + bladeWidth / 2} 20 Z`}
+        fill={bladeColor}
+        stroke={bladeColor}
+        strokeWidth="0.5"
+      />
+      {/* Fuller line */}
+      <line
+        x1="16"
+        y1={bladeTop + 3}
+        x2="16"
+        y2="18"
+        stroke={accentColor}
+        strokeWidth="0.8"
+        opacity="0.6"
+      />
+      {/* Crossguard */}
+      <rect
+        x={16 - guardWidth / 2}
+        y="20"
+        width={guardWidth}
+        height="2.5"
+        rx="1"
+        fill={handleColor}
+      />
+      {/* Grip */}
+      <rect
+        x="14.5"
+        y="22.5"
+        width="3"
+        height="5"
+        rx="0.5"
+        fill={handleColor}
+      />
+      {/* Pommel */}
+      <circle cx="16" cy="28.5" r="2" fill={accentColor} />
+      <circle cx="16" cy="28.5" r="1" fill="white" opacity="0.3" />
+    </svg>
+  );
+}
+
+/* ─── DPS Calculator ───────────────────────────────────────────── */
+
+const CLASS_BASE_STATS: Record<string, { damage: number; speedMs: number }> = {
+  knight: { damage: 24, speedMs: 600 },
+  mage: { damage: 18, speedMs: 820 },
+};
+
+function computeWeaponDps(
+  item: ItemDefinition,
+  characterClass: string,
+): number {
+  const base = CLASS_BASE_STATS[characterClass];
+  if (!base || item.type !== "weapon") return 0;
+  const totalDamage = base.damage + (item.weaponDamageFlat ?? 0);
+  const speedFactor = 1 - (item.weaponSpeedPercent ?? 0) / 100;
+  const effectiveSpeedMs = Math.max(
+    200,
+    Math.round(base.speedMs * Math.max(0.05, speedFactor)),
+  );
+  return (totalDamage / effectiveSpeedMs) * 1000;
+}
+
+function DpsComparisonChart({ items }: { items: ItemDefinition[] }) {
+  const weapons = useMemo(
+    () => items.filter((i) => i.type === "weapon"),
+    [items],
+  );
+
+  const chartData = useMemo(() => {
+    return weapons
+      .map((w) => {
+        const knightDps = computeWeaponDps(w, "knight");
+        const mageDps = computeWeaponDps(w, "mage");
+        // Use relevant DPS: class-restricted weapons only show their class
+        const effectiveClass = w.classRequirement;
+        return {
+          item: w,
+          knightDps: effectiveClass === "mage" ? 0 : knightDps,
+          mageDps: effectiveClass === "knight" ? 0 : mageDps,
+          maxDps: Math.max(
+            effectiveClass === "mage" ? 0 : knightDps,
+            effectiveClass === "knight" ? 0 : mageDps,
+          ),
+        };
+      })
+      .sort((a, b) => b.maxDps - a.maxDps);
+  }, [weapons]);
+
+  if (chartData.length === 0) return null;
+
+  const overallMax = Math.max(...chartData.map((d) => d.maxDps), 1);
+
+  return (
+    <div className="editor-panel p-4">
+      <h3 className="text-vec-green-dim text-[10px] uppercase tracking-widest mb-4">
+        Weapon DPS Comparison (Level 1, No Scaling)
+      </h3>
+      <div className="flex flex-col gap-2">
+        {chartData.map((d) => (
+          <div key={d.item.id} className="flex items-center gap-3">
+            <div className="w-28 shrink-0 flex items-center gap-2">
+              <WeaponIcon
+                iconKey={d.item.iconKey}
+                classReq={d.item.classRequirement}
+                size={18}
+              />
+              <span className="text-text-bright text-[11px] truncate">
+                {d.item.name}
+              </span>
+            </div>
+            <div className="flex-1 flex flex-col gap-0.5">
+              {d.knightDps > 0 && (
+                <div className="flex items-center gap-2">
+                  <span className="text-[9px] text-vec-green w-10 shrink-0 uppercase">
+                    KNT
+                  </span>
+                  <div className="flex-1 h-3 bg-deep border border-border/50 overflow-hidden">
+                    <div
+                      className="h-full transition-all"
+                      style={{
+                        width: `${(d.knightDps / overallMax) * 100}%`,
+                        backgroundColor: "#f59e0b",
+                      }}
+                    />
+                  </div>
+                  <span className="text-[10px] text-muted w-12 text-right tabular-nums">
+                    {d.knightDps.toFixed(1)}
+                  </span>
+                </div>
+              )}
+              {d.mageDps > 0 && (
+                <div className="flex items-center gap-2">
+                  <span className="text-[9px] text-vec-cyan w-10 shrink-0 uppercase">
+                    MAG
+                  </span>
+                  <div className="flex-1 h-3 bg-deep border border-border/50 overflow-hidden">
+                    <div
+                      className="h-full transition-all"
+                      style={{
+                        width: `${(d.mageDps / overallMax) * 100}%`,
+                        backgroundColor: "#60a5fa",
+                      }}
+                    />
+                  </div>
+                  <span className="text-[10px] text-muted w-12 text-right tabular-nums">
+                    {d.mageDps.toFixed(1)}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="mt-3 text-[10px] text-muted">
+        DPS = (BaseDmg + WeaponDmg) / EffectiveAttackSpeed. Base stats at Level
+        1 with no level scaling applied.
+      </div>
+    </div>
+  );
+}
+
+/* ─── Main Component ───────────────────────────────────────────── */
 
 export function ItemsPage() {
   const { data: items, loading, error, refetch } = useAsyncData(listItems);
@@ -128,6 +404,15 @@ export function ItemsPage() {
               }`}
               onClick={() => handleSelect(item)}
             >
+              {item.type === "weapon" && (
+                <div className="shrink-0">
+                  <WeaponIcon
+                    iconKey={item.iconKey}
+                    classReq={item.classRequirement}
+                    size={28}
+                  />
+                </div>
+              )}
               <div className="min-w-0 flex-1">
                 <div className="text-text-bright text-xs truncate">
                   {item.name}
@@ -153,19 +438,34 @@ export function ItemsPage() {
       {/* Right: Detail */}
       <div className="flex-1 overflow-y-auto p-6">
         {!editing ? (
-          <div className="flex items-center justify-center h-full text-muted text-sm">
-            Select an item or create a new one
+          <div className="flex flex-col gap-6">
+            <div className="flex items-center justify-center h-32 text-muted text-sm">
+              Select an item or create a new one
+            </div>
+            {/* Show DPS chart even without selection */}
+            {items && items.length > 0 && <DpsComparisonChart items={items} />}
           </div>
         ) : (
           <div className="animate-fade-in">
             <div className="flex items-center justify-between mb-6">
-              <div>
-                <h2 className="text-text-bright text-lg font-display">
-                  {isNew ? "New Item" : editing.name}
-                </h2>
-                {!isNew && (
-                  <p className="text-muted text-xs mt-1">{editing.id}</p>
+              <div className="flex items-center gap-4">
+                {isWeapon && (
+                  <div className="p-2 bg-surface border border-border">
+                    <WeaponIcon
+                      iconKey={editing.iconKey}
+                      classReq={editing.classRequirement}
+                      size={48}
+                    />
+                  </div>
                 )}
+                <div>
+                  <h2 className="text-text-bright text-lg font-display">
+                    {isNew ? "New Item" : editing.name}
+                  </h2>
+                  {!isNew && (
+                    <p className="text-muted text-xs mt-1">{editing.id}</p>
+                  )}
+                </div>
               </div>
               <div className="flex gap-2">
                 {!isNew && (
@@ -332,6 +632,11 @@ export function ItemsPage() {
                     </Field>
                   </div>
                 </div>
+              )}
+
+              {/* DPS Comparison */}
+              {items && items.length > 0 && (
+                <DpsComparisonChart items={items} />
               )}
             </div>
           </div>
