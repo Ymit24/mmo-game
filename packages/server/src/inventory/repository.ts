@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import {
+  type AttackPatternId,
   type CharacterClass,
   EQUIP_SLOTS,
   type EquipSlot,
@@ -11,10 +12,13 @@ import {
   type InventoryStatePayload,
   type ItemDefinition,
   LOOT_BAG_SLOT_COUNT,
+  type ResolvedWeaponAttackConfig,
   type StorageSlotRef,
   type WeaponStatModifiers,
+  type WeaponStyle,
   getInventorySlotPlacementError,
   itemDefinitionToWeaponModifiers,
+  resolveWeaponAttackConfig,
   slotRefEquals,
 } from "@mmo/shared";
 
@@ -28,6 +32,15 @@ interface ItemDefinitionRow {
   weapon_damage_flat: number | null;
   weapon_range_flat: number | null;
   weapon_speed_percent: number | null;
+  weapon_style: WeaponStyle | null;
+  attack_pattern_id: AttackPatternId | null;
+  attack_damage_multiplier: number | null;
+  attack_projectile_count: number | null;
+  attack_spread_degrees: number | null;
+  attack_burst_count: number | null;
+  attack_burst_interval_ms: number | null;
+  attack_aoe_radius: number | null;
+  attack_aoe_delay_ms: number | null;
 }
 
 interface InventoryRow {
@@ -48,6 +61,15 @@ interface InventoryRowWithDefinition extends InventoryRow {
   def_weapon_damage_flat: number | null;
   def_weapon_range_flat: number | null;
   def_weapon_speed_percent: number | null;
+  def_weapon_style: WeaponStyle | null;
+  def_attack_pattern_id: AttackPatternId | null;
+  def_attack_damage_multiplier: number | null;
+  def_attack_projectile_count: number | null;
+  def_attack_spread_degrees: number | null;
+  def_attack_burst_count: number | null;
+  def_attack_burst_interval_ms: number | null;
+  def_attack_aoe_radius: number | null;
+  def_attack_aoe_delay_ms: number | null;
 }
 
 interface InventoryActionContext {
@@ -122,6 +144,15 @@ function mapItemDefinition(row: ItemDefinitionRow): ItemDefinition {
     weaponDamageFlat: row.weapon_damage_flat,
     weaponRangeFlat: row.weapon_range_flat,
     weaponSpeedPercent: row.weapon_speed_percent,
+    weaponStyle: row.weapon_style,
+    attackPatternId: row.attack_pattern_id,
+    attackDamageMultiplier: row.attack_damage_multiplier,
+    attackProjectileCount: row.attack_projectile_count,
+    attackSpreadDegrees: row.attack_spread_degrees,
+    attackBurstCount: row.attack_burst_count,
+    attackBurstIntervalMs: row.attack_burst_interval_ms,
+    attackAoeRadius: row.attack_aoe_radius,
+    attackAoeDelayMs: row.attack_aoe_delay_ms,
   };
 }
 
@@ -138,6 +169,15 @@ function mapItemDefinitionFromInventoryRow(
     weaponDamageFlat: row.def_weapon_damage_flat,
     weaponRangeFlat: row.def_weapon_range_flat,
     weaponSpeedPercent: row.def_weapon_speed_percent,
+    weaponStyle: row.def_weapon_style,
+    attackPatternId: row.def_attack_pattern_id,
+    attackDamageMultiplier: row.def_attack_damage_multiplier,
+    attackProjectileCount: row.def_attack_projectile_count,
+    attackSpreadDegrees: row.def_attack_spread_degrees,
+    attackBurstCount: row.def_attack_burst_count,
+    attackBurstIntervalMs: row.def_attack_burst_interval_ms,
+    attackAoeRadius: row.def_attack_aoe_radius,
+    attackAoeDelayMs: row.def_attack_aoe_delay_ms,
   };
 }
 
@@ -194,7 +234,16 @@ function getItemDefinitionMap(db: Database): Record<string, ItemDefinition> {
          min_level_to_equip,
          weapon_damage_flat,
          weapon_range_flat,
-         weapon_speed_percent
+         weapon_speed_percent,
+         weapon_style,
+         attack_pattern_id,
+         attack_damage_multiplier,
+         attack_projectile_count,
+         attack_spread_degrees,
+         attack_burst_count,
+         attack_burst_interval_ms,
+         attack_aoe_radius,
+         attack_aoe_delay_ms
        FROM item_definitions
        ORDER BY id ASC`,
     )
@@ -252,7 +301,16 @@ function findInventoryItemForSlot(
              def.min_level_to_equip AS def_min_level_to_equip,
              def.weapon_damage_flat AS def_weapon_damage_flat,
              def.weapon_range_flat AS def_weapon_range_flat,
-             def.weapon_speed_percent AS def_weapon_speed_percent
+             def.weapon_speed_percent AS def_weapon_speed_percent,
+             def.weapon_style AS def_weapon_style,
+             def.attack_pattern_id AS def_attack_pattern_id,
+             def.attack_damage_multiplier AS def_attack_damage_multiplier,
+             def.attack_projectile_count AS def_attack_projectile_count,
+             def.attack_spread_degrees AS def_attack_spread_degrees,
+             def.attack_burst_count AS def_attack_burst_count,
+             def.attack_burst_interval_ms AS def_attack_burst_interval_ms,
+             def.attack_aoe_radius AS def_attack_aoe_radius,
+             def.attack_aoe_delay_ms AS def_attack_aoe_delay_ms
            FROM character_inventory inv
            INNER JOIN item_definitions def
              ON def.id = inv.item_definition_id
@@ -282,7 +340,16 @@ function findInventoryItemForSlot(
            def.min_level_to_equip AS def_min_level_to_equip,
            def.weapon_damage_flat AS def_weapon_damage_flat,
            def.weapon_range_flat AS def_weapon_range_flat,
-           def.weapon_speed_percent AS def_weapon_speed_percent
+           def.weapon_speed_percent AS def_weapon_speed_percent,
+           def.weapon_style AS def_weapon_style,
+           def.attack_pattern_id AS def_attack_pattern_id,
+           def.attack_damage_multiplier AS def_attack_damage_multiplier,
+           def.attack_projectile_count AS def_attack_projectile_count,
+           def.attack_spread_degrees AS def_attack_spread_degrees,
+           def.attack_burst_count AS def_attack_burst_count,
+           def.attack_burst_interval_ms AS def_attack_burst_interval_ms,
+           def.attack_aoe_radius AS def_attack_aoe_radius,
+           def.attack_aoe_delay_ms AS def_attack_aoe_delay_ms
          FROM character_inventory inv
          INNER JOIN item_definitions def
            ON def.id = inv.item_definition_id
@@ -468,7 +535,16 @@ export function getEquippedWeaponDefinitionForCharacter(
          def.min_level_to_equip,
          def.weapon_damage_flat,
          def.weapon_range_flat,
-         def.weapon_speed_percent
+         def.weapon_speed_percent,
+         def.weapon_style,
+         def.attack_pattern_id,
+         def.attack_damage_multiplier,
+         def.attack_projectile_count,
+         def.attack_spread_degrees,
+         def.attack_burst_count,
+         def.attack_burst_interval_ms,
+         def.attack_aoe_radius,
+         def.attack_aoe_delay_ms
        FROM character_inventory inv
        INNER JOIN item_definitions def
          ON def.id = inv.item_definition_id
@@ -490,6 +566,25 @@ export function getWeaponModifiersFromInventoryState(
   return itemDefinitionToWeaponModifiers(
     state.definitions[weapon.itemDefinitionId] ?? null,
   );
+}
+
+export interface WeaponLoadout {
+  modifiers: WeaponStatModifiers;
+  attack: ResolvedWeaponAttackConfig;
+}
+
+export function getWeaponLoadoutFromInventoryState(
+  state: InventoryStatePayload,
+  characterClass: CharacterClass,
+): WeaponLoadout {
+  const weapon = state.equipSlots.weapon;
+  const definition = weapon
+    ? (state.definitions[weapon.itemDefinitionId] ?? null)
+    : null;
+  return {
+    modifiers: itemDefinitionToWeaponModifiers(definition),
+    attack: resolveWeaponAttackConfig(definition, characterClass),
+  };
 }
 
 export function grantStarterInventoryForCharacter(

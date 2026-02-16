@@ -4,6 +4,7 @@ import { getCharacterClassBaseCombatStats } from "@mmo/shared";
 import { createDatabase } from "../db";
 import {
   dropInventoryItem,
+  getWeaponLoadoutFromInventoryState,
   loadInventoryStateForCharacter,
   moveBetweenInventoryAndContainer,
   moveInventoryItem,
@@ -120,6 +121,49 @@ describe("inventory repository", () => {
     expect(state.bagSlots[0]?.itemDefinitionId).toBe("training_sword");
     expect(state.bagSlots[1]).toBeNull();
     expect(state.equipSlots.weapon).toBeNull();
+    db.close();
+  });
+
+  test("getWeaponLoadoutFromInventoryState resolves modifiers and attack config", () => {
+    const db = createDatabase(":memory:");
+    const { characterId } = seedCharacter(db, { characterClass: "mage" });
+    insertInventoryItem(db, {
+      id: "equipped-wand",
+      characterId,
+      definitionId: "training_wand",
+      slotKind: "weapon",
+      slotIndex: null,
+    });
+
+    const state = loadInventoryStateForCharacter(db, characterId);
+    const loadout = getWeaponLoadoutFromInventoryState(state, "mage");
+    expect(loadout.modifiers).toEqual({
+      damageFlat: 8,
+      rangeFlat: 24,
+      speedPercent: 7,
+    });
+    expect(loadout.attack.weaponStyle).toBe("wand");
+    expect(loadout.attack.attackPatternId).toBe("wand_multishot");
+    expect(loadout.attack.projectileCount).toBe(3);
+    expect(loadout.attack.spreadDegrees).toBe(22);
+
+    const emptyState = {
+      ...state,
+      equipSlots: {
+        ...state.equipSlots,
+        weapon: null,
+      },
+    };
+    const defaultLoadout = getWeaponLoadoutFromInventoryState(
+      emptyState,
+      "mage",
+    );
+    expect(defaultLoadout.modifiers).toEqual({
+      damageFlat: 0,
+      rangeFlat: 0,
+      speedPercent: 0,
+    });
+    expect(defaultLoadout.attack.attackPatternId).toBe("wand_multishot");
     db.close();
   });
 

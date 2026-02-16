@@ -1,12 +1,14 @@
 import { type CharacterClass, isCharacterClass } from "../characters";
 import type { EnemyBehaviorState, EnemySnapshot } from "../enemies";
 import {
+  type AttackPatternId,
   type ContainerActionErrorCode,
   type InventoryActionErrorCode,
   type InventoryItemInstance,
   type InventorySlotRef,
   type InventoryStatePayload,
   type StorageSlotRef,
+  type WeaponStyle,
   isInventorySlotRef,
   isStorageSlotRef,
 } from "../items";
@@ -195,10 +197,15 @@ export type ServerToClientMessage =
   | {
       type: "combat.attackPerformed";
       attackerId: string;
-      attackStyle: "melee" | "ranged";
+      attackStyle: "melee" | "ranged" | "aoe";
+      attackPatternId: AttackPatternId;
+      weaponStyle: WeaponStyle;
       origin: Vector2;
       direction: Vector2;
       range: number;
+      target?: Vector2;
+      aoeRadius?: number;
+      impactDelayMs?: number;
     }
   | {
       type: "combat.playerDied";

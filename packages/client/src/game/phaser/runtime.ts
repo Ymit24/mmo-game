@@ -1,4 +1,5 @@
 import {
+  type AttackPatternId,
   type ClientToServerMessage,
   type CollisionShape,
   type CombatFloatingTextVariant,
@@ -824,10 +825,14 @@ class HubScene extends Phaser.Scene {
 
       case "combat.attackPerformed":
         this.playAttackEffect(
+          message.attackPatternId,
           message.attackStyle,
           message.origin,
           message.direction,
           message.range,
+          message.target,
+          message.aoeRadius,
+          message.impactDelayMs,
         );
         return;
 
@@ -1371,12 +1376,16 @@ class HubScene extends Phaser.Scene {
   }
 
   private playAttackEffect(
-    attackStyle: "melee" | "ranged",
+    attackPatternId: AttackPatternId,
+    attackStyle: "melee" | "ranged" | "aoe",
     origin: { x: number; y: number },
     direction: { x: number; y: number },
     range: number,
+    target?: { x: number; y: number },
+    aoeRadius?: number,
+    impactDelayMs?: number,
   ): void {
-    if (attackStyle === "melee") {
+    if (attackPatternId === "sword_cleave" || attackStyle === "melee") {
       const baseRotation = Math.atan2(direction.y, direction.x);
       const sweepAngle = Phaser.Math.DegToRad(60);
       const startAngle = baseRotation - sweepAngle;
@@ -1437,6 +1446,125 @@ class HubScene extends Phaser.Scene {
         onComplete: () => {
           arcGraphics.destroy();
         },
+      });
+      return;
+    }
+
+    if (attackPatternId === "sword_lunge") {
+      const laneLength = Phaser.Math.Clamp(range * 0.9, 64, 140);
+      const lane = this.add
+        .rectangle(
+          origin.x + direction.x * (laneLength * 0.5),
+          origin.y + direction.y * (laneLength * 0.5),
+          laneLength,
+          18,
+          0xffd700,
+          0.22,
+        )
+        .setStrokeStyle(2, 0xffffff, 0.7);
+      lane.setRotation(Math.atan2(direction.y, direction.x));
+      this.tweens.add({
+        targets: lane,
+        alpha: 0,
+        scaleX: 1.08,
+        duration: 140,
+        onComplete: () => lane.destroy(),
+      });
+      return;
+    }
+
+    if (attackPatternId === "wand_multishot") {
+      for (let index = -1; index <= 1; index += 1) {
+        const offsetAngle = (index * 12 * Math.PI) / 180;
+        const offsetDirection = {
+          x:
+            direction.x * Math.cos(offsetAngle) -
+            direction.y * Math.sin(offsetAngle),
+          y:
+            direction.x * Math.sin(offsetAngle) +
+            direction.y * Math.cos(offsetAngle),
+        };
+        const spark = this.add.circle(
+          origin.x + offsetDirection.x * 14,
+          origin.y + offsetDirection.y * 14,
+          5,
+          0x38bdf8,
+          0.45,
+        );
+        this.tweens.add({
+          targets: spark,
+          alpha: 0,
+          scaleX: 1.8,
+          scaleY: 1.8,
+          duration: 170,
+          onComplete: () => spark.destroy(),
+        });
+      }
+      return;
+    }
+
+    if (attackPatternId === "wand_burst") {
+      const spawnPulse = (delayMs: number) => {
+        this.time.delayedCall(delayMs, () => {
+          const pulse = this.add.circle(
+            origin.x + direction.x * 12,
+            origin.y + direction.y * 12,
+            7,
+            0x22d3ee,
+            0.4,
+          );
+          this.tweens.add({
+            targets: pulse,
+            alpha: 0,
+            scaleX: 1.6,
+            scaleY: 1.6,
+            duration: 120,
+            onComplete: () => pulse.destroy(),
+          });
+        });
+      };
+      spawnPulse(0);
+      spawnPulse(70);
+      spawnPulse(140);
+      return;
+    }
+
+    if (attackPatternId === "staff_ground_aoe" || attackStyle === "aoe") {
+      const aoeCenter = target ?? {
+        x: origin.x + direction.x * Math.min(range, 80),
+        y: origin.y + direction.y * Math.min(range, 80),
+      };
+      const radius = Phaser.Math.Clamp(aoeRadius ?? 72, 20, 160);
+      const delayMs = Math.max(0, impactDelayMs ?? 180);
+
+      const telegraph = this.add
+        .circle(aoeCenter.x, aoeCenter.y, radius, 0x22d3ee, 0.1)
+        .setStrokeStyle(2, 0x67e8f9, 0.65);
+      this.tweens.add({
+        targets: telegraph,
+        alpha: 0.18,
+        duration: delayMs,
+        yoyo: true,
+        repeat: 1,
+        onComplete: () => telegraph.destroy(),
+      });
+
+      this.time.delayedCall(delayMs, () => {
+        const impact = this.add.circle(
+          aoeCenter.x,
+          aoeCenter.y,
+          radius * 0.5,
+          0x22d3ee,
+          0.35,
+        );
+        this.tweens.add({
+          targets: impact,
+          alpha: 0,
+          scaleX: 1.9,
+          scaleY: 1.9,
+          duration: 220,
+          onComplete: () => impact.destroy(),
+        });
       });
       return;
     }

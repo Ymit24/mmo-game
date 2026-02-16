@@ -3,7 +3,10 @@ import type {
   InventoryItemInstance,
   ItemDefinition,
 } from "@mmo/shared";
-import { itemDefinitionToWeaponModifiers } from "@mmo/shared";
+import {
+  ATTACK_PATTERN_METADATA,
+  itemDefinitionToWeaponModifiers,
+} from "@mmo/shared";
 import { resolveItemIconUrl } from "./itemIconMap";
 
 interface ItemTooltipProps {
@@ -75,6 +78,23 @@ export function ItemTooltip({
       {/* Weapon Stats */}
       {isWeapon && hoveredWeaponStats && (
         <div className="mb-2 border-t border-border/40 pt-1.5">
+          {(definition.weaponStyle || definition.attackPatternId) && (
+            <div className="mb-1.5 text-[9px] text-vec-cyan">
+              {definition.weaponStyle && (
+                <span className="mr-2 capitalize">
+                  {definition.weaponStyle}
+                </span>
+              )}
+              {definition.attackPatternId && (
+                <span>
+                  {
+                    ATTACK_PATTERN_METADATA[definition.attackPatternId]
+                      .shortLabel
+                  }
+                </span>
+              )}
+            </div>
+          )}
           <p className="mb-1 text-[9px] text-muted uppercase">Weapon Stats</p>
 
           {/* Damage */}

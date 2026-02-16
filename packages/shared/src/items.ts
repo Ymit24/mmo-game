@@ -7,6 +7,18 @@ export const LOOT_BAG_INTERACT_RADIUS = 72;
 export const ITEM_TYPES = ["weapon", "armor", "potion", "misc"] as const;
 export type ItemType = (typeof ITEM_TYPES)[number];
 
+export const WEAPON_STYLES = ["sword", "wand", "staff"] as const;
+export type WeaponStyle = (typeof WEAPON_STYLES)[number];
+
+export const ATTACK_PATTERN_IDS = [
+  "sword_cleave",
+  "sword_lunge",
+  "wand_multishot",
+  "wand_burst",
+  "staff_ground_aoe",
+] as const;
+export type AttackPatternId = (typeof ATTACK_PATTERN_IDS)[number];
+
 export const EQUIP_SLOTS = ["weapon", "armor"] as const;
 export type EquipSlot = (typeof EQUIP_SLOTS)[number];
 
@@ -38,6 +50,15 @@ export interface ItemDefinition {
   weaponDamageFlat: number | null;
   weaponRangeFlat: number | null;
   weaponSpeedPercent: number | null;
+  weaponStyle: WeaponStyle | null;
+  attackPatternId: AttackPatternId | null;
+  attackDamageMultiplier: number | null;
+  attackProjectileCount: number | null;
+  attackSpreadDegrees: number | null;
+  attackBurstCount: number | null;
+  attackBurstIntervalMs: number | null;
+  attackAoeRadius: number | null;
+  attackAoeDelayMs: number | null;
 }
 
 export interface InventoryItemInstance {
@@ -93,6 +114,14 @@ export function isItemType(value: string): value is ItemType {
 
 export function isEquipSlot(value: string): value is EquipSlot {
   return (EQUIP_SLOTS as readonly string[]).includes(value);
+}
+
+export function isWeaponStyle(value: string): value is WeaponStyle {
+  return (WEAPON_STYLES as readonly string[]).includes(value);
+}
+
+export function isAttackPatternId(value: string): value is AttackPatternId {
+  return (ATTACK_PATTERN_IDS as readonly string[]).includes(value);
 }
 
 export function isInventoryActionErrorCode(
