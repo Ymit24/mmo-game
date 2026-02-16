@@ -44,7 +44,7 @@ After your account exists, promote it from the VM shell:
 ssh vm 'set -a && source /etc/mmo/mmo.env && set +a && /usr/local/bin/bun /opt/mmo/current/server/index.js admin promote --email you@example.com'
 ```
 
-The command only promotes existing accounts and is safe to run repeatedly.
+The command uses the server DB path from `AUTH_DB_PATH` (or server default), only promotes existing accounts, and is safe to run repeatedly.
 
 ## Manual Deploy
 

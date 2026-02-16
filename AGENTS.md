@@ -46,7 +46,8 @@
   - Password hashes use Argon2id (`Bun.password.hash/verify`).
 - Admin role management:
   - Signup always creates `role=user`; no self-service admin path.
-  - Admin promotion is server-local CLI only: `admin promote --email <existing-account-email> [--db-path <path>]`.
+  - Admin promotion is server-local CLI only: `admin promote --email <existing-account-email>`.
+  - Promotion CLI resolves DB from server env (`AUTH_DB_PATH`) or default server DB path.
 - Not implemented yet:
   - Refresh/session rotation, password reset, email verification.
 

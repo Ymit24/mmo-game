@@ -215,6 +215,29 @@ describe("GameShell inventory UI", () => {
     expect(screen.getByRole("button", { name: /Armor Slot/i })).toBeDefined();
   });
 
+  test("shows admin badge for admin sessions", async () => {
+    clearSession();
+    saveSession({
+      token: "token",
+      user: {
+        id: "user-1",
+        email: "user@example.com",
+        role: "admin",
+      },
+      expiresAtEpochMs: Date.now() + 60_000,
+    });
+
+    render(
+      <MemoryRouter>
+        <AuthProvider>
+          <GameShell characterId="character-1" />
+        </AuthProvider>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("ADMIN")).toBeInTheDocument();
+  });
+
   test("emits move and drop requests from drag interactions", async () => {
     render(
       <MemoryRouter>

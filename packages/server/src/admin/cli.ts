@@ -2,13 +2,10 @@ import type { Database } from "bun:sqlite";
 import { isEmailFormatValid, normalizeEmail } from "@mmo/shared";
 
 import { promoteUserToAdminByEmail } from "../auth/repository";
+import { DEFAULT_AUTH_DB_PATH } from "../config";
 import { createDatabase } from "../db";
 
-const DEFAULT_DB_PATH = "./data/auth.sqlite";
-const ADMIN_USAGE = [
-  "Usage:",
-  "  admin promote --email <email> [--db-path <path>]",
-].join("\n");
+const ADMIN_USAGE = ["Usage:", "  admin promote --email <email>"].join("\n");
 
 interface AdminCliOptions {
   env?: Record<string, string | undefined>;
@@ -19,15 +16,12 @@ interface AdminCliOptions {
 
 interface PromoteCommandArgs {
   email: string;
-  dbPath: string;
 }
 
 function parsePromoteCommandArgs(
   args: string[],
-  env: Record<string, string | undefined>,
 ): { ok: true; value: PromoteCommandArgs } | { ok: false; error: string } {
   let email: string | null = null;
-  let dbPath: string | null = null;
 
   for (let index = 2; index < args.length; index += 1) {
     const arg = args[index];
@@ -48,22 +42,6 @@ function parsePromoteCommandArgs(
     }
     if (arg.startsWith("--email=")) {
       email = arg.slice("--email=".length);
-      continue;
-    }
-    if (arg === "--db-path") {
-      const next = args[index + 1];
-      if (!next) {
-        return {
-          ok: false,
-          error: "Missing value for --db-path.",
-        };
-      }
-      dbPath = next;
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith("--db-path=")) {
-      dbPath = arg.slice("--db-path=".length);
       continue;
     }
 
@@ -87,12 +65,10 @@ function parsePromoteCommandArgs(
     };
   }
 
-  const resolvedDbPath = dbPath || env.AUTH_DB_PATH || DEFAULT_DB_PATH;
   return {
     ok: true,
     value: {
       email: normalizedEmail,
-      dbPath: resolvedDbPath,
     },
   };
 }
@@ -125,16 +101,17 @@ export async function runAdminCommand(
     return 1;
   }
 
-  const parsed = parsePromoteCommandArgs(args, env);
+  const parsed = parsePromoteCommandArgs(args);
   if (!parsed.ok) {
     logError(parsed.error);
     logError(ADMIN_USAGE);
     return 1;
   }
+  const dbPath = env.AUTH_DB_PATH ?? DEFAULT_AUTH_DB_PATH;
 
   let db: Database | null = null;
   try {
-    db = openDatabase(parsed.value.dbPath);
+    db = openDatabase(dbPath);
     const result = promoteUserToAdminByEmail(db, parsed.value.email);
     if (!result.found) {
       logError(`No account found for ${parsed.value.email}.`);
