@@ -13,17 +13,63 @@
   },
   "playerSpawnId": "arrival_from_hub",
   "spawnPoints": [
-    { "id": "arrival_from_hub", "x": 340, "y": 700 },
-    { "id": "return_anchor", "x": 260, "y": 700 },
-    { "id": "wilds_center", "x": 1220, "y": 700 },
-    { "id": "arrival_from_frontier", "x": 2040, "y": 700 }
+    {
+      "id": "arrival_from_hub",
+      "x": 340,
+      "y": 700
+    },
+    {
+      "id": "return_anchor",
+      "x": 260,
+      "y": 700
+    },
+    {
+      "id": "wilds_center",
+      "x": 1220,
+      "y": 700
+    },
+    {
+      "id": "arrival_from_frontier",
+      "x": 2040,
+      "y": 700
+    }
   ],
   "collisions": [
-    { "type": "rect", "x": 720, "y": 460, "width": 170, "height": 220 },
-    { "type": "rect", "x": 720, "y": 840, "width": 170, "height": 220 },
-    { "type": "rect", "x": 1310, "y": 560, "width": 150, "height": 280 },
-    { "type": "rect", "x": 1760, "y": 360, "width": 170, "height": 180 },
-    { "type": "rect", "x": 1760, "y": 940, "width": 170, "height": 180 }
+    {
+      "type": "rect",
+      "x": 720,
+      "y": 460,
+      "width": 170,
+      "height": 220
+    },
+    {
+      "type": "rect",
+      "x": 720,
+      "y": 840,
+      "width": 170,
+      "height": 220
+    },
+    {
+      "type": "rect",
+      "x": 1310,
+      "y": 560,
+      "width": 150,
+      "height": 280
+    },
+    {
+      "type": "rect",
+      "x": 1760,
+      "y": 360,
+      "width": 170,
+      "height": 180
+    },
+    {
+      "type": "rect",
+      "x": 1760,
+      "y": 940,
+      "width": 170,
+      "height": 180
+    }
   ],
   "regions": [
     {
@@ -62,7 +108,10 @@
       },
       "targetWorldId": "hub:alpha",
       "targetSpawnId": "arrival_from_wilds",
-      "exitOffset": { "x": 44, "y": 0 }
+      "exitOffset": {
+        "x": 44,
+        "y": 0
+      }
     },
     {
       "id": "wilds_to_frontier_gate",
@@ -76,7 +125,10 @@
       },
       "targetWorldId": "frontier:gamma",
       "targetSpawnId": "arrival_from_wilds",
-      "exitOffset": { "x": 44, "y": 0 }
+      "exitOffset": {
+        "x": 44,
+        "y": 0
+      }
     }
   ],
   "enemySpawners": [
