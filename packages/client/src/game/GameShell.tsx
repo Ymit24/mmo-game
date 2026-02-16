@@ -187,6 +187,7 @@ export function GameShell({ characterId }: GameShellProps) {
     xpToNextLevel === null || xpToNextLevel <= 0
       ? 1
       : Math.max(0, Math.min(1, localXp / xpToNextLevel));
+  const isAdmin = auth.user?.role === "admin";
 
   const bagSlots =
     uiState.inventory?.bagSlots ??
@@ -478,6 +479,11 @@ export function GameShell({ characterId }: GameShellProps) {
                 <span className="text-muted">
                   {uiState.players.length} online
                 </span>
+                {isAdmin ? (
+                  <span className="border border-vec-gold-dim bg-vec-gold-dim/10 px-1 py-0.5 font-display text-[8px] tracking-[0.08em] text-vec-gold text-glow-gold">
+                    ADMIN
+                  </span>
+                ) : null}
               </div>
               <button
                 type="button"

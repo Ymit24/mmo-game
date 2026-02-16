@@ -1,4 +1,4 @@
-import type { AuthUser } from "@mmo/shared";
+import { type AuthUser, isUserRole } from "@mmo/shared";
 
 export const AUTH_SESSION_STORAGE_KEY = "mmo.auth.session.v1";
 
@@ -25,6 +25,7 @@ function isValidSession(value: unknown): value is StoredAuthSession {
     !!candidate.token &&
     typeof candidate.user?.id === "string" &&
     typeof candidate.user?.email === "string" &&
+    isUserRole(candidate.user?.role) &&
     typeof candidate.expiresAtEpochMs === "number"
   );
 }

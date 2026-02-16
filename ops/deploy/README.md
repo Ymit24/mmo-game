@@ -36,6 +36,16 @@ Required values:
 - `PORT` (defaults to `3101`)
 - `AUTH_DB_PATH` (defaults to `/var/lib/mmo/auth.sqlite`)
 
+## Promote Admin Account
+
+After your account exists, promote it from the VM shell:
+
+```bash
+ssh vm 'set -a && source /etc/mmo/mmo.env && set +a && /usr/local/bin/bun /opt/mmo/current/server/index.js admin promote --email you@example.com'
+```
+
+The command uses the server DB path from `AUTH_DB_PATH` (or server default), only promotes existing accounts, and is safe to run repeatedly.
+
 ## Manual Deploy
 
 From repo root:

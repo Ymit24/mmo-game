@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { getCharacterClassBaseCombatStats } from "@mmo/shared";
+import { USER_ROLES, getCharacterClassBaseCombatStats } from "@mmo/shared";
 import type { ServerWebSocket } from "bun";
 
 import { issueAccessToken } from "../auth/jwt";
@@ -128,7 +128,10 @@ describe("realtime gateway", () => {
     const db = createDatabase(":memory:");
     const gateway = createRealtimeGateway(baseConfig, db);
     const socket = createMockSocket(gateway.createSocketData);
-    const token = await issueAccessToken({ sub: "player-a" }, baseConfig);
+    const token = await issueAccessToken(
+      { sub: "player-a", role: USER_ROLES.user },
+      baseConfig,
+    );
 
     await gateway.handlers.message(
       asServerSocket(socket),
@@ -149,7 +152,10 @@ describe("realtime gateway", () => {
     const db = createDatabase(":memory:");
     const gateway = createRealtimeGateway(baseConfig, db);
     const socket = createMockSocket(gateway.createSocketData);
-    const token = await issueAccessToken({ sub: "player-a" }, baseConfig);
+    const token = await issueAccessToken(
+      { sub: "player-a", role: USER_ROLES.user },
+      baseConfig,
+    );
 
     await gateway.handlers.message(
       asServerSocket(socket),
@@ -179,7 +185,10 @@ describe("realtime gateway", () => {
     const db = createDatabase(":memory:");
     const gateway = createRealtimeGateway(baseConfig, db);
     const socket = createMockSocket(gateway.createSocketData);
-    const token = await issueAccessToken({ sub: "player-a" }, baseConfig);
+    const token = await issueAccessToken(
+      { sub: "player-a", role: USER_ROLES.user },
+      baseConfig,
+    );
     seedCharacterWithInventory(db);
 
     await gateway.handlers.message(
@@ -219,7 +228,10 @@ describe("realtime gateway", () => {
     const db = createDatabase(":memory:");
     const gateway = createRealtimeGateway(baseConfig, db);
     const socket = createMockSocket(gateway.createSocketData);
-    const token = await issueAccessToken({ sub: "player-a" }, baseConfig);
+    const token = await issueAccessToken(
+      { sub: "player-a", role: USER_ROLES.user },
+      baseConfig,
+    );
     seedCharacterWithInventory(db);
 
     await gateway.handlers.message(
@@ -269,7 +281,10 @@ describe("realtime gateway", () => {
     const db = createDatabase(":memory:");
     const gateway = createRealtimeGateway(baseConfig, db);
     const socket = createMockSocket(gateway.createSocketData);
-    const token = await issueAccessToken({ sub: "player-a" }, baseConfig);
+    const token = await issueAccessToken(
+      { sub: "player-a", role: USER_ROLES.user },
+      baseConfig,
+    );
     seedCharacterWithInventory(db);
 
     await gateway.handlers.message(
@@ -319,7 +334,10 @@ describe("realtime gateway", () => {
     const db = createDatabase(":memory:");
     const gateway = createRealtimeGateway(baseConfig, db);
     const socket = createMockSocket(gateway.createSocketData);
-    const token = await issueAccessToken({ sub: "player-a" }, baseConfig);
+    const token = await issueAccessToken(
+      { sub: "player-a", role: USER_ROLES.user },
+      baseConfig,
+    );
     seedCharacterWithInventory(db);
 
     await gateway.handlers.message(

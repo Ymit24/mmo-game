@@ -7,7 +7,7 @@ export interface ServerConfig {
 }
 
 const DEFAULT_JWT_EXPIRY_SECONDS = 86_400;
-const DEFAULT_DB_PATH = "./data/auth.sqlite";
+export const DEFAULT_AUTH_DB_PATH = "./data/auth.sqlite";
 const MIN_JWT_SECRET_LENGTH = 32;
 
 function parsePositiveInt(value: string | undefined, fallback: number): number {
@@ -41,7 +41,7 @@ export function createServerConfig(
   return {
     jwtSecret,
     jwtExpiresInSeconds,
-    dbPath: overrides.dbPath ?? env.AUTH_DB_PATH ?? DEFAULT_DB_PATH,
+    dbPath: overrides.dbPath ?? env.AUTH_DB_PATH ?? DEFAULT_AUTH_DB_PATH,
     jwtIssuer: overrides.jwtIssuer ?? env.JWT_ISSUER,
     jwtAudience: overrides.jwtAudience ?? env.JWT_AUDIENCE,
   };

@@ -37,8 +37,9 @@ export async function handleSignup(
   const userId = crypto.randomUUID();
   const passwordHash = await hashPassword(validation.value.password);
 
+  let createdUser: { id: string; email: string; role: "user" | "admin" };
   try {
-    insertUser(db, {
+    createdUser = insertUser(db, {
       id: userId,
       email: validation.value.email,
       passwordHash,
@@ -51,14 +52,18 @@ export async function handleSignup(
     throw error;
   }
 
-  const issuedToken = await issueAccessToken({ sub: userId }, config);
+  const issuedToken = await issueAccessToken(
+    { sub: createdUser.id, role: createdUser.role },
+    config,
+  );
 
   return json(201, {
     token: issuedToken.token,
     expiresInSeconds: issuedToken.expiresInSeconds,
     user: {
-      id: userId,
-      email: validation.value.email,
+      id: createdUser.id,
+      email: createdUser.email,
+      role: createdUser.role,
     },
   });
 }
@@ -91,7 +96,10 @@ export async function handleSignin(
     return json(401, { error: INVALID_CREDENTIALS_MESSAGE });
   }
 
-  const issuedToken = await issueAccessToken({ sub: user.id }, config);
+  const issuedToken = await issueAccessToken(
+    { sub: user.id, role: user.role },
+    config,
+  );
 
   return json(200, {
     token: issuedToken.token,
@@ -99,6 +107,7 @@ export async function handleSignin(
     user: {
       id: user.id,
       email: user.email,
+      role: user.role,
     },
   });
 }

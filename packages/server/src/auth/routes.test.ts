@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { USER_ROLES } from "@mmo/shared";
 
 import { type AppInstance, createApp } from "../app";
 import { verifyAccessToken } from "./jwt";
@@ -45,12 +46,13 @@ describe("auth routes", () => {
     const body = (await response.json()) as {
       token: string;
       expiresInSeconds: number;
-      user: { id: string; email: string };
+      user: { id: string; email: string; role: "user" | "admin" };
     };
 
     expect(typeof body.token).toBe("string");
     expect(body.expiresInSeconds).toBe(86_400);
     expect(body.user.email).toBe("user@example.com");
+    expect(body.user.role).toBe(USER_ROLES.user);
     expect(typeof body.user.id).toBe("string");
     expect(
       Object.prototype.hasOwnProperty.call(body.user, "passwordHash"),
@@ -59,6 +61,28 @@ describe("auth routes", () => {
     const verified = await verifyAccessToken(body.token, app.config);
     expect(verified.payload.sub).toBe(body.user.id);
     expect(verified.payload.email).toBeUndefined();
+    expect(verified.payload.role).toBe(USER_ROLES.user);
+  });
+
+  test("signup ignores client-supplied role and always creates user role", async () => {
+    const response = await app.fetch(
+      createJsonRequest("/auth/signup", {
+        email: "admin-try@example.com",
+        password: "password123",
+        role: "admin",
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    const body = (await response.json()) as {
+      token: string;
+      user: { id: string; role: "user" | "admin" };
+    };
+    expect(body.user.role).toBe(USER_ROLES.user);
+
+    const verified = await verifyAccessToken(body.token, app.config);
+    expect(verified.payload.sub).toBe(body.user.id);
+    expect(verified.payload.role).toBe(USER_ROLES.user);
   });
 
   test("signup rejects duplicate email", async () => {
@@ -103,11 +127,12 @@ describe("auth routes", () => {
 
     const body = (await response.json()) as {
       token: string;
-      user: { id: string; email: string };
+      user: { id: string; email: string; role: "user" | "admin" };
     };
 
     expect(typeof body.token).toBe("string");
     expect(body.user.email).toBe("user@example.com");
+    expect(body.user.role).toBe(USER_ROLES.user);
   });
 
   test("signin returns same message for wrong password and unknown email", async () => {
