@@ -1385,7 +1385,7 @@ class HubScene extends Phaser.Scene {
     aoeRadius?: number,
     impactDelayMs?: number,
   ): void {
-    if (attackPatternId === "sword_cleave" || attackStyle === "melee") {
+    if (attackPatternId === "sword_cleave") {
       const baseRotation = Math.atan2(direction.y, direction.x);
       const sweepAngle = Phaser.Math.DegToRad(60);
       const startAngle = baseRotation - sweepAngle;
@@ -1469,6 +1469,28 @@ class HubScene extends Phaser.Scene {
         scaleX: 1.08,
         duration: 140,
         onComplete: () => lane.destroy(),
+      });
+      return;
+    }
+
+    if (attackStyle === "melee") {
+      const slash = this.add
+        .rectangle(
+          origin.x + direction.x * 24,
+          origin.y + direction.y * 24,
+          42,
+          12,
+          0xfbbf24,
+          0.2,
+        )
+        .setStrokeStyle(2, 0xffffff, 0.65);
+      slash.setRotation(Math.atan2(direction.y, direction.x));
+      this.tweens.add({
+        targets: slash,
+        alpha: 0,
+        scaleX: 1.2,
+        duration: 130,
+        onComplete: () => slash.destroy(),
       });
       return;
     }
