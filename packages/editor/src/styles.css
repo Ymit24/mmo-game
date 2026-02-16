@@ -1,0 +1,386 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Silkscreen", cursive;
+  --font-body: "Share Tech Mono", monospace;
+  --font-mono: "Share Tech Mono", monospace;
+
+  --color-void: #000000;
+  --color-abyss: #050508;
+  --color-deep: #0a0a12;
+  --color-surface: #111118;
+  --color-surface-light: #1a1a24;
+  --color-border: #2a2a3a;
+  --color-border-bright: #3a3a50;
+  --color-muted: #606878;
+  --color-text: #a0a8b8;
+  --color-text-bright: #d8dce8;
+
+  --color-vec-green: #00ff41;
+  --color-vec-green-dim: #00aa2a;
+  --color-vec-cyan: #00e5ff;
+  --color-vec-cyan-dim: #0088aa;
+  --color-vec-magenta: #ff0066;
+  --color-vec-magenta-dim: #aa0044;
+  --color-vec-gold: #ffd700;
+  --color-vec-gold-dim: #aa8f00;
+  --color-vec-amber: #ff9500;
+
+  --color-danger: #ff2244;
+  --color-success: #00ff41;
+}
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  html {
+    background-color: var(--color-void);
+    color: var(--color-text);
+    font-family: var(--font-body);
+    -webkit-font-smoothing: none;
+    -moz-osx-font-smoothing: unset;
+    font-size: 13px;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100dvh;
+    overflow: hidden;
+  }
+
+  #root {
+    min-height: 100dvh;
+    display: flex;
+  }
+
+  ::selection {
+    background-color: var(--color-vec-green);
+    color: var(--color-void);
+  }
+
+  ::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: var(--color-abyss);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+    border-radius: 2px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-vec-green-dim);
+  }
+
+  input,
+  button,
+  select,
+  textarea {
+    font-family: var(--font-body);
+    font-size: 13px;
+  }
+
+  input[type="text"],
+  input[type="number"],
+  input[type="email"],
+  select,
+  textarea {
+    background: var(--color-deep);
+    border: 1px solid var(--color-border);
+    color: var(--color-text-bright);
+    padding: 6px 10px;
+    outline: none;
+    transition: border-color 0.15s ease;
+  }
+
+  input[type="text"]:focus,
+  input[type="number"]:focus,
+  input[type="email"]:focus,
+  select:focus,
+  textarea:focus {
+    border-color: var(--color-vec-green-dim);
+    box-shadow: 0 0 0 1px rgba(0, 255, 65, 0.1);
+  }
+
+  input[type="color"] {
+    -webkit-appearance: none;
+    appearance: none;
+    border: 1px solid var(--color-border);
+    background: var(--color-deep);
+    width: 36px;
+    height: 28px;
+    padding: 2px;
+    cursor: pointer;
+  }
+
+  input[type="color"]::-webkit-color-swatch-wrapper {
+    padding: 0;
+  }
+
+  input[type="color"]::-webkit-color-swatch {
+    border: none;
+  }
+
+  input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+    cursor: pointer;
+    height: 20px;
+  }
+
+  input[type="range"]::-webkit-slider-runnable-track {
+    background: var(--color-border);
+    height: 4px;
+    border-radius: 2px;
+  }
+
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    background: var(--color-vec-green);
+    border-radius: 0;
+    margin-top: -5px;
+    box-shadow: 0 0 6px rgba(0, 255, 65, 0.4);
+  }
+}
+
+/* ── Editor-specific utilities ── */
+@layer utilities {
+  .scanlines::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0, 0, 0, 0.04) 2px,
+      rgba(0, 0, 0, 0.04) 4px
+    );
+  }
+
+  .glow-green {
+    box-shadow: 0 0 8px rgba(0, 255, 65, 0.3), 0 0 24px rgba(0, 255, 65, 0.1);
+  }
+
+  .glow-cyan {
+    box-shadow: 0 0 8px rgba(0, 229, 255, 0.3), 0 0 24px rgba(0, 229, 255, 0.1);
+  }
+
+  .glow-magenta {
+    box-shadow: 0 0 8px rgba(255, 0, 102, 0.3), 0 0 24px rgba(255, 0, 102, 0.1);
+  }
+
+  .glow-gold {
+    box-shadow: 0 0 8px rgba(255, 215, 0, 0.3), 0 0 24px rgba(255, 215, 0, 0.1);
+  }
+
+  .text-glow-green {
+    text-shadow: 0 0 10px rgba(0, 255, 65, 0.6), 0 0 30px rgba(0, 255, 65, 0.2);
+  }
+
+  .text-glow-cyan {
+    text-shadow: 0 0 10px rgba(0, 229, 255, 0.6), 0 0 30px
+      rgba(0, 229, 255, 0.2);
+  }
+
+  /* Editor panel styles */
+  .editor-panel {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+  }
+
+  .editor-panel-dark {
+    background: var(--color-deep);
+    border: 1px solid var(--color-border);
+  }
+
+  /* Editor sidebar nav item */
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 14px;
+    color: var(--color-muted);
+    text-decoration: none;
+    border-left: 2px solid transparent;
+    transition: all 0.15s ease;
+    cursor: pointer;
+  }
+
+  .nav-item:hover {
+    color: var(--color-text);
+    background: rgba(255, 255, 255, 0.02);
+  }
+
+  .nav-item.active {
+    color: var(--color-vec-green);
+    border-left-color: var(--color-vec-green);
+    background: rgba(0, 255, 65, 0.04);
+  }
+
+  /* Editor button styles */
+  .btn-primary {
+    background: transparent;
+    border: 1px solid var(--color-vec-green);
+    color: var(--color-vec-green);
+    padding: 6px 16px;
+    font-family: var(--font-body);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .btn-primary:hover {
+    background: rgba(0, 255, 65, 0.1);
+    box-shadow: 0 0 12px rgba(0, 255, 65, 0.2);
+  }
+
+  .btn-primary:active {
+    background: rgba(0, 255, 65, 0.15);
+  }
+
+  .btn-danger {
+    background: transparent;
+    border: 1px solid var(--color-danger);
+    color: var(--color-danger);
+    padding: 6px 16px;
+    font-family: var(--font-body);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .btn-danger:hover {
+    background: rgba(255, 34, 68, 0.1);
+    box-shadow: 0 0 12px rgba(255, 34, 68, 0.2);
+  }
+
+  .btn-secondary {
+    background: transparent;
+    border: 1px solid var(--color-border);
+    color: var(--color-text);
+    padding: 6px 16px;
+    font-family: var(--font-body);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .btn-secondary:hover {
+    border-color: var(--color-border-bright);
+    color: var(--color-text-bright);
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  /* Table styles for editor lists */
+  .editor-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  .editor-table th {
+    text-align: left;
+    padding: 8px 12px;
+    color: var(--color-muted);
+    font-weight: normal;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-size: 11px;
+    border-bottom: 1px solid var(--color-border);
+    position: sticky;
+    top: 0;
+    background: var(--color-surface);
+    z-index: 1;
+  }
+
+  .editor-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid rgba(42, 42, 58, 0.5);
+    vertical-align: middle;
+  }
+
+  .editor-table tr {
+    transition: background 0.1s ease;
+    cursor: pointer;
+  }
+
+  .editor-table tbody tr:hover {
+    background: rgba(0, 255, 65, 0.03);
+  }
+
+  .editor-table tbody tr.selected {
+    background: rgba(0, 255, 65, 0.06);
+    outline: 1px solid rgba(0, 255, 65, 0.15);
+  }
+
+  /* Stat bar for visual feedback */
+  .stat-bar {
+    height: 4px;
+    background: var(--color-border);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .stat-bar-fill {
+    height: 100%;
+    transition: width 0.2s ease;
+  }
+}
+
+/* ── Animations ── */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes pulse-glow {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.2s ease-out both;
+}
+
+.animate-slide-in {
+  animation: slide-in-right 0.2s ease-out both;
+}

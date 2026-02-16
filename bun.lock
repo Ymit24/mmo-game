@@ -33,6 +33,25 @@
         "vitest": "^2.1.8",
       },
     },
+    "packages/editor": {
+      "name": "@mmo/editor",
+      "version": "0.0.0",
+      "dependencies": {
+        "@mmo/shared": "workspace:*",
+        "react": "^19.0.0",
+        "react-dom": "^19.0.0",
+        "react-router-dom": "^7.1.0",
+      },
+      "devDependencies": {
+        "@tailwindcss/vite": "^4.0.0",
+        "@types/react": "^19.0.0",
+        "@types/react-dom": "^19.0.0",
+        "@vitejs/plugin-react": "^5.0.0",
+        "tailwindcss": "^4.0.0",
+        "typescript": "^5.9.0",
+        "vite": "^7.0.0",
+      },
+    },
     "packages/server": {
       "name": "@mmo/server",
       "version": "0.0.0",
@@ -189,6 +208,8 @@
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
 
     "@mmo/client": ["@mmo/client@workspace:packages/client"],
+
+    "@mmo/editor": ["@mmo/editor@workspace:packages/editor"],
 
     "@mmo/server": ["@mmo/server@workspace:packages/server"],
 
