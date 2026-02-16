@@ -9,15 +9,15 @@ const NAV_ITEMS = [
 
 export function EditorLayout() {
   return (
-    <div className="flex h-screen w-screen overflow-hidden scanlines">
+    <div className="flex h-screen w-screen overflow-hidden">
       {/* Sidebar */}
       <aside className="flex flex-col w-52 shrink-0 bg-abyss border-r border-border">
         {/* Logo */}
         <div className="px-4 py-4 border-b border-border">
-          <h1 className="font-display text-vec-green text-sm tracking-wider text-glow-green">
-            REALM EDITOR
+          <h1 className="font-display text-vec-green text-sm tracking-wide">
+            Realm Editor
           </h1>
-          <p className="text-muted text-[10px] mt-1 uppercase tracking-widest">
+          <p className="text-muted text-[10px] mt-1 tracking-widest">
             Content Tools
           </p>
         </div>
@@ -33,9 +33,7 @@ export function EditorLayout() {
               }
             >
               <span className="text-base w-5 text-center">{item.icon}</span>
-              <span className="text-xs uppercase tracking-wider">
-                {item.label}
-              </span>
+              <span className="text-xs font-display">{item.label}</span>
             </NavLink>
           ))}
         </nav>
@@ -43,8 +41,8 @@ export function EditorLayout() {
         {/* Status bar */}
         <div className="px-4 py-3 border-t border-border">
           <div className="flex items-center gap-2">
-            <div className="w-1.5 h-1.5 rounded-full bg-vec-green animate-pulse" />
-            <span className="text-muted text-[10px] uppercase tracking-wider">
+            <div className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
+            <span className="text-muted text-[10px] tracking-wider">
               Dev Server
             </span>
           </div>

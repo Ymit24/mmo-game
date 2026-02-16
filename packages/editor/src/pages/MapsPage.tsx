@@ -308,7 +308,7 @@ function renderCanvas(
     ctx.strokeRect(r.x, r.y, r.width, r.height);
     if (r.id) {
       ctx.fillStyle = "rgba(255, 215, 0, 0.7)";
-      ctx.font = `${11 / zoom}px "Share Tech Mono"`;
+      ctx.font = `${11 / zoom}px "IBM Plex Mono"`;
       ctx.fillText(r.id, r.x + 4, r.y + 14 / zoom);
     }
   }
@@ -329,7 +329,7 @@ function renderCanvas(
     ctx.strokeRect(p.x, p.y, p.width, p.height);
     if (p.id) {
       ctx.fillStyle = "rgba(0, 229, 255, 0.9)";
-      ctx.font = `${10 / zoom}px "Share Tech Mono"`;
+      ctx.font = `${10 / zoom}px "IBM Plex Mono"`;
       ctx.fillText(p.id, p.x + 3, p.y + 12 / zoom);
     }
   }
@@ -347,7 +347,7 @@ function renderCanvas(
     ctx.stroke();
     if (s.id) {
       ctx.fillStyle = "#00ff41";
-      ctx.font = `${9 / zoom}px "Share Tech Mono"`;
+      ctx.font = `${9 / zoom}px "IBM Plex Mono"`;
       ctx.fillText(s.id, s.x + size, s.y + 3 / zoom);
     }
   }
@@ -374,7 +374,7 @@ function renderCanvas(
     ctx.fill();
     if (es.archetypeId) {
       ctx.fillStyle = "rgba(255, 149, 0, 0.8)";
-      ctx.font = `${9 / zoom}px "Share Tech Mono"`;
+      ctx.font = `${9 / zoom}px "IBM Plex Mono"`;
       ctx.fillText(es.archetypeId, es.x + 8 / zoom, es.y - 8 / zoom);
     }
   }
