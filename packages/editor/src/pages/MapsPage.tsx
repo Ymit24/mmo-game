@@ -1387,7 +1387,7 @@ export function MapsPage() {
 
   /* ── Save / Create / Delete ─────────────────────────────────── */
   const handleSave = useCallback(async () => {
-    if (!mapData || !selectedMapId) return;
+    if (!mapData || !selectedMapId || !dirty || saving) return;
     setSaving(true);
     setSaveError(null);
     try {
@@ -1398,7 +1398,7 @@ export function MapsPage() {
     } finally {
       setSaving(false);
     }
-  }, [mapData, selectedMapId]);
+  }, [dirty, mapData, saving, selectedMapId]);
 
   const handleCreateMap = useCallback(async () => {
     if (!newMapId.trim()) return;
@@ -1688,7 +1688,7 @@ export function MapsPage() {
                 type="button"
                 className="btn-primary text-[11px]"
                 onClick={handleSave}
-                disabled={saving}
+                disabled={saving || !dirty}
               >
                 {saving ? "Saving..." : "Save"}
               </button>
