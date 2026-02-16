@@ -20,7 +20,21 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: "Request failed" }));
-    throw new Error((body as { error?: string }).error ?? `HTTP ${res.status}`);
+    const error = (body as { error?: string }).error;
+
+    if (res.status === 404 && error === "Not found.") {
+      throw new Error(
+        "Admin API unavailable. Enable ADMIN_API_ENABLED on the server.",
+      );
+    }
+
+    if (res.status === 401 && error === "Unauthorized.") {
+      throw new Error(
+        "Admin API unauthorized. Set VITE_ADMIN_API_BEARER_TOKEN to match the server token.",
+      );
+    }
+
+    throw new Error(error ?? `HTTP ${res.status}`);
   }
 
   return res.json() as Promise<T>;

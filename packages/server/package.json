@@ -4,10 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "bun run --watch src/index.ts",
+    "dev": "bun --env-file=../../.env --env-file=../../.env.local run --watch src/index.ts",
     "build": "bun build ./src/index.ts --outdir dist --target bun",
-    "admin": "bun run src/index.ts admin",
-    "admin:promote": "bun run src/index.ts admin promote",
+    "admin": "bun --env-file=../../.env --env-file=../../.env.local run src/index.ts admin",
+    "admin:promote": "bun --env-file=../../.env --env-file=../../.env.local run src/index.ts admin promote",
     "start": "bun run ./dist/index.js",
     "typecheck": "tsc --noEmit",
     "test": "bun test src"
