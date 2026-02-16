@@ -50,12 +50,15 @@ const SNAPSHOT_INTERVAL_MS = 100;
 const SIMULATION_INTERVAL_MS = 50;
 const ENEMY_SPAWN_ATTEMPTS = 12;
 const ENEMY_IDLE_EPSILON = 4;
-const MELEE_ARC_COS_THRESHOLD = 0.4;
 const PLAYER_PROJECTILE_SPEED = 640;
 const PLAYER_PROJECTILE_TTL_MS = 900;
 const PLAYER_PROJECTILE_RADIUS = 8;
-const SWORD_LUNGE_WIDTH = 54;
 const SWORD_CLEAVE_ARC_THRESHOLD = 0.45;
+const SPINBLADE_CAST_COOLDOWN_MIN_MS = 2_000;
+const SPINBLADE_SPEED = 220;
+const SPINBLADE_TTL_MS = 3_200;
+const SPINBLADE_RADIUS = 20;
+const SPINBLADE_HIT_INTERVAL_MS = 1_000;
 const ATTACK_TRACKER_TTL_MS = 8_000;
 const LOOT_BAG_DESPAWN_MS = 5 * 60 * 1000;
 const LOOT_BAG_OWNER_GRACE_MS = 10 * 1000;
@@ -140,6 +143,9 @@ interface ProjectileState {
   damage: number;
   ttlMsRemaining: number;
   colorHex: string;
+  style: "orb" | "blade_spin";
+  destroyOnHit: boolean;
+  nextDamageAllowedAtMs: number;
   attackInstanceId: string | null;
   capSingleTargetPerAttack: boolean;
 }
@@ -331,6 +337,7 @@ function toProjectileSnapshot(projectile: ProjectileState): ProjectileSnapshot {
     velocity: projectile.velocity,
     radius: projectile.radius,
     colorHex: projectile.colorHex,
+    style: projectile.style,
   };
 }
 
@@ -832,7 +839,7 @@ class WorldInstance {
     let target: Vector2 | undefined;
     let aoeRadius: number | undefined;
     let impactDelayMs: number | undefined;
-    player.nextAttackAtMs = now + player.baseAttackSpeedMs;
+    let attackCooldownMs = player.baseAttackSpeedMs;
 
     switch (attackConfig.attackPatternId) {
       case "sword_cleave":
@@ -844,12 +851,22 @@ class WorldInstance {
           attackConfig.maxTargetHitsPerAttack,
         );
         break;
-      case "sword_lunge":
-        this.applyLungeAttack(
-          player,
-          direction,
-          attackConfig.damageMultiplier,
-          attackConfig.maxTargetHitsPerAttack,
+      case "sword_spinblade":
+        attackCooldownMs = Math.max(
+          player.baseAttackSpeedMs,
+          SPINBLADE_CAST_COOLDOWN_MIN_MS,
+        );
+        this.spawnSpinbladeProjectile(player, direction);
+        break;
+      case "sword_whirl":
+        target = { x: player.position.x, y: player.position.y };
+        aoeRadius = attackConfig.aoeRadius;
+        impactDelayMs = 0;
+        this.applyAoeImpact(
+          player.id,
+          target,
+          attackConfig.aoeRadius,
+          player.baseDamage * attackConfig.damageMultiplier,
         );
         break;
       case "wand_multishot":
@@ -874,6 +891,7 @@ class WorldInstance {
         this.spawnPlayerProjectile(player, direction, player.baseDamage);
         break;
     }
+    player.nextAttackAtMs = now + attackCooldownMs;
 
     this.broadcast({
       type: "combat.attackPerformed",
@@ -1155,13 +1173,28 @@ class WorldInstance {
 
       projectile.position = nextPosition;
 
-      if (this.tryHitEnemyWithProjectile(projectile, now)) {
-        this.projectiles.delete(projectile.id);
+      if (projectile.style === "blade_spin") {
+        if (now < projectile.nextDamageAllowedAtMs) {
+          continue;
+        }
+        const hitApplied = this.applySpinbladeProjectileHits(projectile);
+        if (hitApplied) {
+          projectile.nextDamageAllowedAtMs = now + SPINBLADE_HIT_INTERVAL_MS;
+        }
         continue;
       }
 
+      if (this.tryHitEnemyWithProjectile(projectile, now)) {
+        if (projectile.destroyOnHit) {
+          this.projectiles.delete(projectile.id);
+          continue;
+        }
+      }
+
       if (this.tryHitPlayerWithProjectile(projectile, now)) {
-        this.projectiles.delete(projectile.id);
+        if (projectile.destroyOnHit) {
+          this.projectiles.delete(projectile.id);
+        }
       }
     }
   }
@@ -1653,7 +1686,7 @@ class WorldInstance {
   private applyMeleeAttack(
     player: PlayerState,
     direction: Vector2,
-    arcThreshold = MELEE_ARC_COS_THRESHOLD,
+    arcThreshold: number,
     damageMultiplier = 1,
     maxTargets = Number.POSITIVE_INFINITY,
   ): void {
@@ -1690,49 +1723,6 @@ class WorldInstance {
     }
   }
 
-  private applyLungeAttack(
-    player: PlayerState,
-    direction: Vector2,
-    damageMultiplier: number,
-    maxTargets: number,
-  ): void {
-    if (!this.canPlayerDamageEnemy()) {
-      return;
-    }
-
-    let hits = 0;
-    const range = player.baseAttackRange + 30;
-    for (const enemy of this.enemies.values()) {
-      const relative = {
-        x: enemy.position.x - player.position.x,
-        y: enemy.position.y - player.position.y,
-      };
-      const forwardDistance =
-        relative.x * direction.x + relative.y * direction.y;
-      if (forwardDistance <= 0 || forwardDistance > range) {
-        continue;
-      }
-      const lateralDistance = Math.abs(
-        relative.x * -direction.y + relative.y * direction.x,
-      );
-      const enemyHalf =
-        Math.max(enemy.archetype.visualWidth, enemy.archetype.visualHeight) / 2;
-      if (lateralDistance > SWORD_LUNGE_WIDTH / 2 + enemyHalf) {
-        continue;
-      }
-
-      this.applyDamageToEnemy(
-        enemy.id,
-        player.baseDamage * damageMultiplier,
-        player.id,
-      );
-      hits += 1;
-      if (hits >= maxTargets) {
-        return;
-      }
-    }
-  }
-
   private resolveProjectileColorHex(player: PlayerState): string {
     switch (player.attackConfig.weaponStyle) {
       case "sword":
@@ -1750,9 +1740,19 @@ class WorldInstance {
     direction: Vector2;
     damage: number;
     colorHex: string;
+    speed?: number;
+    ttlMs?: number;
+    radius?: number;
+    style?: "orb" | "blade_spin";
+    destroyOnHit?: boolean;
+    nextDamageAllowedAtMs?: number;
     attackInstanceId: string | null;
     capSingleTargetPerAttack: boolean;
   }): void {
+    const speed = input.speed ?? PLAYER_PROJECTILE_SPEED;
+    const ttlMs = input.ttlMs ?? PLAYER_PROJECTILE_TTL_MS;
+    const radius = input.radius ?? PLAYER_PROJECTILE_RADIUS;
+
     const projectile: ProjectileState = {
       id: `projectile-${crypto.randomUUID()}`,
       ownerCharacterId: input.ownerCharacterId,
@@ -1764,13 +1764,16 @@ class WorldInstance {
           input.direction.y * (PLAYER_COLLIDER_SIZE.height / 2),
       },
       velocity: {
-        x: input.direction.x * PLAYER_PROJECTILE_SPEED,
-        y: input.direction.y * PLAYER_PROJECTILE_SPEED,
+        x: input.direction.x * speed,
+        y: input.direction.y * speed,
       },
-      radius: PLAYER_PROJECTILE_RADIUS,
+      radius,
       damage: input.damage,
-      ttlMsRemaining: PLAYER_PROJECTILE_TTL_MS,
+      ttlMsRemaining: ttlMs,
       colorHex: input.colorHex,
+      style: input.style ?? "orb",
+      destroyOnHit: input.destroyOnHit ?? true,
+      nextDamageAllowedAtMs: input.nextDamageAllowedAtMs ?? 0,
       attackInstanceId: input.attackInstanceId,
       capSingleTargetPerAttack: input.capSingleTargetPerAttack,
     };
@@ -1792,6 +1795,27 @@ class WorldInstance {
       colorHex: this.resolveProjectileColorHex(player),
       attackInstanceId,
       capSingleTargetPerAttack,
+    });
+  }
+
+  private spawnSpinbladeProjectile(
+    player: PlayerState,
+    direction: Vector2,
+  ): void {
+    this.spawnProjectile({
+      ownerCharacterId: player.id,
+      origin: player.position,
+      direction,
+      damage: player.baseDamage * player.attackConfig.damageMultiplier,
+      colorHex: this.resolveProjectileColorHex(player),
+      speed: SPINBLADE_SPEED,
+      ttlMs: SPINBLADE_TTL_MS,
+      radius: SPINBLADE_RADIUS,
+      style: "blade_spin",
+      destroyOnHit: false,
+      nextDamageAllowedAtMs: 0,
+      attackInstanceId: null,
+      capSingleTargetPerAttack: false,
     });
   }
 
@@ -1943,6 +1967,69 @@ class WorldInstance {
       }
       this.applyDamageToPlayer(player, damage);
     }
+  }
+
+  private applySpinbladeProjectileHits(projectile: ProjectileState): boolean {
+    let hitApplied = false;
+
+    if (this.canPlayerDamageEnemy()) {
+      for (const enemy of this.enemies.values()) {
+        const halfWidth = enemy.archetype.visualWidth / 2;
+        const halfHeight = enemy.archetype.visualHeight / 2;
+        const hit =
+          projectile.position.x + projectile.radius >=
+            enemy.position.x - halfWidth &&
+          projectile.position.x - projectile.radius <=
+            enemy.position.x + halfWidth &&
+          projectile.position.y + projectile.radius >=
+            enemy.position.y - halfHeight &&
+          projectile.position.y - projectile.radius <=
+            enemy.position.y + halfHeight;
+        if (!hit) {
+          continue;
+        }
+
+        hitApplied = true;
+        this.applyDamageToEnemy(
+          enemy.id,
+          projectile.damage,
+          projectile.ownerCharacterId,
+        );
+      }
+    }
+
+    if (!this.canPlayerDamagePlayer()) {
+      return hitApplied;
+    }
+
+    for (const player of this.players.values()) {
+      if (player.id === projectile.ownerCharacterId) {
+        continue;
+      }
+      if (player.currentHealth <= 0 || player.pendingRespawn) {
+        continue;
+      }
+
+      const halfWidth = PLAYER_COLLIDER_SIZE.width / 2;
+      const halfHeight = PLAYER_COLLIDER_SIZE.height / 2;
+      const hit =
+        projectile.position.x + projectile.radius >=
+          player.position.x - halfWidth &&
+        projectile.position.x - projectile.radius <=
+          player.position.x + halfWidth &&
+        projectile.position.y + projectile.radius >=
+          player.position.y - halfHeight &&
+        projectile.position.y - projectile.radius <=
+          player.position.y + halfHeight;
+      if (!hit) {
+        continue;
+      }
+
+      hitApplied = true;
+      this.applyDamageToPlayer(player, projectile.damage);
+    }
+
+    return hitApplied;
   }
 
   private tryHitEnemyWithProjectile(

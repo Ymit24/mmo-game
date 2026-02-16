@@ -43,4 +43,58 @@ describe("resolveWeaponAttackConfig", () => {
     expect(resolved.aoeRadius).toBeLessThanOrEqual(1200);
     expect(resolved.aoeDelayMs).toBe(0);
   });
+
+  test("supports new sword spinblade and whirl attack patterns", () => {
+    const spinblade = resolveWeaponAttackConfig(
+      {
+        id: "w-spin",
+        name: "Spinblade",
+        iconKey: "w-spin",
+        type: "weapon",
+        classRequirement: "knight",
+        minLevelToEquip: null,
+        weaponDamageFlat: 0,
+        weaponRangeFlat: 0,
+        weaponSpeedPercent: 0,
+        weaponStyle: "sword",
+        attackPatternId: "sword_spinblade",
+        attackDamageMultiplier: null,
+        attackProjectileCount: null,
+        attackSpreadDegrees: null,
+        attackBurstCount: null,
+        attackBurstIntervalMs: null,
+        attackAoeRadius: null,
+        attackAoeDelayMs: null,
+      },
+      "knight",
+    );
+    const whirl = resolveWeaponAttackConfig(
+      {
+        id: "w-whirl",
+        name: "Whirl",
+        iconKey: "w-whirl",
+        type: "weapon",
+        classRequirement: "knight",
+        minLevelToEquip: null,
+        weaponDamageFlat: 0,
+        weaponRangeFlat: 0,
+        weaponSpeedPercent: 0,
+        weaponStyle: "sword",
+        attackPatternId: "sword_whirl",
+        attackDamageMultiplier: null,
+        attackProjectileCount: null,
+        attackSpreadDegrees: null,
+        attackBurstCount: null,
+        attackBurstIntervalMs: null,
+        attackAoeRadius: null,
+        attackAoeDelayMs: null,
+      },
+      "knight",
+    );
+
+    expect(spinblade.attackStyle).toBe("ranged");
+    expect(spinblade.damageMultiplier).toBe(0.55);
+    expect(whirl.attackStyle).toBe("aoe");
+    expect(whirl.aoeRadius).toBe(88);
+  });
 });

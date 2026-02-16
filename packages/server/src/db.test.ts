@@ -227,7 +227,7 @@ describe("database bootstrap", () => {
         class_requirement: "knight",
         min_level_to_equip: 5,
         weapon_style: "sword",
-        attack_pattern_id: "sword_cleave",
+        attack_pattern_id: "sword_whirl",
       },
       {
         id: "runed_greatsword",
@@ -235,7 +235,7 @@ describe("database bootstrap", () => {
         class_requirement: "knight",
         min_level_to_equip: 10,
         weapon_style: "sword",
-        attack_pattern_id: "sword_lunge",
+        attack_pattern_id: "sword_spinblade",
       },
       {
         id: "splitfire_wand",
@@ -283,7 +283,7 @@ describe("database bootstrap", () => {
         class_requirement: "knight",
         min_level_to_equip: 12,
         weapon_style: "sword",
-        attack_pattern_id: "sword_lunge",
+        attack_pattern_id: "sword_spinblade",
       },
     ]);
     db.close();

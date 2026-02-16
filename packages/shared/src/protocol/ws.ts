@@ -44,6 +44,7 @@ export interface ProjectileSnapshot {
   velocity: Vector2;
   radius: number;
   colorHex: string;
+  style?: "orb" | "blade_spin";
 }
 
 export interface WorldSnapshotPayload {
@@ -345,6 +346,7 @@ function isProjectileSnapshot(value: unknown): value is ProjectileSnapshot {
     return false;
   }
   const radius = value.radius;
+  const style = value.style;
 
   return (
     typeof value.id === "string" &&
@@ -357,7 +359,8 @@ function isProjectileSnapshot(value: unknown): value is ProjectileSnapshot {
     Number.isFinite(radius) &&
     radius > 0 &&
     typeof value.colorHex === "string" &&
-    value.colorHex.length > 0
+    value.colorHex.length > 0 &&
+    (style === undefined || style === "orb" || style === "blade_spin")
   );
 }
 

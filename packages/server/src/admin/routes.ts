@@ -412,7 +412,8 @@ function resolveItemAttackColumns(body: Record<string, unknown>): {
         | null,
       attackPatternId: strOrNull(body.attackPatternId) as
         | "sword_cleave"
-        | "sword_lunge"
+        | "sword_spinblade"
+        | "sword_whirl"
         | "wand_multishot"
         | "wand_burst"
         | "staff_ground_aoe"

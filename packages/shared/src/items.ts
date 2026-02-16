@@ -12,7 +12,8 @@ export type WeaponStyle = (typeof WEAPON_STYLES)[number];
 
 export const ATTACK_PATTERN_IDS = [
   "sword_cleave",
-  "sword_lunge",
+  "sword_spinblade",
+  "sword_whirl",
   "wand_multishot",
   "wand_burst",
   "staff_ground_aoe",

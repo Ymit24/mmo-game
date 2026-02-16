@@ -455,7 +455,8 @@ function ensureItemDefinitionsTable(db: Database): void {
       attack_pattern_id TEXT CHECK (
         attack_pattern_id IS NULL OR attack_pattern_id IN (
           'sword_cleave',
-          'sword_lunge',
+          'sword_spinblade',
+          'sword_whirl',
           'wand_multishot',
           'wand_burst',
           'staff_ground_aoe'
@@ -509,7 +510,7 @@ function ensureItemDefinitionAttackColumns(db: Database): void {
   }
   if (!hasColumn("attack_pattern_id")) {
     db.exec(
-      "ALTER TABLE item_definitions ADD COLUMN attack_pattern_id TEXT CHECK (attack_pattern_id IS NULL OR attack_pattern_id IN ('sword_cleave', 'sword_lunge', 'wand_multishot', 'wand_burst', 'staff_ground_aoe'));",
+      "ALTER TABLE item_definitions ADD COLUMN attack_pattern_id TEXT CHECK (attack_pattern_id IS NULL OR attack_pattern_id IN ('sword_cleave', 'sword_spinblade', 'sword_whirl', 'wand_multishot', 'wand_burst', 'staff_ground_aoe'));",
     );
   }
   if (!hasColumn("attack_damage_multiplier")) {
@@ -672,8 +673,8 @@ function ensureItemDefinitionSeeds(db: Database): void {
     12,
     8,
     "sword",
-    "sword_cleave",
-    1,
+    "sword_whirl",
+    0.9,
     1,
     0,
     1,
@@ -695,8 +696,8 @@ function ensureItemDefinitionSeeds(db: Database): void {
     18,
     12,
     "sword",
-    "sword_lunge",
-    1.15,
+    "sword_spinblade",
+    0.55,
     1,
     0,
     1,
@@ -787,8 +788,8 @@ function ensureItemDefinitionSeeds(db: Database): void {
     22,
     10,
     "sword",
-    "sword_lunge",
-    1.15,
+    "sword_spinblade",
+    0.55,
     1,
     0,
     1,
@@ -879,8 +880,8 @@ function ensureItemDefinitionSeeds(db: Database): void {
     24,
     11,
     "sword",
-    "sword_lunge",
-    1.15,
+    "sword_spinblade",
+    0.55,
     1,
     0,
     1,
@@ -922,9 +923,9 @@ function backfillItemDefinitionAttackDefaults(db: Database): void {
   );
 
   apply.run("training_sword", "sword", "sword_cleave", 1, 1, 0, 1, 0, 0, 0);
-  apply.run("iron_broadsword", "sword", "sword_cleave", 1, 1, 0, 1, 0, 0, 0);
-  apply.run("runed_greatsword", "sword", "sword_lunge", 1.15, 1, 0, 1, 0, 0, 0);
-  apply.run("dragonbone_blade", "sword", "sword_lunge", 1.15, 1, 0, 1, 0, 0, 0);
+  apply.run("iron_broadsword", "sword", "sword_whirl", 0.9, 1, 0, 1, 0, 88, 0);
+  apply.run("runed_greatsword", "sword", "sword_spinblade", 0.55, 1, 0, 1, 0, 0, 0);
+  apply.run("dragonbone_blade", "sword", "sword_spinblade", 0.55, 1, 0, 1, 0, 0, 0);
   apply.run("training_wand", "wand", "wand_multishot", 1, 3, 22, 1, 0, 0, 0);
   apply.run("adept_focus_wand", "wand", "wand_burst", 0.36, 1, 0, 3, 70, 0, 0);
   apply.run(
@@ -976,7 +977,7 @@ function backfillItemDefinitionAttackDefaults(db: Database): void {
     90,
     180,
   );
-  apply.run("vanguard_pike", "sword", "sword_lunge", 1.15, 1, 0, 1, 0, 0, 0);
+  apply.run("vanguard_pike", "sword", "sword_spinblade", 0.55, 1, 0, 1, 0, 0, 0);
 
   db.query(
     `UPDATE item_definitions

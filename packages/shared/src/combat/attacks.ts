@@ -52,16 +52,27 @@ const DEFAULT_CONFIG_BY_PATTERN: Record<
     aoeDelayMs: 0,
     maxTargetHitsPerAttack: 3,
   },
-  sword_lunge: {
-    attackStyle: "melee",
-    damageMultiplier: 1.15,
+  sword_spinblade: {
+    attackStyle: "ranged",
+    damageMultiplier: 0.55,
     projectileCount: 1,
     spreadDegrees: 0,
     burstCount: 1,
     burstIntervalMs: 0,
     aoeRadius: 0,
     aoeDelayMs: 0,
-    maxTargetHitsPerAttack: 2,
+    maxTargetHitsPerAttack: 8,
+  },
+  sword_whirl: {
+    attackStyle: "aoe",
+    damageMultiplier: 0.9,
+    projectileCount: 1,
+    spreadDegrees: 0,
+    burstCount: 1,
+    burstIntervalMs: 0,
+    aoeRadius: 88,
+    aoeDelayMs: 0,
+    maxTargetHitsPerAttack: 8,
   },
   wand_multishot: {
     attackStyle: "ranged",
@@ -110,12 +121,21 @@ export const ATTACK_PATTERN_METADATA: Record<
     attackStyle: "melee",
     defaultWeaponStyle: "sword",
   },
-  sword_lunge: {
-    id: "sword_lunge",
-    label: "Sword Lunge",
-    shortLabel: "Lunge",
-    description: "Forward piercing slash with bonus damage in a narrow lane.",
-    attackStyle: "melee",
+  sword_spinblade: {
+    id: "sword_spinblade",
+    label: "Sword Spinblade",
+    shortLabel: "Spinblade",
+    description:
+      "Launches a spinning blade projectile that repeatedly shreds enemies.",
+    attackStyle: "ranged",
+    defaultWeaponStyle: "sword",
+  },
+  sword_whirl: {
+    id: "sword_whirl",
+    label: "Sword Whirl",
+    shortLabel: "Whirl",
+    description: "Instant full-circle slash centered on the attacker.",
+    attackStyle: "aoe",
     defaultWeaponStyle: "sword",
   },
   wand_multishot: {
@@ -250,7 +270,8 @@ export function estimatePatternDps(
       hitCount = config.burstCount;
       break;
     case "sword_cleave":
-    case "sword_lunge":
+    case "sword_spinblade":
+    case "sword_whirl":
     case "staff_ground_aoe":
       hitCount = Math.min(safeTargetCount, config.maxTargetHitsPerAttack);
       break;

@@ -61,11 +61,21 @@ interface EnemyActor {
   colorHex: string;
 }
 
-interface ProjectileActor {
+interface OrbProjectileActor {
+  style: "orb";
   body: Phaser.GameObjects.Arc;
   trail: Phaser.GameObjects.Arc;
   colorHex: string;
 }
+
+interface SpinBladeProjectileActor {
+  style: "blade_spin";
+  body: Phaser.GameObjects.Rectangle;
+  trail: Phaser.GameObjects.Arc;
+  colorHex: string;
+}
+
+type ProjectileActor = OrbProjectileActor | SpinBladeProjectileActor;
 
 interface LootBagActor {
   body: Phaser.GameObjects.Rectangle;
@@ -1114,49 +1124,119 @@ class HubScene extends Phaser.Scene {
 
     for (const projectile of projectiles) {
       snapshotIds.add(projectile.id);
+      const style = projectile.style ?? "orb";
       const existing = this.projectileActors.get(projectile.id);
-      if (!existing) {
-        const trail = this.add.circle(
-          projectile.position.x,
-          projectile.position.y,
-          Math.max(2, projectile.radius + 2),
-          hexToNumber(projectile.colorHex),
-          0.18,
-        );
-        const body = this.add.circle(
-          projectile.position.x,
-          projectile.position.y,
-          Math.max(2, projectile.radius),
-          hexToNumber(projectile.colorHex),
-          0.95,
-        );
-        this.projectileActors.set(projectile.id, {
-          body,
-          trail,
-          colorHex: projectile.colorHex,
-        });
-        continue;
-      }
 
-      existing.colorHex = projectile.colorHex;
-      existing.body
-        .setPosition(projectile.position.x, projectile.position.y)
-        .setRadius(Math.max(2, projectile.radius))
-        .setFillStyle(hexToNumber(projectile.colorHex), 0.95);
-      existing.trail
-        .setPosition(projectile.position.x, projectile.position.y)
-        .setRadius(Math.max(2, projectile.radius + 2))
-        .setFillStyle(hexToNumber(projectile.colorHex), 0.18);
+      if (!existing || existing.style !== style) {
+        if (existing) {
+          this.destroyProjectileActor(existing);
+        }
+        const created =
+          style === "blade_spin"
+            ? this.createSpinBladeProjectileActor(projectile)
+            : this.createOrbProjectileActor(projectile);
+        this.projectileActors.set(projectile.id, created);
+      } else {
+        this.updateProjectileActor(existing, projectile);
+      }
     }
 
     for (const [id, actor] of this.projectileActors.entries()) {
       if (snapshotIds.has(id)) {
         continue;
       }
-      actor.body.destroy();
-      actor.trail.destroy();
+      this.destroyProjectileActor(actor);
       this.projectileActors.delete(id);
     }
+  }
+
+  private createOrbProjectileActor(
+    projectile: ProjectileSnapshot,
+  ): OrbProjectileActor {
+    const trail = this.add.circle(
+      projectile.position.x,
+      projectile.position.y,
+      Math.max(2, projectile.radius + 2),
+      hexToNumber(projectile.colorHex),
+      0.18,
+    );
+    const body = this.add.circle(
+      projectile.position.x,
+      projectile.position.y,
+      Math.max(2, projectile.radius),
+      hexToNumber(projectile.colorHex),
+      0.95,
+    );
+    return {
+      style: "orb",
+      body,
+      trail,
+      colorHex: projectile.colorHex,
+    };
+  }
+
+  private createSpinBladeProjectileActor(
+    projectile: ProjectileSnapshot,
+  ): SpinBladeProjectileActor {
+    const trail = this.add.circle(
+      projectile.position.x,
+      projectile.position.y,
+      Math.max(6, projectile.radius + 5),
+      hexToNumber(projectile.colorHex),
+      0.15,
+    );
+    const body = this.add.rectangle(
+      projectile.position.x,
+      projectile.position.y,
+      Math.max(14, projectile.radius * 1.9),
+      Math.max(5, projectile.radius * 0.45),
+      hexToNumber(projectile.colorHex),
+      0.9,
+    );
+    body.setStrokeStyle(1, 0xffffff, 0.65);
+    return {
+      style: "blade_spin",
+      body,
+      trail,
+      colorHex: projectile.colorHex,
+    };
+  }
+
+  private updateProjectileActor(
+    actor: ProjectileActor,
+    projectile: ProjectileSnapshot,
+  ): void {
+    actor.colorHex = projectile.colorHex;
+    actor.trail
+      .setPosition(projectile.position.x, projectile.position.y)
+      .setFillStyle(
+        hexToNumber(projectile.colorHex),
+        actor.style === "blade_spin" ? 0.14 : 0.18,
+      );
+
+    if (actor.style === "blade_spin") {
+      actor.trail.setRadius(Math.max(6, projectile.radius + 5));
+      actor.body
+        .setPosition(projectile.position.x, projectile.position.y)
+        .setSize(
+          Math.max(14, projectile.radius * 1.9),
+          Math.max(5, projectile.radius * 0.45),
+        )
+        .setFillStyle(hexToNumber(projectile.colorHex), 0.9)
+        .setRotation((this.time.now / 1000) * Math.PI * 2 * 7);
+      return;
+    }
+
+    actor.body
+      .setPosition(projectile.position.x, projectile.position.y)
+      .setRadius(Math.max(2, projectile.radius))
+      .setFillStyle(hexToNumber(projectile.colorHex), 0.95);
+    actor.trail.setRadius(Math.max(2, projectile.radius + 2));
+  }
+
+  private destroyProjectileActor(actor: ProjectileActor): void {
+    actor.body.destroy();
+    actor.trail.destroy();
   }
 
   private reconcileSnapshotLootBags(lootBags: LootBagSnapshot[]): void {
@@ -1450,93 +1530,67 @@ class HubScene extends Phaser.Scene {
       return;
     }
 
-    if (attackPatternId === "sword_lunge") {
-      const laneLength = Phaser.Math.Clamp(range * 1.05, 112, 210);
-      const normal = { x: -direction.y, y: direction.x };
-      const angle = Math.atan2(direction.y, direction.x);
-      const baseX = origin.x + direction.x * 24;
-      const baseY = origin.y + direction.y * 24;
-      const endpoint = {
-        x: baseX + direction.x * laneLength,
-        y: baseY + direction.y * laneLength,
-      };
+    if (attackPatternId === "sword_spinblade") {
+      const trailLength = Phaser.Math.Clamp(range * 0.35, 42, 74);
+      const launch = this.add
+        .rectangle(
+          origin.x + direction.x * (trailLength * 0.5 + 14),
+          origin.y + direction.y * (trailLength * 0.5 + 14),
+          trailLength,
+          8,
+          0xfbbf24,
+          0.22,
+        )
+        .setRotation(Math.atan2(direction.y, direction.x))
+        .setStrokeStyle(1, 0xffffff, 0.7);
 
-      const rail = this.add.graphics().setDepth(1);
-      rail.lineStyle(2, 0xf8fafc, 0.65);
-      rail.beginPath();
-      rail.moveTo(baseX + normal.x * 5, baseY + normal.y * 5);
-      rail.lineTo(endpoint.x + normal.x * 2, endpoint.y + normal.y * 2);
-      rail.moveTo(baseX - normal.x * 5, baseY - normal.y * 5);
-      rail.lineTo(endpoint.x - normal.x * 2, endpoint.y - normal.y * 2);
-      rail.strokePath();
+      const shimmer = this.add
+        .circle(
+          origin.x + direction.x * 24,
+          origin.y + direction.y * 24,
+          8,
+          0xfff4d6,
+          0.42,
+        )
+        .setDepth(2);
+
       this.tweens.add({
-        targets: rail,
+        targets: launch,
         alpha: 0,
-        duration: 120,
-        ease: "Quad.Out",
-        onComplete: () => rail.destroy(),
+        scaleX: 1.4,
+        duration: 140,
+        ease: "Sine.Out",
+        onComplete: () => launch.destroy(),
       });
 
-      const spawnGhostBlade = (
-        offset: number,
-        delayMs: number,
-        color: number,
-        travelFactor: number,
-      ) => {
-        this.time.delayedCall(delayMs, () => {
-          const ghost = this.add
-            .rectangle(
-              baseX + normal.x * offset,
-              baseY + normal.y * offset,
-              34,
-              4,
-              color,
-              0.24,
-            )
-            .setRotation(angle)
-            .setDepth(2);
+      this.tweens.add({
+        targets: shimmer,
+        alpha: 0,
+        scaleX: 1.9,
+        scaleY: 1.9,
+        duration: 150,
+        ease: "Sine.Out",
+        onComplete: () => shimmer.destroy(),
+      });
+      return;
+    }
 
-          this.tweens.add({
-            targets: ghost,
-            x: ghost.x + direction.x * laneLength * travelFactor,
-            y: ghost.y + direction.y * laneLength * travelFactor,
-            scaleX: 3.2,
-            alpha: 0,
-            duration: 115,
-            ease: "Cubic.Out",
-            onComplete: () => ghost.destroy(),
-          });
-        });
-      };
-
-      spawnGhostBlade(-9, 0, 0x94a3b8, 0.9);
-      spawnGhostBlade(0, 14, 0xfff4d6, 1);
-      spawnGhostBlade(9, 28, 0xcbd5e1, 0.92);
-
-      const tipFlash = this.add
-        .circle(endpoint.x, endpoint.y, 6, 0xfff4d6, 0.5)
-        .setDepth(3);
-      const tipSlashA = this.add
-        .rectangle(endpoint.x, endpoint.y, 24, 3, 0xfff4d6, 0.48)
-        .setRotation(angle + Phaser.Math.DegToRad(28))
-        .setDepth(3);
-      const tipSlashB = this.add
-        .rectangle(endpoint.x, endpoint.y, 24, 3, 0xfff4d6, 0.48)
-        .setRotation(angle - Phaser.Math.DegToRad(28))
-        .setDepth(3);
+    if (attackPatternId === "sword_whirl") {
+      const radius = Phaser.Math.Clamp(aoeRadius ?? 88, 36, 160);
+      const ring = this.add.graphics();
+      ring.lineStyle(3, 0xffd700, 0.9);
+      ring.strokeCircle(origin.x, origin.y, radius * 0.65);
+      ring.lineStyle(1.5, 0xffffff, 0.65);
+      ring.strokeCircle(origin.x, origin.y, radius * 0.45);
 
       this.tweens.add({
-        targets: [tipFlash, tipSlashA, tipSlashB],
+        targets: ring,
         alpha: 0,
-        scaleX: 1.75,
-        scaleY: 1.75,
-        duration: 120,
-        ease: "Quad.Out",
-        onComplete: () => {
-          tipFlash.destroy();
-          tipSlashA.destroy();
-          tipSlashB.destroy();
-        },
+        scaleX: 1.5,
+        scaleY: 1.5,
+        duration: 170,
+        ease: "Cubic.Out",
+        onComplete: () => ring.destroy(),
       });
       return;
     }
@@ -1939,8 +1993,7 @@ class HubScene extends Phaser.Scene {
 
   private clearProjectileActors(): void {
     for (const actor of this.projectileActors.values()) {
-      actor.body.destroy();
-      actor.trail.destroy();
+      this.destroyProjectileActor(actor);
     }
     this.projectileActors.clear();
   }
