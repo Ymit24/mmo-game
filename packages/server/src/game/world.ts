@@ -2430,6 +2430,7 @@ class WorldInstance {
       `-${Math.max(0, Math.round(reducedAmount))}`,
       "damage_player",
     );
+    this.syncPlayerSessionProgress(player);
     if (player.currentHealth > 0) {
       return;
     }

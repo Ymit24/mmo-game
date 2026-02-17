@@ -549,13 +549,16 @@ export function createRealtimeGateway(
               sendError(socket, "Join a world before inventory actions.");
               return;
             }
-            const currentHealth = socket.data.session.characterCurrentHealth;
-            const maxHealth = socket.data.session.characterMaxHealth;
-            if (
-              typeof currentHealth === "number" &&
-              typeof maxHealth === "number" &&
-              currentHealth >= maxHealth
-            ) {
+            const healthProbe = worlds.applyDirectHealToPlayer(socket, 0);
+            if (!healthProbe) {
+              sendInventoryActionRejected(
+                socket,
+                "INVENTORY_HEALTH_FULL",
+                "Health is already full.",
+              );
+              return;
+            }
+            if (healthProbe.currentHealth >= healthProbe.maxHealth) {
               sendInventoryActionRejected(
                 socket,
                 "INVENTORY_HEALTH_FULL",

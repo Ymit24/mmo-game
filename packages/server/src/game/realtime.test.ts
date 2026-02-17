@@ -493,6 +493,66 @@ describe("realtime gateway", () => {
     db.close();
   });
 
+  test("inventory consume uses authoritative world health when session health is stale", async () => {
+    const db = createDatabase(":memory:");
+    const gateway = createRealtimeGateway(baseConfig, db);
+    const socket = createMockSocket(gateway.createSocketData);
+    const token = await issueAccessToken(
+      { sub: "player-a", role: USER_ROLES.user },
+      baseConfig,
+    );
+    seedCharacterWithInventory(db);
+
+    await gateway.handlers.message(
+      asServerSocket(socket),
+      JSON.stringify({
+        type: "auth.hello",
+        token: token.token,
+      }),
+    );
+    await gateway.handlers.message(
+      asServerSocket(socket),
+      JSON.stringify({
+        type: "world.join",
+        worldId: "hub:alpha",
+        characterId: "character-1",
+      }),
+    );
+
+    socket.data.session.characterCurrentHealth = 100;
+    socket.sent = [];
+    await gateway.handlers.message(
+      asServerSocket(socket),
+      JSON.stringify({
+        type: "inventory.consume",
+        payload: {
+          from: { kind: "bag", index: 2 },
+        },
+      }),
+    );
+    const probeMessage = parseLastMessage(socket);
+    expect(probeMessage.type).toBe("inventory.actionRejected");
+    expect(probeMessage.code).toBe("INVENTORY_SOURCE_EMPTY");
+
+    socket.data.session.characterCurrentHealth = 150;
+    socket.sent = [];
+    await gateway.handlers.message(
+      asServerSocket(socket),
+      JSON.stringify({
+        type: "inventory.consume",
+        payload: {
+          from: { kind: "bag", index: 1 },
+        },
+      }),
+    );
+
+    const message = parseLastMessage(socket);
+    expect(message.type).toBe("inventory.consumed");
+    expect(message.restoredHealth).toBe(50);
+    expect(message.currentHealth).toBe(150);
+    db.close();
+  });
+
   test("container.close rejects mismatched container id and keeps the opened bag active", async () => {
     const db = createDatabase(":memory:");
     const gateway = createRealtimeGateway(baseConfig, db);
