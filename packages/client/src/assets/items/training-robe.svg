@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Training Robe">
+  <defs>
+    <linearGradient id="robeBody" x1="0%" x2="100%" y1="0%" y2="100%">
+      <stop offset="0%" stop-color="#b8c9ff" />
+      <stop offset="100%" stop-color="#5e6fbc" />
+    </linearGradient>
+    <linearGradient id="robeTrim" x1="0%" x2="100%" y1="0%" y2="0%">
+      <stop offset="0%" stop-color="#d6a53e" />
+      <stop offset="100%" stop-color="#9c7225" />
+    </linearGradient>
+  </defs>
+  <path d="M22 12h20l9 13-7 33H20l-7-33z" fill="url(#robeBody)" />
+  <path d="M26 12v10h12V12" fill="#93a7ef" />
+  <path d="M21 25h22" stroke="url(#robeTrim)" stroke-width="3" />
+  <path d="M24 34h16M23 42h18M22 50h20" stroke="#d8e1ff" stroke-width="1.2" opacity="0.75" />
+  <circle cx="32" cy="30" r="3" fill="#f7d27b" opacity="0.9" />
+</svg>

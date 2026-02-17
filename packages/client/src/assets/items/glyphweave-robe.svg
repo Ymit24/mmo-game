@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Glyphweave Robe">
+  <defs>
+    <linearGradient id="glyphBody" x1="0%" x2="100%" y1="0%" y2="100%">
+      <stop offset="0%" stop-color="#d4c6ff" />
+      <stop offset="100%" stop-color="#6f4fa8" />
+    </linearGradient>
+    <linearGradient id="glyphRunes" x1="0%" x2="100%" y1="0%" y2="100%">
+      <stop offset="0%" stop-color="#8ef9ff" />
+      <stop offset="100%" stop-color="#38bdf8" />
+    </linearGradient>
+  </defs>
+  <path d="M22 11h20l9 13-7 34H20l-7-34z" fill="url(#glyphBody)" />
+  <path d="M26 11v10h12V11" fill="#b6a2eb" />
+  <path d="M21 24h22" stroke="#f0cb74" stroke-width="2.5" />
+  <path d="M32 28v18M26 33h12M28 41h8" stroke="url(#glyphRunes)" stroke-width="1.8" opacity="0.9" />
+  <path d="M24 50l4-2 4 2 4-2 4 2" stroke="#d8ceff" stroke-width="1.4" fill="none" opacity="0.8" />
+</svg>

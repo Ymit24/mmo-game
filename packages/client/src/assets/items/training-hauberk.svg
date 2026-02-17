@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Training Hauberk">
+  <defs>
+    <linearGradient id="hauberkBody" x1="0%" x2="100%" y1="0%" y2="100%">
+      <stop offset="0%" stop-color="#b8c4d8" />
+      <stop offset="100%" stop-color="#7688a6" />
+    </linearGradient>
+    <linearGradient id="hauberkTrim" x1="0%" x2="100%" y1="0%" y2="0%">
+      <stop offset="0%" stop-color="#d6a53e" />
+      <stop offset="100%" stop-color="#8f6a24" />
+    </linearGradient>
+  </defs>
+  <path d="M20 14h24l8 10-6 34H18l-6-34z" fill="url(#hauberkBody)" />
+  <path d="M24 14v10h16V14" fill="#90a1be" />
+  <path d="M26 24h12v12H26z" fill="#2f3c55" opacity="0.35" />
+  <rect x="18" y="21" width="28" height="3" fill="url(#hauberkTrim)" />
+  <path d="M20 36h24M21 43h22M22 50h20" stroke="#cfd9e8" stroke-width="1.2" opacity="0.7" />
+</svg>

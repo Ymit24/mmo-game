@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Steel Bulwark Armor">
+  <defs>
+    <linearGradient id="bulwarkSteel" x1="0%" x2="100%" y1="0%" y2="100%">
+      <stop offset="0%" stop-color="#d7e2ef" />
+      <stop offset="100%" stop-color="#6c7f98" />
+    </linearGradient>
+    <linearGradient id="bulwarkGold" x1="0%" x2="100%" y1="0%" y2="0%">
+      <stop offset="0%" stop-color="#f0cc70" />
+      <stop offset="100%" stop-color="#9d7426" />
+    </linearGradient>
+  </defs>
+  <path d="M18 12h28l10 11-6 35H14L8 23z" fill="url(#bulwarkSteel)" />
+  <path d="M24 12v10h16V12" fill="#9db0c8" />
+  <path d="M32 28l8 5-3 11h-10l-3-11z" fill="#31445f" opacity="0.55" />
+  <path d="M18 23h28" stroke="url(#bulwarkGold)" stroke-width="3" />
+  <path d="M20 36h24M21 44h22M22 51h20" stroke="#e6edf7" stroke-width="1.2" opacity="0.75" />
+  <circle cx="32" cy="20" r="3" fill="url(#bulwarkGold)" />
+</svg>

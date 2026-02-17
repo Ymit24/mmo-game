@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Aegis Plate">
+  <defs>
+    <linearGradient id="aegisBody" x1="0%" x2="100%" y1="0%" y2="100%">
+      <stop offset="0%" stop-color="#f1f5ff" />
+      <stop offset="100%" stop-color="#8a9ec2" />
+    </linearGradient>
+    <linearGradient id="aegisCore" x1="0%" x2="100%" y1="0%" y2="100%">
+      <stop offset="0%" stop-color="#60a5fa" />
+      <stop offset="100%" stop-color="#1d4ed8" />
+    </linearGradient>
+    <linearGradient id="aegisTrim" x1="0%" x2="100%" y1="0%" y2="0%">
+      <stop offset="0%" stop-color="#f5d67f" />
+      <stop offset="100%" stop-color="#a77926" />
+    </linearGradient>
+  </defs>
+  <path d="M18 10h28l10 12-6 36H14L8 22z" fill="url(#aegisBody)" />
+  <path d="M24 10v10h16V10" fill="#c2d0e8" />
+  <path d="M32 26l9 6-3 12H26l-3-12z" fill="url(#aegisCore)" />
+  <path d="M18 22h28" stroke="url(#aegisTrim)" stroke-width="3" />
+  <path d="M20 35h24M21 43h22M22 50h20" stroke="#ffffff" stroke-width="1.2" opacity="0.8" />
+  <circle cx="32" cy="20" r="3.5" fill="url(#aegisCore)" />
+</svg>

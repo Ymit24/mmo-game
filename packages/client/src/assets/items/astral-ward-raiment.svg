@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Astral Ward Raiment">
+  <defs>
+    <linearGradient id="astralBody" x1="0%" x2="100%" y1="0%" y2="100%">
+      <stop offset="0%" stop-color="#f4e7ff" />
+      <stop offset="100%" stop-color="#7b57c7" />
+    </linearGradient>
+    <linearGradient id="astralCore" x1="0%" x2="100%" y1="0%" y2="100%">
+      <stop offset="0%" stop-color="#93c5fd" />
+      <stop offset="100%" stop-color="#2563eb" />
+    </linearGradient>
+    <linearGradient id="astralTrim" x1="0%" x2="100%" y1="0%" y2="0%">
+      <stop offset="0%" stop-color="#f8df9a" />
+      <stop offset="100%" stop-color="#b07d2c" />
+    </linearGradient>
+  </defs>
+  <path d="M22 10h20l10 14-8 34H20l-8-34z" fill="url(#astralBody)" />
+  <path d="M26 10v10h12V10" fill="#c7b2f0" />
+  <path d="M20 24h24" stroke="url(#astralTrim)" stroke-width="3" />
+  <path d="M32 27l6 5-2 10h-8l-2-10z" fill="url(#astralCore)" />
+  <circle cx="32" cy="45" r="5" fill="none" stroke="url(#astralCore)" stroke-width="1.5" opacity="0.85" />
+  <path d="M25 52h14" stroke="#e9deff" stroke-width="1.3" opacity="0.8" />
+</svg>

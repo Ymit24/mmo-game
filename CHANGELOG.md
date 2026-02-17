@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.1.1 - 2026-02-17
+
+### Fixed
+- Added missing armor item icons in the game client inventory/equipment UI by registering armor `iconKey` mappings and adding armor SVG assets.
+
 ## 0.1.0 - 2026-02-17
 
 ### Added
