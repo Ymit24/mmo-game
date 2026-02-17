@@ -286,6 +286,16 @@ describe("database bootstrap", () => {
         attack_pattern_id: "sword_spinblade",
       },
     ]);
+
+    const ironBroadswordAoe = db
+      .query<{ attack_aoe_radius: number | null }, []>(
+        `SELECT attack_aoe_radius
+         FROM item_definitions
+         WHERE id = 'iron_broadsword'
+         LIMIT 1`,
+      )
+      .get();
+    expect(ironBroadswordAoe?.attack_aoe_radius).toBe(88);
     db.close();
   });
 
@@ -450,6 +460,30 @@ describe("database bootstrap", () => {
       attack_burst_count: 5,
       attack_burst_interval_ms: 120,
     });
+    db.close();
+  });
+
+  test("bootstrap repairs zero aoe radius for aoe attack patterns", () => {
+    const db = createDatabase(":memory:");
+
+    db.query(
+      `UPDATE item_definitions
+       SET attack_pattern_id = ?1,
+           attack_aoe_radius = ?2
+       WHERE id = ?3`,
+    ).run("sword_whirl", 0, "training_sword");
+
+    bootstrapDatabase(db);
+
+    const repaired = db
+      .query<{ attack_aoe_radius: number | null }, []>(
+        `SELECT attack_aoe_radius
+         FROM item_definitions
+         WHERE id = 'training_sword'
+         LIMIT 1`,
+      )
+      .get();
+    expect(repaired?.attack_aoe_radius).toBe(88);
     db.close();
   });
 

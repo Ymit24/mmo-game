@@ -216,8 +216,14 @@ export function resolveWeaponAttackConfig(
   const burstIntervalMs =
     finiteOrNull(itemDefinition?.attackBurstIntervalMs) ??
     defaults.burstIntervalMs;
+  const rawAoeRadius = finiteOrNull(itemDefinition?.attackAoeRadius);
   const aoeRadius =
-    finiteOrNull(itemDefinition?.attackAoeRadius) ?? defaults.aoeRadius;
+    rawAoeRadius === null ||
+    (metadata.attackStyle === "aoe" &&
+      defaults.aoeRadius > 0 &&
+      rawAoeRadius <= 0)
+      ? defaults.aoeRadius
+      : rawAoeRadius;
   const aoeDelayMs =
     finiteOrNull(itemDefinition?.attackAoeDelayMs) ?? defaults.aoeDelayMs;
 
