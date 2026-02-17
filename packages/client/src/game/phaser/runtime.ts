@@ -1,4 +1,5 @@
 import {
+  type AttackPatternId,
   type ClientToServerMessage,
   type CollisionShape,
   type CombatFloatingTextVariant,
@@ -60,11 +61,21 @@ interface EnemyActor {
   colorHex: string;
 }
 
-interface ProjectileActor {
+interface OrbProjectileActor {
+  style: "orb";
   body: Phaser.GameObjects.Arc;
   trail: Phaser.GameObjects.Arc;
   colorHex: string;
 }
+
+interface SpinBladeProjectileActor {
+  style: "blade_spin";
+  body: Phaser.GameObjects.Rectangle;
+  trail: Phaser.GameObjects.Arc;
+  colorHex: string;
+}
+
+type ProjectileActor = OrbProjectileActor | SpinBladeProjectileActor;
 
 interface LootBagActor {
   body: Phaser.GameObjects.Rectangle;
@@ -824,10 +835,14 @@ class HubScene extends Phaser.Scene {
 
       case "combat.attackPerformed":
         this.playAttackEffect(
+          message.attackPatternId,
           message.attackStyle,
           message.origin,
           message.direction,
           message.range,
+          message.target,
+          message.aoeRadius,
+          message.impactDelayMs,
         );
         return;
 
@@ -1109,49 +1124,119 @@ class HubScene extends Phaser.Scene {
 
     for (const projectile of projectiles) {
       snapshotIds.add(projectile.id);
+      const style = projectile.style ?? "orb";
       const existing = this.projectileActors.get(projectile.id);
-      if (!existing) {
-        const trail = this.add.circle(
-          projectile.position.x,
-          projectile.position.y,
-          Math.max(2, projectile.radius + 2),
-          hexToNumber(projectile.colorHex),
-          0.18,
-        );
-        const body = this.add.circle(
-          projectile.position.x,
-          projectile.position.y,
-          Math.max(2, projectile.radius),
-          hexToNumber(projectile.colorHex),
-          0.95,
-        );
-        this.projectileActors.set(projectile.id, {
-          body,
-          trail,
-          colorHex: projectile.colorHex,
-        });
-        continue;
-      }
 
-      existing.colorHex = projectile.colorHex;
-      existing.body
-        .setPosition(projectile.position.x, projectile.position.y)
-        .setRadius(Math.max(2, projectile.radius))
-        .setFillStyle(hexToNumber(projectile.colorHex), 0.95);
-      existing.trail
-        .setPosition(projectile.position.x, projectile.position.y)
-        .setRadius(Math.max(2, projectile.radius + 2))
-        .setFillStyle(hexToNumber(projectile.colorHex), 0.18);
+      if (!existing || existing.style !== style) {
+        if (existing) {
+          this.destroyProjectileActor(existing);
+        }
+        const created =
+          style === "blade_spin"
+            ? this.createSpinBladeProjectileActor(projectile)
+            : this.createOrbProjectileActor(projectile);
+        this.projectileActors.set(projectile.id, created);
+      } else {
+        this.updateProjectileActor(existing, projectile);
+      }
     }
 
     for (const [id, actor] of this.projectileActors.entries()) {
       if (snapshotIds.has(id)) {
         continue;
       }
-      actor.body.destroy();
-      actor.trail.destroy();
+      this.destroyProjectileActor(actor);
       this.projectileActors.delete(id);
     }
+  }
+
+  private createOrbProjectileActor(
+    projectile: ProjectileSnapshot,
+  ): OrbProjectileActor {
+    const trail = this.add.circle(
+      projectile.position.x,
+      projectile.position.y,
+      Math.max(2, projectile.radius + 2),
+      hexToNumber(projectile.colorHex),
+      0.18,
+    );
+    const body = this.add.circle(
+      projectile.position.x,
+      projectile.position.y,
+      Math.max(2, projectile.radius),
+      hexToNumber(projectile.colorHex),
+      0.95,
+    );
+    return {
+      style: "orb",
+      body,
+      trail,
+      colorHex: projectile.colorHex,
+    };
+  }
+
+  private createSpinBladeProjectileActor(
+    projectile: ProjectileSnapshot,
+  ): SpinBladeProjectileActor {
+    const trail = this.add.circle(
+      projectile.position.x,
+      projectile.position.y,
+      Math.max(6, projectile.radius + 5),
+      hexToNumber(projectile.colorHex),
+      0.15,
+    );
+    const body = this.add.rectangle(
+      projectile.position.x,
+      projectile.position.y,
+      Math.max(14, projectile.radius * 1.9),
+      Math.max(5, projectile.radius * 0.45),
+      hexToNumber(projectile.colorHex),
+      0.9,
+    );
+    body.setStrokeStyle(1, 0xffffff, 0.65);
+    return {
+      style: "blade_spin",
+      body,
+      trail,
+      colorHex: projectile.colorHex,
+    };
+  }
+
+  private updateProjectileActor(
+    actor: ProjectileActor,
+    projectile: ProjectileSnapshot,
+  ): void {
+    actor.colorHex = projectile.colorHex;
+    actor.trail
+      .setPosition(projectile.position.x, projectile.position.y)
+      .setFillStyle(
+        hexToNumber(projectile.colorHex),
+        actor.style === "blade_spin" ? 0.14 : 0.18,
+      );
+
+    if (actor.style === "blade_spin") {
+      actor.trail.setRadius(Math.max(6, projectile.radius + 5));
+      actor.body
+        .setPosition(projectile.position.x, projectile.position.y)
+        .setSize(
+          Math.max(14, projectile.radius * 1.9),
+          Math.max(5, projectile.radius * 0.45),
+        )
+        .setFillStyle(hexToNumber(projectile.colorHex), 0.9)
+        .setRotation((this.time.now / 1000) * Math.PI * 2 * 7);
+      return;
+    }
+
+    actor.body
+      .setPosition(projectile.position.x, projectile.position.y)
+      .setRadius(Math.max(2, projectile.radius))
+      .setFillStyle(hexToNumber(projectile.colorHex), 0.95);
+    actor.trail.setRadius(Math.max(2, projectile.radius + 2));
+  }
+
+  private destroyProjectileActor(actor: ProjectileActor): void {
+    actor.body.destroy();
+    actor.trail.destroy();
   }
 
   private reconcileSnapshotLootBags(lootBags: LootBagSnapshot[]): void {
@@ -1371,12 +1456,16 @@ class HubScene extends Phaser.Scene {
   }
 
   private playAttackEffect(
-    attackStyle: "melee" | "ranged",
+    attackPatternId: AttackPatternId,
+    attackStyle: "melee" | "ranged" | "aoe",
     origin: { x: number; y: number },
     direction: { x: number; y: number },
     range: number,
+    target?: { x: number; y: number },
+    aoeRadius?: number,
+    impactDelayMs?: number,
   ): void {
-    if (attackStyle === "melee") {
+    if (attackPatternId === "sword_cleave") {
       const baseRotation = Math.atan2(direction.y, direction.x);
       const sweepAngle = Phaser.Math.DegToRad(60);
       const startAngle = baseRotation - sweepAngle;
@@ -1437,6 +1526,212 @@ class HubScene extends Phaser.Scene {
         onComplete: () => {
           arcGraphics.destroy();
         },
+      });
+      return;
+    }
+
+    if (attackPatternId === "sword_spinblade") {
+      const slash = this.add
+        .rectangle(
+          origin.x + direction.x * 24,
+          origin.y + direction.y * 24,
+          42,
+          12,
+          0xfbbf24,
+          0.2,
+        )
+        .setStrokeStyle(2, 0xffffff, 0.65);
+      slash.setRotation(Math.atan2(direction.y, direction.x));
+      this.tweens.add({
+        targets: slash,
+        alpha: 0,
+        scaleX: 1.2,
+        duration: 130,
+        onComplete: () => slash.destroy(),
+      });
+
+      const trailLength = Phaser.Math.Clamp(range * 0.35, 42, 74);
+      const launch = this.add
+        .rectangle(
+          origin.x + direction.x * (trailLength * 0.5 + 14),
+          origin.y + direction.y * (trailLength * 0.5 + 14),
+          trailLength,
+          8,
+          0xfbbf24,
+          0.22,
+        )
+        .setRotation(Math.atan2(direction.y, direction.x))
+        .setStrokeStyle(1, 0xffffff, 0.7);
+
+      const shimmer = this.add
+        .circle(
+          origin.x + direction.x * 24,
+          origin.y + direction.y * 24,
+          8,
+          0xfff4d6,
+          0.42,
+        )
+        .setDepth(2);
+
+      this.tweens.add({
+        targets: launch,
+        alpha: 0,
+        scaleX: 1.4,
+        duration: 140,
+        ease: "Sine.Out",
+        onComplete: () => launch.destroy(),
+      });
+
+      this.tweens.add({
+        targets: shimmer,
+        alpha: 0,
+        scaleX: 1.9,
+        scaleY: 1.9,
+        duration: 150,
+        ease: "Sine.Out",
+        onComplete: () => shimmer.destroy(),
+      });
+      return;
+    }
+
+    if (attackPatternId === "sword_whirl") {
+      const radius = Phaser.Math.Clamp(aoeRadius ?? 88, 36, 160);
+      const outerRing = this.add
+        .circle(origin.x, origin.y, radius * 0.65, 0x000000, 0)
+        .setStrokeStyle(3, 0xffd700, 0.9);
+      const innerRing = this.add
+        .circle(origin.x, origin.y, radius * 0.45, 0x000000, 0)
+        .setStrokeStyle(1.5, 0xffffff, 0.65);
+
+      this.tweens.add({
+        targets: [outerRing, innerRing],
+        alpha: 0,
+        scaleX: 1.35,
+        scaleY: 1.35,
+        duration: 170,
+        ease: "Cubic.Out",
+        onComplete: () => {
+          outerRing.destroy();
+          innerRing.destroy();
+        },
+      });
+      return;
+    }
+
+    if (attackStyle === "melee") {
+      const slash = this.add
+        .rectangle(
+          origin.x + direction.x * 24,
+          origin.y + direction.y * 24,
+          42,
+          12,
+          0xfbbf24,
+          0.2,
+        )
+        .setStrokeStyle(2, 0xffffff, 0.65);
+      slash.setRotation(Math.atan2(direction.y, direction.x));
+      this.tweens.add({
+        targets: slash,
+        alpha: 0,
+        scaleX: 1.2,
+        duration: 130,
+        onComplete: () => slash.destroy(),
+      });
+      return;
+    }
+
+    if (attackPatternId === "wand_multishot") {
+      for (let index = -1; index <= 1; index += 1) {
+        const offsetAngle = (index * 12 * Math.PI) / 180;
+        const offsetDirection = {
+          x:
+            direction.x * Math.cos(offsetAngle) -
+            direction.y * Math.sin(offsetAngle),
+          y:
+            direction.x * Math.sin(offsetAngle) +
+            direction.y * Math.cos(offsetAngle),
+        };
+        const spark = this.add.circle(
+          origin.x + offsetDirection.x * 14,
+          origin.y + offsetDirection.y * 14,
+          5,
+          0x38bdf8,
+          0.45,
+        );
+        this.tweens.add({
+          targets: spark,
+          alpha: 0,
+          scaleX: 1.8,
+          scaleY: 1.8,
+          duration: 170,
+          onComplete: () => spark.destroy(),
+        });
+      }
+      return;
+    }
+
+    if (attackPatternId === "wand_burst") {
+      const spawnPulse = (delayMs: number) => {
+        this.time.delayedCall(delayMs, () => {
+          const pulse = this.add.circle(
+            origin.x + direction.x * 12,
+            origin.y + direction.y * 12,
+            7,
+            0x22d3ee,
+            0.4,
+          );
+          this.tweens.add({
+            targets: pulse,
+            alpha: 0,
+            scaleX: 1.6,
+            scaleY: 1.6,
+            duration: 120,
+            onComplete: () => pulse.destroy(),
+          });
+        });
+      };
+      spawnPulse(0);
+      spawnPulse(70);
+      spawnPulse(140);
+      return;
+    }
+
+    if (attackPatternId === "staff_ground_aoe" || attackStyle === "aoe") {
+      const aoeCenter = target ?? {
+        x: origin.x + direction.x * Math.min(range, 80),
+        y: origin.y + direction.y * Math.min(range, 80),
+      };
+      const radius = Phaser.Math.Clamp(aoeRadius ?? 72, 20, 160);
+      const delayMs = Math.max(0, impactDelayMs ?? 180);
+
+      const telegraph = this.add
+        .circle(aoeCenter.x, aoeCenter.y, radius, 0x22d3ee, 0.1)
+        .setStrokeStyle(2, 0x67e8f9, 0.65);
+      this.tweens.add({
+        targets: telegraph,
+        alpha: 0.18,
+        duration: delayMs,
+        yoyo: true,
+        repeat: 1,
+        onComplete: () => telegraph.destroy(),
+      });
+
+      this.time.delayedCall(delayMs, () => {
+        const impact = this.add.circle(
+          aoeCenter.x,
+          aoeCenter.y,
+          radius * 0.5,
+          0x22d3ee,
+          0.35,
+        );
+        this.tweens.add({
+          targets: impact,
+          alpha: 0,
+          scaleX: 1.9,
+          scaleY: 1.9,
+          duration: 220,
+          onComplete: () => impact.destroy(),
+        });
       });
       return;
     }
@@ -1721,8 +2016,7 @@ class HubScene extends Phaser.Scene {
 
   private clearProjectileActors(): void {
     for (const actor of this.projectileActors.values()) {
-      actor.body.destroy();
-      actor.trail.destroy();
+      this.destroyProjectileActor(actor);
     }
     this.projectileActors.clear();
   }

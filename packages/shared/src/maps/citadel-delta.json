@@ -13,22 +13,71 @@
   },
   "playerSpawnId": "arrival_from_frontier",
   "spawnPoints": [
-    { "id": "arrival_from_frontier", "x": 320, "y": 860 },
-    { "id": "return_anchor", "x": 240, "y": 860 },
-    { "id": "citadel_crossroad", "x": 1560, "y": 860 }
+    {
+      "id": "arrival_from_frontier",
+      "x": 320,
+      "y": 860
+    },
+    {
+      "id": "return_anchor",
+      "x": 240,
+      "y": 860
+    },
+    {
+      "id": "citadel_crossroad",
+      "x": 1560,
+      "y": 860
+    }
   ],
   "collisions": [
-    { "type": "rect", "x": 840, "y": 560, "width": 180, "height": 240 },
-    { "type": "rect", "x": 840, "y": 940, "width": 180, "height": 240 },
-    { "type": "rect", "x": 1360, "y": 700, "width": 150, "height": 320 },
-    { "type": "rect", "x": 1900, "y": 420, "width": 180, "height": 220 },
-    { "type": "rect", "x": 1900, "y": 1080, "width": 180, "height": 220 },
-    { "type": "rect", "x": 2360, "y": 620, "width": 180, "height": 360 }
+    {
+      "type": "rect",
+      "x": 840,
+      "y": 560,
+      "width": 180,
+      "height": 240
+    },
+    {
+      "type": "rect",
+      "x": 840,
+      "y": 940,
+      "width": 180,
+      "height": 240
+    },
+    {
+      "type": "rect",
+      "x": 1360,
+      "y": 700,
+      "width": 150,
+      "height": 320
+    },
+    {
+      "type": "rect",
+      "x": 1900,
+      "y": 420,
+      "width": 180,
+      "height": 220
+    },
+    {
+      "type": "rect",
+      "x": 1900,
+      "y": 1080,
+      "width": 180,
+      "height": 220
+    },
+    {
+      "type": "rect",
+      "x": 2360,
+      "y": 620,
+      "width": 180,
+      "height": 360
+    }
   ],
   "regions": [
     {
       "id": "citadel_outer_ward",
       "name": "Outer Ward (Lv 12-13)",
+      "type": "safe",
       "shape": {
         "type": "rect",
         "x": 520,
@@ -40,6 +89,7 @@
     {
       "id": "citadel_inner_bastion",
       "name": "Inner Bastion (Lv 14-15)",
+      "type": "safe",
       "shape": {
         "type": "rect",
         "x": 1720,
@@ -62,7 +112,10 @@
       },
       "targetWorldId": "frontier:gamma",
       "targetSpawnId": "arrival_from_highlands",
-      "exitOffset": { "x": 44, "y": 0 }
+      "exitOffset": {
+        "x": 44,
+        "y": 0
+      }
     }
   ],
   "enemySpawners": [
@@ -73,7 +126,7 @@
       "y": 760,
       "spawnRadius": 120,
       "maxAlive": 3,
-      "respawnSeconds": 2.2
+      "respawnSeconds": 2
     },
     {
       "id": "citadel_low_rune_guardian",
@@ -91,7 +144,7 @@
       "y": 760,
       "spawnRadius": 120,
       "maxAlive": 3,
-      "respawnSeconds": 2.5
+      "respawnSeconds": 3
     },
     {
       "id": "citadel_high_storm_archon",
@@ -100,7 +153,7 @@
       "y": 980,
       "spawnRadius": 100,
       "maxAlive": 2,
-      "respawnSeconds": 3.2
+      "respawnSeconds": 3
     }
   ]
 }

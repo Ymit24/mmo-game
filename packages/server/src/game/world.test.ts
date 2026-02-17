@@ -6,6 +6,7 @@ import {
   type PlayerInputState,
   type ServerToClientMessage,
   WILDS_BETA_MAP,
+  WORLD_MAPS_BY_ID,
   findSpawnPoint,
   positionCollidesWithMap,
 } from "@mmo/shared";
@@ -60,6 +61,18 @@ function latestWorldSnapshot(
     return null;
   }
   return snapshot;
+}
+
+function latestAttackPerformed(
+  socket: MockSocket,
+): Extract<ServerToClientMessage, { type: "combat.attackPerformed" }> | null {
+  const attack = parseMessages(socket)
+    .filter((message) => message.type === "combat.attackPerformed")
+    .at(-1);
+  if (!attack || attack.type !== "combat.attackPerformed") {
+    return null;
+  }
+  return attack;
 }
 
 function enemiesOverlap(
@@ -1360,7 +1373,10 @@ describe("world manager", () => {
 
       await wait(300);
       const before = latestWorldSnapshot(socket);
-      const target = before?.payload.enemies[0];
+      const target =
+        before?.payload.enemies.find(
+          (enemy) => enemy.archetypeId === "slime_scout",
+        ) ?? before?.payload.enemies[0];
       expect(target).toBeDefined();
       if (!target) {
         throw new Error("expected at least one enemy");
@@ -1381,6 +1397,1019 @@ describe("world manager", () => {
     } finally {
       Math.random = originalRandom;
     }
+  });
+
+  test("sword_cleave attack uses melee pattern metadata and damages enemies", async () => {
+    const originalRandom = Math.random;
+    Math.random = () => 0;
+
+    try {
+      const archetypes = new Map<string, EnemyArchetype>([
+        [
+          "slime_scout",
+          createTestArchetype("slime_scout", {
+            maxHealth: 20,
+            detectionRadius: 1,
+            leashRadius: 1,
+          }),
+        ],
+        [
+          "briar_wolf",
+          createTestArchetype("briar_wolf", {
+            detectionRadius: 1,
+            leashRadius: 1,
+          }),
+        ],
+      ]);
+      const manager = new WorldManager(
+        (archetypeId) => archetypes.get(archetypeId) ?? null,
+      );
+      const socket = createMockSocket(manager, "user-a", "player-cleave");
+
+      manager.joinWorld(
+        asServerSocket(socket),
+        WILDS_BETA_MAP.id,
+        "player-cleave",
+        "Cleave",
+        "knight",
+        "#E8A832",
+        {
+          spawnOverride: { x: 1_220, y: 700 },
+          combatStats: {
+            maxHealth: 100,
+            currentHealth: 100,
+            baseDamage: 50,
+            baseAttackSpeedMs: 600,
+            baseAttackRange: 120,
+          },
+          attackConfig: {
+            weaponStyle: "sword",
+            attackPatternId: "sword_cleave",
+          },
+        },
+      );
+      cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
+
+      await wait(300);
+      const before = latestWorldSnapshot(socket);
+      const target = before?.payload.enemies[0];
+      expect(target).toBeDefined();
+      if (!target) {
+        throw new Error("expected at least one enemy");
+      }
+
+      socket.sent = [];
+      manager.applyAttack(asServerSocket(socket), {
+        type: "player.attack",
+        aim: { x: target.position.x, y: target.position.y },
+      });
+
+      const attack = latestAttackPerformed(socket);
+      expect(attack?.attackPatternId).toBe("sword_cleave");
+      expect(attack?.attackStyle).toBe("melee");
+      expect(attack?.weaponStyle).toBe("sword");
+
+      await wait(150);
+      const after = latestWorldSnapshot(socket);
+      const killed = after?.payload.enemies.every(
+        (enemy) => enemy.id !== target.id,
+      );
+      expect(killed).toBe(true);
+    } finally {
+      Math.random = originalRandom;
+    }
+  });
+
+  test("sword_spinblade attack emits ranged metadata and spawns blade projectile style", async () => {
+    const originalRandom = Math.random;
+    Math.random = () => 0;
+
+    try {
+      const archetypes = new Map<string, EnemyArchetype>([
+        [
+          "slime_scout",
+          createTestArchetype("slime_scout", {
+            maxHealth: 80,
+            visualWidth: 90,
+            visualHeight: 90,
+            detectionRadius: 1,
+            leashRadius: 1,
+          }),
+        ],
+        [
+          "briar_wolf",
+          createTestArchetype("briar_wolf", {
+            detectionRadius: 1,
+            leashRadius: 1,
+          }),
+        ],
+      ]);
+      const manager = new WorldManager(
+        (archetypeId) => archetypes.get(archetypeId) ?? null,
+      );
+      const socket = createMockSocket(manager, "user-a", "player-spinblade");
+
+      manager.joinWorld(
+        asServerSocket(socket),
+        WILDS_BETA_MAP.id,
+        "player-spinblade",
+        "Spinblade",
+        "knight",
+        "#E8A832",
+        {
+          spawnOverride: { x: 1_220, y: 700 },
+          combatStats: {
+            maxHealth: 100,
+            currentHealth: 100,
+            baseDamage: 70,
+            baseAttackSpeedMs: 600,
+            baseAttackRange: 120,
+          },
+          attackConfig: {
+            weaponStyle: "sword",
+            attackPatternId: "sword_spinblade",
+            damageMultiplier: 0.55,
+          },
+        },
+      );
+      cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
+
+      await wait(300);
+      const before = latestWorldSnapshot(socket);
+      const target = before?.payload.enemies[0];
+      expect(target).toBeDefined();
+      if (!target) {
+        throw new Error("expected at least one enemy");
+      }
+
+      socket.sent = [];
+      manager.applyAttack(asServerSocket(socket), {
+        type: "player.attack",
+        aim: { x: target.position.x, y: target.position.y },
+      });
+
+      const attack = latestAttackPerformed(socket);
+      expect(attack?.attackPatternId).toBe("sword_spinblade");
+      expect(attack?.attackStyle).toBe("ranged");
+      expect(attack?.weaponStyle).toBe("sword");
+      await wait(140);
+      const immediate = latestWorldSnapshot(socket);
+      expect(immediate?.payload.projectiles.length).toBeGreaterThan(0);
+      expect(immediate?.payload.projectiles[0]?.style).toBe("blade_spin");
+    } finally {
+      Math.random = originalRandom;
+    }
+  });
+
+  test("sword_spinblade applies 1s re-hit lockout per target", async () => {
+    const originalRandom = Math.random;
+    Math.random = () => 0;
+    const testMapId = "spinblade-lockout-test";
+
+    try {
+      WORLD_MAPS_BY_ID.set(testMapId, {
+        id: testMapId,
+        name: "Spinblade Lockout Test",
+        width: 1_000,
+        height: 1_000,
+        background: { color: "#0b1020", gridSize: 32 },
+        combat: {
+          allowCombat: true,
+          pvpEnabled: false,
+        },
+        playerSpawnId: "spawn-a",
+        spawnPoints: [
+          { id: "spawn-a", x: 120, y: 120 },
+          { id: "spawn-b", x: 340, y: 300 },
+        ],
+        collisions: [],
+        regions: [],
+        portals: [],
+        enemySpawners: [],
+      });
+
+      const archetypes = new Map<string, EnemyArchetype>([
+        [
+          "slime_scout",
+          createTestArchetype("slime_scout", {
+            maxHealth: 200,
+            visualWidth: 520,
+            visualHeight: 520,
+            speed: 0,
+            detectionRadius: 120,
+            leashRadius: 120,
+          }),
+        ],
+      ]);
+      const manager = new WorldManager(
+        (archetypeId) => archetypes.get(archetypeId) ?? null,
+      );
+      const socket = createMockSocket(manager, "user-a", "player-spinlock");
+
+      manager.joinWorld(
+        asServerSocket(socket),
+        testMapId,
+        "player-spinlock",
+        "Spinlock",
+        "knight",
+        "#E8A832",
+        {
+          spawnOverride: { x: 120, y: 120 },
+          combatStats: {
+            maxHealth: 100,
+            currentHealth: 100,
+            baseDamage: 80,
+            baseAttackSpeedMs: 600,
+            baseAttackRange: 120,
+          },
+          attackConfig: {
+            weaponStyle: "sword",
+            attackPatternId: "sword_spinblade",
+            damageMultiplier: 0.55,
+          },
+        },
+      );
+      cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
+
+      const instance = (
+        manager as unknown as {
+          instances: Map<
+            string,
+            {
+              enemies: Map<string, unknown>;
+            }
+          >;
+        }
+      ).instances.get(testMapId);
+      const archetype = archetypes.get("slime_scout");
+      if (!instance || !archetype) {
+        throw new Error("failed to access test world instance");
+      }
+      instance.enemies.set("enemy-spinlock-a", {
+        id: "enemy-spinlock-a",
+        spawnerId: "manual",
+        archetype,
+        position: { x: 180, y: 120 },
+        velocity: { x: 0, y: 0 },
+        currentHealth: archetype.maxHealth,
+        state: "idle",
+        spawnAnchor: { x: 180, y: 120 },
+        targetCharacterId: null,
+        nextAttackAtMs: Date.now() + 1_000,
+      });
+      instance.enemies.set("enemy-spinlock-b", {
+        id: "enemy-spinlock-b",
+        spawnerId: "manual",
+        archetype,
+        position: { x: 220, y: 120 },
+        velocity: { x: 0, y: 0 },
+        currentHealth: archetype.maxHealth,
+        state: "idle",
+        spawnAnchor: { x: 220, y: 120 },
+        targetCharacterId: null,
+        nextAttackAtMs: Date.now() + 1_000,
+      });
+
+      await wait(160);
+      const before = latestWorldSnapshot(socket);
+      const enemyA = before?.payload.enemies.find(
+        (enemy) => enemy.id === "enemy-spinlock-a",
+      );
+      const enemyB = before?.payload.enemies.find(
+        (enemy) => enemy.id === "enemy-spinlock-b",
+      );
+      expect(enemyA).toBeDefined();
+      expect(enemyB).toBeDefined();
+      if (!enemyA || !enemyB) {
+        throw new Error("expected spinblade lockout targets");
+      }
+
+      socket.sent = [];
+      manager.applyAttack(asServerSocket(socket), {
+        type: "player.attack",
+        aim: { x: 320, y: 120 },
+      });
+
+      await wait(260);
+      const afterImmediate = latestWorldSnapshot(socket);
+      const enemyAAfterImmediate = afterImmediate?.payload.enemies.find(
+        (enemy) => enemy.id === "enemy-spinlock-a",
+      );
+      const enemyBAfterImmediate = afterImmediate?.payload.enemies.find(
+        (enemy) => enemy.id === "enemy-spinlock-b",
+      );
+      expect(enemyAAfterImmediate).toBeDefined();
+      expect(enemyBAfterImmediate).toBeDefined();
+      if (!enemyAAfterImmediate || !enemyBAfterImmediate) {
+        throw new Error("expected immediate spinblade target snapshots");
+      }
+      expect(enemyAAfterImmediate.currentHealth).toBeLessThan(
+        enemyA.currentHealth,
+      );
+      expect(enemyBAfterImmediate.currentHealth).toBeLessThan(
+        enemyB.currentHealth,
+      );
+
+      await wait(550);
+      const beforeLockoutExpires = latestWorldSnapshot(socket);
+      const enemyABeforeLockoutExpires =
+        beforeLockoutExpires?.payload.enemies.find(
+          (enemy) => enemy.id === "enemy-spinlock-a",
+        );
+      const enemyBBeforeLockoutExpires =
+        beforeLockoutExpires?.payload.enemies.find(
+          (enemy) => enemy.id === "enemy-spinlock-b",
+        );
+      expect(enemyABeforeLockoutExpires).toBeDefined();
+      expect(enemyBBeforeLockoutExpires).toBeDefined();
+      if (!enemyABeforeLockoutExpires || !enemyBBeforeLockoutExpires) {
+        throw new Error("expected pre-lockout-expiry target snapshots");
+      }
+      expect(enemyABeforeLockoutExpires.currentHealth).toBe(
+        enemyAAfterImmediate.currentHealth,
+      );
+      expect(enemyBBeforeLockoutExpires.currentHealth).toBe(
+        enemyBAfterImmediate.currentHealth,
+      );
+
+      await wait(600);
+      const afterLockoutExpires = latestWorldSnapshot(socket);
+      const enemyAAfterLockoutExpires =
+        afterLockoutExpires?.payload.enemies.find(
+          (enemy) => enemy.id === "enemy-spinlock-a",
+        );
+      const enemyBAfterLockoutExpires =
+        afterLockoutExpires?.payload.enemies.find(
+          (enemy) => enemy.id === "enemy-spinlock-b",
+        );
+      expect(enemyAAfterLockoutExpires).toBeDefined();
+      expect(enemyBAfterLockoutExpires).toBeDefined();
+      if (!enemyAAfterLockoutExpires || !enemyBAfterLockoutExpires) {
+        throw new Error("expected post-lockout-expiry target snapshots");
+      }
+      expect(enemyAAfterLockoutExpires.currentHealth).toBeLessThan(
+        enemyABeforeLockoutExpires.currentHealth,
+      );
+      expect(enemyBAfterLockoutExpires.currentHealth).toBeLessThan(
+        enemyBBeforeLockoutExpires.currentHealth,
+      );
+    } finally {
+      WORLD_MAPS_BY_ID.delete(testMapId);
+      Math.random = originalRandom;
+    }
+  });
+
+  test("sword_spinblade projectile cast cooldown is independent from melee swing cadence", async () => {
+    const originalRandom = Math.random;
+    Math.random = () => 0;
+    const testMapId = "spinblade-cast-cooldown-test";
+
+    try {
+      WORLD_MAPS_BY_ID.set(testMapId, {
+        id: testMapId,
+        name: "Spinblade Cast Cooldown Test",
+        width: 1_200,
+        height: 1_000,
+        background: { color: "#0b1020", gridSize: 32 },
+        combat: {
+          allowCombat: true,
+          pvpEnabled: false,
+        },
+        playerSpawnId: "spawn-a",
+        spawnPoints: [{ id: "spawn-a", x: 120, y: 120 }],
+        collisions: [],
+        regions: [],
+        portals: [],
+        enemySpawners: [],
+      });
+
+      const archetypes = new Map<string, EnemyArchetype>([
+        [
+          "slime_scout",
+          createTestArchetype("slime_scout", {
+            maxHealth: 500,
+            visualWidth: 200,
+            visualHeight: 200,
+            detectionRadius: 1,
+            leashRadius: 1,
+          }),
+        ],
+        [
+          "briar_wolf",
+          createTestArchetype("briar_wolf", {
+            detectionRadius: 1,
+            leashRadius: 1,
+          }),
+        ],
+      ]);
+      const manager = new WorldManager(
+        (archetypeId) => archetypes.get(archetypeId) ?? null,
+      );
+      const socket = createMockSocket(manager, "user-a", "player-spin-cd");
+
+      manager.joinWorld(
+        asServerSocket(socket),
+        testMapId,
+        "player-spin-cd",
+        "SpinCd",
+        "knight",
+        "#E8A832",
+        {
+          spawnOverride: { x: 1_220, y: 700 },
+          combatStats: {
+            maxHealth: 100,
+            currentHealth: 100,
+            baseDamage: 50,
+            baseAttackSpeedMs: 450,
+            baseAttackRange: 120,
+          },
+          attackConfig: {
+            weaponStyle: "sword",
+            attackPatternId: "sword_spinblade",
+            damageMultiplier: 0.55,
+          },
+        },
+      );
+      cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
+
+      socket.sent = [];
+      manager.applyAttack(asServerSocket(socket), {
+        type: "player.attack",
+        aim: { x: 220, y: 120 },
+      });
+      await wait(150);
+      const firstSnapshot = latestWorldSnapshot(socket);
+      expect(firstSnapshot?.payload.projectiles.length).toBeGreaterThanOrEqual(
+        1,
+      );
+
+      socket.sent = [];
+      await wait(100);
+      manager.applyAttack(asServerSocket(socket), {
+        type: "player.attack",
+        aim: { x: 220, y: 120 },
+      });
+      const deniedTooSoon = parseMessages(socket).find(
+        (message) =>
+          message.type === "combat.attackDenied" &&
+          message.reason === "cooldown",
+      );
+      expect(deniedTooSoon?.type).toBe("combat.attackDenied");
+
+      await wait(280);
+      socket.sent = [];
+      manager.applyAttack(asServerSocket(socket), {
+        type: "player.attack",
+        aim: { x: 220, y: 120 },
+      });
+
+      const denied = parseMessages(socket).find(
+        (message) =>
+          message.type === "combat.attackDenied" &&
+          message.reason === "cooldown",
+      );
+      expect(denied).toBeUndefined();
+      await wait(150);
+      const secondSnapshot = latestWorldSnapshot(socket);
+      expect(secondSnapshot?.payload.projectiles).toHaveLength(1);
+
+      await wait(1_400);
+      socket.sent = [];
+      manager.applyAttack(asServerSocket(socket), {
+        type: "player.attack",
+        aim: { x: 220, y: 120 },
+      });
+      await wait(150);
+      const thirdSnapshot = latestWorldSnapshot(socket);
+      expect(thirdSnapshot?.payload.projectiles.length).toBeGreaterThanOrEqual(
+        2,
+      );
+    } finally {
+      WORLD_MAPS_BY_ID.delete(testMapId);
+      Math.random = originalRandom;
+    }
+  });
+
+  test("sword_spinblade projectile cancels when colliding with map walls", async () => {
+    const originalRandom = Math.random;
+    Math.random = () => 0;
+
+    try {
+      const archetypes = new Map<string, EnemyArchetype>([
+        [
+          "slime_scout",
+          createTestArchetype("slime_scout", {
+            detectionRadius: 1,
+            leashRadius: 1,
+          }),
+        ],
+        [
+          "briar_wolf",
+          createTestArchetype("briar_wolf", {
+            detectionRadius: 1,
+            leashRadius: 1,
+          }),
+        ],
+      ]);
+      const manager = new WorldManager(
+        (archetypeId) => archetypes.get(archetypeId) ?? null,
+      );
+      const socket = createMockSocket(manager, "user-a", "player-wall");
+      const wall = WILDS_BETA_MAP.collisions[0];
+      expect(wall).toBeDefined();
+      if (!wall) {
+        throw new Error("expected at least one map collision wall");
+      }
+
+      manager.joinWorld(
+        asServerSocket(socket),
+        WILDS_BETA_MAP.id,
+        "player-wall",
+        "Wall",
+        "knight",
+        "#E8A832",
+        {
+          spawnOverride: {
+            x: wall.x - 140,
+            y: wall.y + wall.height / 2,
+          },
+          combatStats: {
+            maxHealth: 100,
+            currentHealth: 100,
+            baseDamage: 80,
+            baseAttackSpeedMs: 600,
+            baseAttackRange: 120,
+          },
+          attackConfig: {
+            weaponStyle: "sword",
+            attackPatternId: "sword_spinblade",
+            damageMultiplier: 0.55,
+          },
+        },
+      );
+      cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
+
+      await wait(240);
+      socket.sent = [];
+      manager.applyAttack(asServerSocket(socket), {
+        type: "player.attack",
+        aim: {
+          x: wall.x + wall.width / 2,
+          y: wall.y + wall.height / 2,
+        },
+      });
+
+      await wait(90);
+      const shortlyAfterCast = latestWorldSnapshot(socket);
+      expect(shortlyAfterCast?.payload.projectiles.length).toBeGreaterThan(0);
+
+      await wait(650);
+      const afterWallCollision = latestWorldSnapshot(socket);
+      expect(afterWallCollision?.payload.projectiles).toHaveLength(0);
+    } finally {
+      Math.random = originalRandom;
+    }
+  });
+
+  test("sword_whirl applies instant centered aoe slash", async () => {
+    const originalRandom = Math.random;
+    Math.random = () => 0;
+
+    try {
+      const archetypes = new Map<string, EnemyArchetype>([
+        [
+          "slime_scout",
+          createTestArchetype("slime_scout", {
+            maxHealth: 45,
+            visualWidth: 80,
+            visualHeight: 80,
+            detectionRadius: 1,
+            leashRadius: 1,
+          }),
+        ],
+        [
+          "briar_wolf",
+          createTestArchetype("briar_wolf", {
+            detectionRadius: 1,
+            leashRadius: 1,
+          }),
+        ],
+      ]);
+      const manager = new WorldManager(
+        (archetypeId) => archetypes.get(archetypeId) ?? null,
+      );
+      const socket = createMockSocket(manager, "user-a", "player-whirl");
+
+      manager.joinWorld(
+        asServerSocket(socket),
+        WILDS_BETA_MAP.id,
+        "player-whirl",
+        "Whirl",
+        "knight",
+        "#E8A832",
+        {
+          spawnOverride: { x: 1_220, y: 700 },
+          combatStats: {
+            maxHealth: 100,
+            currentHealth: 100,
+            baseDamage: 80,
+            baseAttackSpeedMs: 600,
+            baseAttackRange: 120,
+          },
+          attackConfig: {
+            weaponStyle: "sword",
+            attackPatternId: "sword_whirl",
+            damageMultiplier: 0.9,
+            aoeRadius: 88,
+            aoeDelayMs: 0,
+          },
+        },
+      );
+      cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
+
+      await wait(300);
+      const before = latestWorldSnapshot(socket);
+      const target = before?.payload.enemies[0];
+      expect(target).toBeDefined();
+      if (!target) {
+        throw new Error("expected at least one enemy");
+      }
+
+      socket.sent = [];
+      manager.applyAttack(asServerSocket(socket), {
+        type: "player.attack",
+        aim: { x: target.position.x, y: target.position.y },
+      });
+
+      const attack = latestAttackPerformed(socket);
+      expect(attack?.attackPatternId).toBe("sword_whirl");
+      expect(attack?.attackStyle).toBe("aoe");
+      expect(attack?.aoeRadius).toBe(88);
+      expect(attack?.impactDelayMs).toBe(0);
+
+      await wait(150);
+      const after = latestWorldSnapshot(socket);
+      const killed = after?.payload.enemies.every(
+        (enemy) => enemy.id !== target.id,
+      );
+      expect(killed).toBe(true);
+    } finally {
+      Math.random = originalRandom;
+    }
+  });
+
+  test("wand_multishot limits each target to one hit per attack activation", async () => {
+    const originalRandom = Math.random;
+    Math.random = () => 0;
+
+    try {
+      const archetypes = new Map<string, EnemyArchetype>([
+        [
+          "slime_scout",
+          createTestArchetype("slime_scout", {
+            maxHealth: 60,
+            detectionRadius: 1,
+            leashRadius: 1,
+            visualWidth: 80,
+            visualHeight: 80,
+          }),
+        ],
+        [
+          "briar_wolf",
+          createTestArchetype("briar_wolf", {
+            maxHealth: 60,
+            detectionRadius: 1,
+            leashRadius: 1,
+            visualWidth: 80,
+            visualHeight: 80,
+          }),
+        ],
+      ]);
+      const manager = new WorldManager(
+        (archetypeId) => archetypes.get(archetypeId) ?? null,
+      );
+      const socket = createMockSocket(manager, "user-a", "player-multi");
+
+      manager.joinWorld(
+        asServerSocket(socket),
+        WILDS_BETA_MAP.id,
+        "player-multi",
+        "Multi",
+        "mage",
+        "#22D3EE",
+        {
+          spawnOverride: { x: 1_220, y: 700 },
+          combatStats: {
+            maxHealth: 100,
+            currentHealth: 100,
+            baseDamage: 40,
+            baseAttackSpeedMs: 700,
+            baseAttackRange: 240,
+          },
+          attackConfig: {
+            weaponStyle: "wand",
+            attackPatternId: "wand_multishot",
+            projectileCount: 3,
+            spreadDegrees: 22,
+          },
+        },
+      );
+      cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
+
+      await wait(300);
+      const before = latestWorldSnapshot(socket);
+      const target = before?.payload.enemies[0];
+      expect(target).toBeDefined();
+      if (!target) {
+        throw new Error("expected at least one enemy");
+      }
+      const beforeHealth = target.currentHealth;
+
+      socket.sent = [];
+      manager.applyAttack(asServerSocket(socket), {
+        type: "player.attack",
+        aim: { x: target.position.x, y: target.position.y },
+      });
+
+      const attack = latestAttackPerformed(socket);
+      expect(attack?.attackPatternId).toBe("wand_multishot");
+      expect(attack?.attackStyle).toBe("ranged");
+      expect(attack?.weaponStyle).toBe("wand");
+
+      await wait(260);
+      const after = latestWorldSnapshot(socket);
+      const updatedTarget = after?.payload.enemies.find(
+        (enemy) => enemy.id === target.id,
+      );
+      expect(updatedTarget).toBeDefined();
+      if (!updatedTarget) {
+        throw new Error("expected multishot target to survive one activation");
+      }
+      expect(updatedTarget.currentHealth).toBeGreaterThan(0);
+      expect(updatedTarget.currentHealth).toBeLessThan(beforeHealth);
+    } finally {
+      Math.random = originalRandom;
+    }
+  });
+
+  test("wand_burst fires sequential hits over time instead of one immediate spike", async () => {
+    const originalRandom = Math.random;
+    Math.random = () => 0;
+
+    try {
+      const archetypes = new Map<string, EnemyArchetype>([
+        [
+          "slime_scout",
+          createTestArchetype("slime_scout", {
+            maxHealth: 55,
+            detectionRadius: 1,
+            leashRadius: 1,
+            visualWidth: 80,
+            visualHeight: 80,
+          }),
+        ],
+        [
+          "briar_wolf",
+          createTestArchetype("briar_wolf", {
+            detectionRadius: 1,
+            leashRadius: 1,
+          }),
+        ],
+      ]);
+      const manager = new WorldManager(
+        (archetypeId) => archetypes.get(archetypeId) ?? null,
+      );
+      const socket = createMockSocket(manager, "user-a", "player-burst");
+
+      manager.joinWorld(
+        asServerSocket(socket),
+        WILDS_BETA_MAP.id,
+        "player-burst",
+        "Burst",
+        "mage",
+        "#22D3EE",
+        {
+          spawnOverride: { x: 1_220, y: 700 },
+          combatStats: {
+            maxHealth: 100,
+            currentHealth: 100,
+            baseDamage: 60,
+            baseAttackSpeedMs: 700,
+            baseAttackRange: 240,
+          },
+          attackConfig: {
+            weaponStyle: "wand",
+            attackPatternId: "wand_burst",
+            burstCount: 3,
+            burstIntervalMs: 70,
+          },
+        },
+      );
+      cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
+
+      await wait(300);
+      const before = latestWorldSnapshot(socket);
+      const target = before?.payload.enemies[0];
+      expect(target).toBeDefined();
+      if (!target) {
+        throw new Error("expected at least one enemy");
+      }
+
+      socket.sent = [];
+      manager.applyAttack(asServerSocket(socket), {
+        type: "player.attack",
+        aim: { x: target.position.x, y: target.position.y },
+      });
+
+      const attack = latestAttackPerformed(socket);
+      expect(attack?.attackPatternId).toBe("wand_burst");
+      expect(attack?.attackStyle).toBe("ranged");
+      expect(attack?.weaponStyle).toBe("wand");
+
+      await wait(140);
+      const mid = latestWorldSnapshot(socket);
+      const stillAliveMidBurst = mid?.payload.enemies.some(
+        (enemy) => enemy.id === target.id,
+      );
+      expect(stillAliveMidBurst).toBe(true);
+
+      await wait(240);
+      const after = latestWorldSnapshot(socket);
+      const killed = after?.payload.enemies.every(
+        (enemy) => enemy.id !== target.id,
+      );
+      expect(killed).toBe(true);
+    } finally {
+      Math.random = originalRandom;
+    }
+  });
+
+  test("staff_ground_aoe applies delayed impact with target metadata", async () => {
+    const originalRandom = Math.random;
+    Math.random = () => 0;
+
+    try {
+      const archetypes = new Map<string, EnemyArchetype>([
+        [
+          "slime_scout",
+          createTestArchetype("slime_scout", {
+            maxHealth: 40,
+            detectionRadius: 1,
+            leashRadius: 1,
+            visualWidth: 80,
+            visualHeight: 80,
+          }),
+        ],
+        [
+          "briar_wolf",
+          createTestArchetype("briar_wolf", {
+            detectionRadius: 1,
+            leashRadius: 1,
+          }),
+        ],
+      ]);
+      const manager = new WorldManager(
+        (archetypeId) => archetypes.get(archetypeId) ?? null,
+      );
+      const socket = createMockSocket(manager, "user-a", "player-aoe");
+
+      manager.joinWorld(
+        asServerSocket(socket),
+        WILDS_BETA_MAP.id,
+        "player-aoe",
+        "AOE",
+        "mage",
+        "#22D3EE",
+        {
+          spawnOverride: { x: 1_220, y: 700 },
+          combatStats: {
+            maxHealth: 100,
+            currentHealth: 100,
+            baseDamage: 50,
+            baseAttackSpeedMs: 800,
+            baseAttackRange: 240,
+          },
+          attackConfig: {
+            weaponStyle: "staff",
+            attackPatternId: "staff_ground_aoe",
+            aoeRadius: 72,
+            aoeDelayMs: 180,
+          },
+        },
+      );
+      cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
+
+      await wait(300);
+      const before = latestWorldSnapshot(socket);
+      const target = before?.payload.enemies[0];
+      expect(target).toBeDefined();
+      if (!target) {
+        throw new Error("expected at least one enemy");
+      }
+
+      socket.sent = [];
+      manager.applyAttack(asServerSocket(socket), {
+        type: "player.attack",
+        aim: { x: target.position.x, y: target.position.y },
+      });
+
+      const attack = latestAttackPerformed(socket);
+      expect(attack?.attackPatternId).toBe("staff_ground_aoe");
+      expect(attack?.attackStyle).toBe("aoe");
+      expect(attack?.weaponStyle).toBe("staff");
+      expect(attack?.target).toBeDefined();
+      expect(attack?.aoeRadius).toBe(72);
+      expect(attack?.impactDelayMs).toBe(180);
+
+      await wait(120);
+      const mid = latestWorldSnapshot(socket);
+      const stillAliveBeforeImpact = mid?.payload.enemies.some(
+        (enemy) => enemy.id === target.id,
+      );
+      expect(stillAliveBeforeImpact).toBe(true);
+
+      await wait(220);
+      const after = latestWorldSnapshot(socket);
+      const killed = after?.payload.enemies.every(
+        (enemy) => enemy.id !== target.id,
+      );
+      expect(killed).toBe(true);
+    } finally {
+      Math.random = originalRandom;
+    }
+  });
+
+  test("combat worlds with pvp disabled do not apply player damage for weapon patterns", async () => {
+    const manager = new WorldManager();
+    const attacker = createMockSocket(manager, "user-a", "player-attacker");
+    const defender = createMockSocket(manager, "user-b", "player-defender");
+
+    manager.joinWorld(
+      asServerSocket(attacker),
+      WILDS_BETA_MAP.id,
+      "player-attacker",
+      "Attacker",
+      "mage",
+      "#22D3EE",
+      {
+        spawnOverride: { x: 1_220, y: 700 },
+        combatStats: {
+          maxHealth: 100,
+          currentHealth: 100,
+          baseDamage: 80,
+          baseAttackSpeedMs: 700,
+          baseAttackRange: 260,
+        },
+        attackConfig: {
+          weaponStyle: "staff",
+          attackPatternId: "staff_ground_aoe",
+          aoeRadius: 90,
+          aoeDelayMs: 120,
+        },
+      },
+    );
+    manager.joinWorld(
+      asServerSocket(defender),
+      WILDS_BETA_MAP.id,
+      "player-defender",
+      "Defender",
+      "knight",
+      "#E8A832",
+      {
+        spawnOverride: { x: 1_245, y: 700 },
+        combatStats: {
+          maxHealth: 100,
+          currentHealth: 100,
+          baseDamage: 24,
+          baseAttackSpeedMs: 600,
+          baseAttackRange: 120,
+        },
+      },
+    );
+
+    cleanup.push(() => manager.leaveWorld(asServerSocket(attacker)));
+    cleanup.push(() => manager.leaveWorld(asServerSocket(defender)));
+
+    const before = latestWorldSnapshot(defender);
+    const defenderBefore = before?.payload.players.find(
+      (player) => player.id === "player-defender",
+    );
+    expect(defenderBefore?.currentHealth).toBe(100);
+
+    attacker.sent = [];
+    manager.applyAttack(asServerSocket(attacker), {
+      type: "player.attack",
+      aim: { x: 1_245, y: 700 },
+    });
+    const attack = latestAttackPerformed(attacker);
+    expect(attack?.attackPatternId).toBe("staff_ground_aoe");
+
+    await wait(300);
+    const after = latestWorldSnapshot(defender);
+    const defenderAfter = after?.payload.players.find(
+      (player) => player.id === "player-defender",
+    );
+    expect(defenderAfter?.currentHealth).toBe(100);
   });
 
   test("enemy kill grants xp, levels up, and persists progression immediately", async () => {

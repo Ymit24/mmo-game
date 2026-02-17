@@ -1,3 +1,11 @@
+import {
+  ATTACK_PATTERN_IDS,
+  ATTACK_PATTERN_METADATA,
+  type CharacterClass,
+  WEAPON_STYLES,
+  estimatePatternDps,
+  resolveWeaponAttackConfig,
+} from "@mmo/shared";
 import { useCallback, useMemo, useState } from "react";
 import {
   type ItemDefinition,
@@ -21,6 +29,15 @@ const EMPTY_ITEM: Omit<ItemDefinition, "id"> & { id: string } = {
   weaponDamageFlat: null,
   weaponRangeFlat: null,
   weaponSpeedPercent: null,
+  weaponStyle: null,
+  attackPatternId: null,
+  attackDamageMultiplier: null,
+  attackProjectileCount: null,
+  attackSpreadDegrees: null,
+  attackBurstCount: null,
+  attackBurstIntervalMs: null,
+  attackAoeRadius: null,
+  attackAoeDelayMs: null,
 };
 
 const TYPE_COLORS: Record<string, string> = {
@@ -202,7 +219,10 @@ function computeWeaponDps(
     200,
     Math.round(base.speedMs * Math.max(0.05, speedFactor)),
   );
-  return (totalDamage / effectiveSpeedMs) * 1000;
+  const resolvedClass: CharacterClass =
+    characterClass === "mage" ? "mage" : "knight";
+  const attackConfig = resolveWeaponAttackConfig(item, resolvedClass);
+  return estimatePatternDps(totalDamage, effectiveSpeedMs, attackConfig, 1);
 }
 
 function DpsComparisonChart({ items }: { items: ItemDefinition[] }) {
@@ -304,6 +324,44 @@ function DpsComparisonChart({ items }: { items: ItemDefinition[] }) {
   );
 }
 
+function normalizeCharacterClassForItem(item: ItemDefinition): CharacterClass {
+  return item.classRequirement === "mage" ? "mage" : "knight";
+}
+
+function withResolvedAttackDefaults(item: ItemDefinition): ItemDefinition {
+  if (item.type !== "weapon") {
+    return {
+      ...item,
+      weaponStyle: null,
+      attackPatternId: null,
+      attackDamageMultiplier: null,
+      attackProjectileCount: null,
+      attackSpreadDegrees: null,
+      attackBurstCount: null,
+      attackBurstIntervalMs: null,
+      attackAoeRadius: null,
+      attackAoeDelayMs: null,
+    };
+  }
+
+  const resolved = resolveWeaponAttackConfig(
+    item,
+    normalizeCharacterClassForItem(item),
+  );
+  return {
+    ...item,
+    weaponStyle: resolved.weaponStyle,
+    attackPatternId: resolved.attackPatternId,
+    attackDamageMultiplier: resolved.damageMultiplier,
+    attackProjectileCount: resolved.projectileCount,
+    attackSpreadDegrees: resolved.spreadDegrees,
+    attackBurstCount: resolved.burstCount,
+    attackBurstIntervalMs: resolved.burstIntervalMs,
+    attackAoeRadius: resolved.aoeRadius,
+    attackAoeDelayMs: resolved.aoeDelayMs,
+  };
+}
+
 /* ─── Main Component ───────────────────────────────────────────── */
 
 export function ItemsPage() {
@@ -316,7 +374,7 @@ export function ItemsPage() {
 
   const handleSelect = useCallback((item: ItemDefinition) => {
     setSelected(item);
-    setEditing({ ...item });
+    setEditing(withResolvedAttackDefaults({ ...item }));
     setIsNew(false);
     setSaveError(null);
   }, []);
@@ -366,12 +424,45 @@ export function ItemsPage() {
 
   const updateField = useCallback(
     <K extends keyof ItemDefinition>(key: K, value: ItemDefinition[K]) => {
-      setEditing((prev) => (prev ? { ...prev, [key]: value } : prev));
+      setEditing((prev) => {
+        if (!prev) {
+          return prev;
+        }
+        return { ...prev, [key]: value };
+      });
+    },
+    [],
+  );
+
+  const updateWeaponField = useCallback(
+    <K extends keyof ItemDefinition>(key: K, value: ItemDefinition[K]) => {
+      setEditing((prev) => {
+        if (!prev) {
+          return prev;
+        }
+        return withResolvedAttackDefaults({
+          ...prev,
+          [key]: value,
+        } as ItemDefinition);
+      });
     },
     [],
   );
 
   const isWeapon = editing?.type === "weapon";
+  const resolvedEditingAttack = useMemo(() => {
+    if (!editing || editing.type !== "weapon") {
+      return null;
+    }
+    return resolveWeaponAttackConfig(
+      editing,
+      normalizeCharacterClassForItem(editing),
+    );
+  }, [editing]);
+  const activePatternId = resolvedEditingAttack?.attackPatternId ?? null;
+  const isMultishotPattern = activePatternId === "wand_multishot";
+  const isBurstPattern = activePatternId === "wand_burst";
+  const isAoePattern = activePatternId === "staff_ground_aoe";
 
   return (
     <div className="flex flex-1 overflow-hidden">
@@ -426,6 +517,16 @@ export function ItemsPage() {
                   {item.classRequirement && (
                     <span className="text-[10px] text-vec-gold-dim">
                       {item.classRequirement}
+                    </span>
+                  )}
+                  {item.weaponStyle && (
+                    <span className="text-[10px] text-vec-cyan capitalize">
+                      {item.weaponStyle}
+                    </span>
+                  )}
+                  {item.attackPatternId && (
+                    <span className="text-[10px] text-vec-magenta-dim">
+                      {ATTACK_PATTERN_METADATA[item.attackPatternId].shortLabel}
                     </span>
                   )}
                 </div>
@@ -529,7 +630,17 @@ export function ItemsPage() {
                   <Field label="Type">
                     <select
                       value={editing.type}
-                      onChange={(e) => updateField("type", e.target.value)}
+                      onChange={(e) =>
+                        setEditing((prev) => {
+                          if (!prev) {
+                            return prev;
+                          }
+                          return withResolvedAttackDefaults({
+                            ...prev,
+                            type: e.target.value as ItemDefinition["type"],
+                          });
+                        })
+                      }
                       className="w-full"
                     >
                       {ITEM_TYPES.map((t) => (
@@ -551,9 +662,15 @@ export function ItemsPage() {
                   <Field label="Class Requirement">
                     <select
                       value={editing.classRequirement ?? ""}
-                      onChange={(e) =>
-                        updateField("classRequirement", e.target.value || null)
-                      }
+                      onChange={(e) => {
+                        const nextValue = (e.target.value ||
+                          null) as ItemDefinition["classRequirement"];
+                        if (editing.type === "weapon") {
+                          updateWeaponField("classRequirement", nextValue);
+                          return;
+                        }
+                        updateField("classRequirement", nextValue);
+                      }}
                       className="w-full"
                     >
                       <option value="">None</option>
@@ -619,7 +736,8 @@ export function ItemsPage() {
                     <Field label="Speed %">
                       <input
                         type="number"
-                        min={0}
+                        min={-95}
+                        max={95}
                         value={editing.weaponSpeedPercent ?? ""}
                         onChange={(e) =>
                           updateField(
@@ -631,6 +749,181 @@ export function ItemsPage() {
                       />
                     </Field>
                   </div>
+
+                  <div className="mt-4 grid grid-cols-2 gap-3">
+                    <Field label="Weapon Style">
+                      <select
+                        value={
+                          editing.weaponStyle ??
+                          resolvedEditingAttack?.weaponStyle ??
+                          ""
+                        }
+                        onChange={(e) =>
+                          updateWeaponField(
+                            "weaponStyle",
+                            (e.target.value ||
+                              null) as ItemDefinition["weaponStyle"],
+                          )
+                        }
+                        className="w-full"
+                      >
+                        <option value="">Auto</option>
+                        {WEAPON_STYLES.map((style) => (
+                          <option key={style} value={style}>
+                            {style}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                    <Field label="Attack Pattern">
+                      <select
+                        value={
+                          editing.attackPatternId ??
+                          resolvedEditingAttack?.attackPatternId ??
+                          ""
+                        }
+                        onChange={(e) =>
+                          updateWeaponField(
+                            "attackPatternId",
+                            (e.target.value ||
+                              null) as ItemDefinition["attackPatternId"],
+                          )
+                        }
+                        className="w-full"
+                      >
+                        <option value="">Auto</option>
+                        {ATTACK_PATTERN_IDS.map((patternId) => (
+                          <option key={patternId} value={patternId}>
+                            {ATTACK_PATTERN_METADATA[patternId].label}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-3 gap-3">
+                    <Field label="Damage Mult">
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        value={editing.attackDamageMultiplier ?? ""}
+                        onChange={(e) =>
+                          updateWeaponField(
+                            "attackDamageMultiplier",
+                            e.target.value ? Number(e.target.value) : null,
+                          )
+                        }
+                        className="w-full"
+                      />
+                    </Field>
+                    <Field label="Projectile Count">
+                      <input
+                        type="number"
+                        min={1}
+                        max={12}
+                        value={editing.attackProjectileCount ?? ""}
+                        onChange={(e) =>
+                          updateWeaponField(
+                            "attackProjectileCount",
+                            e.target.value ? Number(e.target.value) : null,
+                          )
+                        }
+                        className="w-full disabled:opacity-40"
+                        disabled={!isMultishotPattern}
+                      />
+                    </Field>
+                    <Field label="Spread Degrees">
+                      <input
+                        type="number"
+                        min={0}
+                        max={180}
+                        value={editing.attackSpreadDegrees ?? ""}
+                        onChange={(e) =>
+                          updateWeaponField(
+                            "attackSpreadDegrees",
+                            e.target.value ? Number(e.target.value) : null,
+                          )
+                        }
+                        className="w-full disabled:opacity-40"
+                        disabled={!isMultishotPattern}
+                      />
+                    </Field>
+                    <Field label="Burst Count">
+                      <input
+                        type="number"
+                        min={1}
+                        max={12}
+                        value={editing.attackBurstCount ?? ""}
+                        onChange={(e) =>
+                          updateWeaponField(
+                            "attackBurstCount",
+                            e.target.value ? Number(e.target.value) : null,
+                          )
+                        }
+                        className="w-full disabled:opacity-40"
+                        disabled={!isBurstPattern}
+                      />
+                    </Field>
+                    <Field label="Burst Interval (ms)">
+                      <input
+                        type="number"
+                        min={0}
+                        max={5000}
+                        value={editing.attackBurstIntervalMs ?? ""}
+                        onChange={(e) =>
+                          updateWeaponField(
+                            "attackBurstIntervalMs",
+                            e.target.value ? Number(e.target.value) : null,
+                          )
+                        }
+                        className="w-full disabled:opacity-40"
+                        disabled={!isBurstPattern}
+                      />
+                    </Field>
+                    <Field label="AOE Radius">
+                      <input
+                        type="number"
+                        min={0}
+                        max={1200}
+                        value={editing.attackAoeRadius ?? ""}
+                        onChange={(e) =>
+                          updateWeaponField(
+                            "attackAoeRadius",
+                            e.target.value ? Number(e.target.value) : null,
+                          )
+                        }
+                        className="w-full disabled:opacity-40"
+                        disabled={!isAoePattern}
+                      />
+                    </Field>
+                    <Field label="AOE Delay (ms)">
+                      <input
+                        type="number"
+                        min={0}
+                        max={10000}
+                        value={editing.attackAoeDelayMs ?? ""}
+                        onChange={(e) =>
+                          updateWeaponField(
+                            "attackAoeDelayMs",
+                            e.target.value ? Number(e.target.value) : null,
+                          )
+                        }
+                        className="w-full disabled:opacity-40"
+                        disabled={!isAoePattern}
+                      />
+                    </Field>
+                  </div>
+
+                  {resolvedEditingAttack && (
+                    <p className="mt-3 text-[10px] text-muted">
+                      {
+                        ATTACK_PATTERN_METADATA[
+                          resolvedEditingAttack.attackPatternId
+                        ].description
+                      }
+                    </p>
+                  )}
                 </div>
               )}
 

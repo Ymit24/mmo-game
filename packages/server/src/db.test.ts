@@ -114,6 +114,15 @@ describe("database bootstrap", () => {
     expect(itemColumns).toContain("icon_key");
     expect(itemColumns).toContain("class_requirement");
     expect(itemColumns).toContain("weapon_speed_percent");
+    expect(itemColumns).toContain("weapon_style");
+    expect(itemColumns).toContain("attack_pattern_id");
+    expect(itemColumns).toContain("attack_damage_multiplier");
+    expect(itemColumns).toContain("attack_projectile_count");
+    expect(itemColumns).toContain("attack_spread_degrees");
+    expect(itemColumns).toContain("attack_burst_count");
+    expect(itemColumns).toContain("attack_burst_interval_ms");
+    expect(itemColumns).toContain("attack_aoe_radius");
+    expect(itemColumns).toContain("attack_aoe_delay_ms");
 
     const inventoryColumns = db
       .query<{ name: string }, []>("PRAGMA table_info(character_inventory);")
@@ -172,10 +181,12 @@ describe("database bootstrap", () => {
           type: string;
           class_requirement: string | null;
           min_level_to_equip: number | null;
+          weapon_style: string | null;
+          attack_pattern_id: string | null;
         },
         []
       >(
-        `SELECT id, type, class_requirement, min_level_to_equip
+        `SELECT id, type, class_requirement, min_level_to_equip, weapon_style, attack_pattern_id
          FROM item_definitions
          WHERE id IN (
            'training_sword',
@@ -183,7 +194,11 @@ describe("database bootstrap", () => {
            'iron_broadsword',
            'runed_greatsword',
            'adept_focus_wand',
-           'stormweave_rod'
+           'stormweave_rod',
+           'splitfire_wand',
+           'emberbranch_staff',
+           'starcall_staff',
+           'vanguard_pike'
          )
          ORDER BY id ASC`,
       )
@@ -195,38 +210,246 @@ describe("database bootstrap", () => {
         type: "weapon",
         class_requirement: "mage",
         min_level_to_equip: 5,
+        weapon_style: "wand",
+        attack_pattern_id: "wand_burst",
+      },
+      {
+        id: "emberbranch_staff",
+        type: "weapon",
+        class_requirement: "mage",
+        min_level_to_equip: 8,
+        weapon_style: "staff",
+        attack_pattern_id: "staff_ground_aoe",
       },
       {
         id: "iron_broadsword",
         type: "weapon",
         class_requirement: "knight",
         min_level_to_equip: 5,
+        weapon_style: "sword",
+        attack_pattern_id: "sword_whirl",
       },
       {
         id: "runed_greatsword",
         type: "weapon",
         class_requirement: "knight",
         min_level_to_equip: 10,
+        weapon_style: "sword",
+        attack_pattern_id: "sword_spinblade",
+      },
+      {
+        id: "splitfire_wand",
+        type: "weapon",
+        class_requirement: "mage",
+        min_level_to_equip: 12,
+        weapon_style: "wand",
+        attack_pattern_id: "wand_multishot",
+      },
+      {
+        id: "starcall_staff",
+        type: "weapon",
+        class_requirement: "mage",
+        min_level_to_equip: 18,
+        weapon_style: "staff",
+        attack_pattern_id: "staff_ground_aoe",
       },
       {
         id: "stormweave_rod",
         type: "weapon",
         class_requirement: "mage",
         min_level_to_equip: 10,
+        weapon_style: "staff",
+        attack_pattern_id: "staff_ground_aoe",
       },
       {
         id: "training_sword",
         type: "weapon",
         class_requirement: "knight",
         min_level_to_equip: 1,
+        weapon_style: "sword",
+        attack_pattern_id: "sword_cleave",
       },
       {
         id: "training_wand",
         type: "weapon",
         class_requirement: "mage",
         min_level_to_equip: 1,
+        weapon_style: "wand",
+        attack_pattern_id: "wand_multishot",
+      },
+      {
+        id: "vanguard_pike",
+        type: "weapon",
+        class_requirement: "knight",
+        min_level_to_equip: 12,
+        weapon_style: "sword",
+        attack_pattern_id: "sword_spinblade",
       },
     ]);
+    db.close();
+  });
+
+  test("backfills weapon attack defaults for legacy item_definitions rows", () => {
+    const db = createDatabase(":memory:");
+    db.exec("DROP TABLE item_definitions;");
+    db.exec(`
+      CREATE TABLE item_definitions (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        icon_key TEXT NOT NULL,
+        type TEXT NOT NULL CHECK (type IN ('weapon', 'armor', 'potion', 'misc')),
+        class_requirement TEXT CHECK (class_requirement IS NULL OR class_requirement IN ('knight', 'mage')),
+        min_level_to_equip INTEGER CHECK (
+          min_level_to_equip IS NULL OR min_level_to_equip >= 0
+        ),
+        weapon_damage_flat REAL,
+        weapon_range_flat REAL,
+        weapon_speed_percent REAL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `);
+
+    const timestamp = new Date().toISOString();
+    db.query(
+      `INSERT INTO item_definitions (
+        id,
+        name,
+        icon_key,
+        type,
+        class_requirement,
+        min_level_to_equip,
+        weapon_damage_flat,
+        weapon_range_flat,
+        weapon_speed_percent,
+        created_at,
+        updated_at
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
+    ).run(
+      "training_sword",
+      "Training Sword",
+      "training_sword",
+      "weapon",
+      "knight",
+      1,
+      10,
+      8,
+      5,
+      timestamp,
+      timestamp,
+    );
+    db.query(
+      `INSERT INTO item_definitions (
+        id,
+        name,
+        icon_key,
+        type,
+        class_requirement,
+        min_level_to_equip,
+        weapon_damage_flat,
+        weapon_range_flat,
+        weapon_speed_percent,
+        created_at,
+        updated_at
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
+    ).run(
+      "health_potion",
+      "Health Potion",
+      "health_potion",
+      "potion",
+      null,
+      null,
+      null,
+      null,
+      null,
+      timestamp,
+      timestamp,
+    );
+
+    bootstrapDatabase(db);
+
+    const weapon = db
+      .query<
+        {
+          weapon_style: string | null;
+          attack_pattern_id: string | null;
+          attack_damage_multiplier: number | null;
+        },
+        []
+      >(
+        `SELECT weapon_style, attack_pattern_id, attack_damage_multiplier
+         FROM item_definitions
+         WHERE id = 'training_sword'
+         LIMIT 1`,
+      )
+      .get();
+    expect(weapon).toEqual({
+      weapon_style: "sword",
+      attack_pattern_id: "sword_cleave",
+      attack_damage_multiplier: 1,
+    });
+
+    const potion = db
+      .query<
+        {
+          weapon_style: string | null;
+          attack_pattern_id: string | null;
+          attack_damage_multiplier: number | null;
+        },
+        []
+      >(
+        `SELECT weapon_style, attack_pattern_id, attack_damage_multiplier
+         FROM item_definitions
+         WHERE id = 'health_potion'
+         LIMIT 1`,
+      )
+      .get();
+    expect(potion).toEqual({
+      weapon_style: null,
+      attack_pattern_id: null,
+      attack_damage_multiplier: null,
+    });
+    db.close();
+  });
+
+  test("bootstrap preserves existing weapon attack tuning values", () => {
+    const db = createDatabase(":memory:");
+
+    db.query(
+      `UPDATE item_definitions
+       SET attack_pattern_id = ?1,
+           attack_damage_multiplier = ?2,
+           attack_burst_count = ?3,
+           attack_burst_interval_ms = ?4
+       WHERE id = ?5`,
+    ).run("wand_burst", 0.73, 5, 120, "training_sword");
+
+    bootstrapDatabase(db);
+
+    const tuned = db
+      .query<
+        {
+          attack_pattern_id: string | null;
+          attack_damage_multiplier: number | null;
+          attack_burst_count: number | null;
+          attack_burst_interval_ms: number | null;
+        },
+        []
+      >(
+        `SELECT attack_pattern_id, attack_damage_multiplier,
+                attack_burst_count, attack_burst_interval_ms
+         FROM item_definitions
+         WHERE id = 'training_sword'
+         LIMIT 1`,
+      )
+      .get();
+
+    expect(tuned).toEqual({
+      attack_pattern_id: "wand_burst",
+      attack_damage_multiplier: 0.73,
+      attack_burst_count: 5,
+      attack_burst_interval_ms: 120,
+    });
     db.close();
   });
 

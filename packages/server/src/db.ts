@@ -2,9 +2,13 @@ import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import {
+  type AttackPatternId,
+  type CharacterClass,
   MAX_CHARACTER_LEVEL,
   USER_ROLES,
+  type WeaponStyle,
   getLevelProgressionTable,
+  resolveWeaponAttackConfig,
 } from "@mmo/shared";
 
 const ENEMY_ARCHETYPE_PROGRESSION_SEEDS = [
@@ -83,8 +87,10 @@ export function bootstrapDatabase(db: Database): void {
   `);
   ensureCharacterProgressionColumns(db);
   ensureItemDefinitionsTable(db);
+  ensureItemDefinitionAttackColumns(db);
   ensureCharacterInventoryTable(db);
   ensureItemDefinitionSeeds(db);
+  backfillItemDefinitionAttackDefaults(db);
   db.exec(`
     CREATE TABLE IF NOT EXISTS enemy_archetypes (
       id TEXT PRIMARY KEY,
@@ -449,10 +455,103 @@ function ensureItemDefinitionsTable(db: Database): void {
       weapon_damage_flat REAL,
       weapon_range_flat REAL,
       weapon_speed_percent REAL,
+      weapon_style TEXT CHECK (weapon_style IS NULL OR weapon_style IN ('sword', 'wand', 'staff')),
+      attack_pattern_id TEXT CHECK (
+        attack_pattern_id IS NULL OR attack_pattern_id IN (
+          'sword_cleave',
+          'sword_spinblade',
+          'sword_whirl',
+          'wand_multishot',
+          'wand_burst',
+          'staff_ground_aoe'
+        )
+      ),
+      attack_damage_multiplier REAL CHECK (
+        attack_damage_multiplier IS NULL OR
+        (attack_damage_multiplier >= 0 AND attack_damage_multiplier <= 10)
+      ),
+      attack_projectile_count INTEGER CHECK (
+        attack_projectile_count IS NULL OR
+        (attack_projectile_count >= 1 AND attack_projectile_count <= 12)
+      ),
+      attack_spread_degrees REAL CHECK (
+        attack_spread_degrees IS NULL OR
+        (attack_spread_degrees >= 0 AND attack_spread_degrees <= 180)
+      ),
+      attack_burst_count INTEGER CHECK (
+        attack_burst_count IS NULL OR
+        (attack_burst_count >= 1 AND attack_burst_count <= 12)
+      ),
+      attack_burst_interval_ms INTEGER CHECK (
+        attack_burst_interval_ms IS NULL OR
+        (attack_burst_interval_ms >= 0 AND attack_burst_interval_ms <= 5000)
+      ),
+      attack_aoe_radius REAL CHECK (
+        attack_aoe_radius IS NULL OR
+        (attack_aoe_radius >= 0 AND attack_aoe_radius <= 1200)
+      ),
+      attack_aoe_delay_ms INTEGER CHECK (
+        attack_aoe_delay_ms IS NULL OR
+        (attack_aoe_delay_ms >= 0 AND attack_aoe_delay_ms <= 10000)
+      ),
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
   `);
+}
+
+function ensureItemDefinitionAttackColumns(db: Database): void {
+  const columns = db
+    .query<{ name: string }, []>("PRAGMA table_info(item_definitions);")
+    .all();
+  const hasColumn = (name: string) =>
+    columns.some((column) => column.name === name);
+
+  if (!hasColumn("weapon_style")) {
+    db.exec(
+      "ALTER TABLE item_definitions ADD COLUMN weapon_style TEXT CHECK (weapon_style IS NULL OR weapon_style IN ('sword', 'wand', 'staff'));",
+    );
+  }
+  if (!hasColumn("attack_pattern_id")) {
+    db.exec(
+      "ALTER TABLE item_definitions ADD COLUMN attack_pattern_id TEXT CHECK (attack_pattern_id IS NULL OR attack_pattern_id IN ('sword_cleave', 'sword_spinblade', 'sword_whirl', 'wand_multishot', 'wand_burst', 'staff_ground_aoe'));",
+    );
+  }
+  if (!hasColumn("attack_damage_multiplier")) {
+    db.exec(
+      "ALTER TABLE item_definitions ADD COLUMN attack_damage_multiplier REAL CHECK (attack_damage_multiplier IS NULL OR (attack_damage_multiplier >= 0 AND attack_damage_multiplier <= 10));",
+    );
+  }
+  if (!hasColumn("attack_projectile_count")) {
+    db.exec(
+      "ALTER TABLE item_definitions ADD COLUMN attack_projectile_count INTEGER CHECK (attack_projectile_count IS NULL OR (attack_projectile_count >= 1 AND attack_projectile_count <= 12));",
+    );
+  }
+  if (!hasColumn("attack_spread_degrees")) {
+    db.exec(
+      "ALTER TABLE item_definitions ADD COLUMN attack_spread_degrees REAL CHECK (attack_spread_degrees IS NULL OR (attack_spread_degrees >= 0 AND attack_spread_degrees <= 180));",
+    );
+  }
+  if (!hasColumn("attack_burst_count")) {
+    db.exec(
+      "ALTER TABLE item_definitions ADD COLUMN attack_burst_count INTEGER CHECK (attack_burst_count IS NULL OR (attack_burst_count >= 1 AND attack_burst_count <= 12));",
+    );
+  }
+  if (!hasColumn("attack_burst_interval_ms")) {
+    db.exec(
+      "ALTER TABLE item_definitions ADD COLUMN attack_burst_interval_ms INTEGER CHECK (attack_burst_interval_ms IS NULL OR (attack_burst_interval_ms >= 0 AND attack_burst_interval_ms <= 5000));",
+    );
+  }
+  if (!hasColumn("attack_aoe_radius")) {
+    db.exec(
+      "ALTER TABLE item_definitions ADD COLUMN attack_aoe_radius REAL CHECK (attack_aoe_radius IS NULL OR (attack_aoe_radius >= 0 AND attack_aoe_radius <= 1200));",
+    );
+  }
+  if (!hasColumn("attack_aoe_delay_ms")) {
+    db.exec(
+      "ALTER TABLE item_definitions ADD COLUMN attack_aoe_delay_ms INTEGER CHECK (attack_aoe_delay_ms IS NULL OR (attack_aoe_delay_ms >= 0 AND attack_aoe_delay_ms <= 10000));",
+    );
+  }
 }
 
 function ensureCharacterInventoryTable(db: Database): void {
@@ -507,9 +606,18 @@ function ensureItemDefinitionSeeds(db: Database): void {
       weapon_damage_flat,
       weapon_range_flat,
       weapon_speed_percent,
+      weapon_style,
+      attack_pattern_id,
+      attack_damage_multiplier,
+      attack_projectile_count,
+      attack_spread_degrees,
+      attack_burst_count,
+      attack_burst_interval_ms,
+      attack_aoe_radius,
+      attack_aoe_delay_ms,
       created_at,
       updated_at
-    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
+    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)`,
   );
 
   statement.run(
@@ -522,6 +630,15 @@ function ensureItemDefinitionSeeds(db: Database): void {
     10,
     8,
     5,
+    "sword",
+    "sword_cleave",
+    1,
+    1,
+    0,
+    1,
+    0,
+    0,
+    0,
     timestamp,
     timestamp,
   );
@@ -536,6 +653,15 @@ function ensureItemDefinitionSeeds(db: Database): void {
     8,
     24,
     7,
+    "wand",
+    "wand_multishot",
+    1,
+    3,
+    22,
+    1,
+    0,
+    0,
+    0,
     timestamp,
     timestamp,
   );
@@ -550,6 +676,15 @@ function ensureItemDefinitionSeeds(db: Database): void {
     28,
     12,
     8,
+    "sword",
+    "sword_whirl",
+    0.9,
+    1,
+    0,
+    1,
+    0,
+    0,
+    0,
     timestamp,
     timestamp,
   );
@@ -564,6 +699,15 @@ function ensureItemDefinitionSeeds(db: Database): void {
     55,
     18,
     12,
+    "sword",
+    "sword_spinblade",
+    0.55,
+    1,
+    0,
+    1,
+    0,
+    0,
+    0,
     timestamp,
     timestamp,
   );
@@ -578,6 +722,15 @@ function ensureItemDefinitionSeeds(db: Database): void {
     22,
     42,
     10,
+    "wand",
+    "wand_burst",
+    0.36,
+    1,
+    0,
+    3,
+    70,
+    0,
+    0,
     timestamp,
     timestamp,
   );
@@ -592,6 +745,15 @@ function ensureItemDefinitionSeeds(db: Database): void {
     45,
     70,
     14,
+    "staff",
+    "staff_ground_aoe",
+    0.95,
+    1,
+    0,
+    1,
+    0,
+    72,
+    180,
     timestamp,
     timestamp,
   );
@@ -606,6 +768,15 @@ function ensureItemDefinitionSeeds(db: Database): void {
     65,
     85,
     12,
+    "staff",
+    "staff_ground_aoe",
+    0.95,
+    1,
+    0,
+    1,
+    0,
+    84,
+    180,
     timestamp,
     timestamp,
   );
@@ -620,9 +791,205 @@ function ensureItemDefinitionSeeds(db: Database): void {
     80,
     22,
     10,
+    "sword",
+    "sword_spinblade",
+    0.55,
+    1,
+    0,
+    1,
+    0,
+    0,
+    0,
     timestamp,
     timestamp,
   );
+
+  statement.run(
+    "splitfire_wand",
+    "Splitfire Wand",
+    "adept_focus_wand",
+    "weapon",
+    "mage",
+    12,
+    36,
+    58,
+    11,
+    "wand",
+    "wand_multishot",
+    1,
+    3,
+    26,
+    1,
+    0,
+    0,
+    0,
+    timestamp,
+    timestamp,
+  );
+
+  statement.run(
+    "emberbranch_staff",
+    "Emberbranch Staff",
+    "stormweave_rod",
+    "weapon",
+    "mage",
+    8,
+    34,
+    62,
+    8,
+    "staff",
+    "staff_ground_aoe",
+    0.95,
+    1,
+    0,
+    1,
+    0,
+    74,
+    180,
+    timestamp,
+    timestamp,
+  );
+
+  statement.run(
+    "starcall_staff",
+    "Starcall Staff",
+    "arcane_scepter",
+    "weapon",
+    "mage",
+    18,
+    72,
+    98,
+    13,
+    "staff",
+    "staff_ground_aoe",
+    0.95,
+    1,
+    0,
+    1,
+    0,
+    90,
+    180,
+    timestamp,
+    timestamp,
+  );
+
+  statement.run(
+    "vanguard_pike",
+    "Vanguard Pike",
+    "runed_greatsword",
+    "weapon",
+    "knight",
+    12,
+    66,
+    24,
+    11,
+    "sword",
+    "sword_spinblade",
+    0.55,
+    1,
+    0,
+    1,
+    0,
+    0,
+    0,
+    timestamp,
+    timestamp,
+  );
+}
+
+function backfillItemDefinitionAttackDefaults(db: Database): void {
+  db.query(
+    `UPDATE item_definitions
+     SET weapon_style = NULL,
+         attack_pattern_id = NULL,
+         attack_damage_multiplier = NULL,
+         attack_projectile_count = NULL,
+         attack_spread_degrees = NULL,
+         attack_burst_count = NULL,
+         attack_burst_interval_ms = NULL,
+         attack_aoe_radius = NULL,
+         attack_aoe_delay_ms = NULL
+     WHERE type <> 'weapon'`,
+  ).run();
+
+  const weaponRows = db
+    .query<
+      {
+        id: string;
+        class_requirement: CharacterClass | null;
+        weapon_style: WeaponStyle | null;
+        attack_pattern_id: AttackPatternId | null;
+        attack_damage_multiplier: number | null;
+        attack_projectile_count: number | null;
+        attack_spread_degrees: number | null;
+        attack_burst_count: number | null;
+        attack_burst_interval_ms: number | null;
+        attack_aoe_radius: number | null;
+        attack_aoe_delay_ms: number | null;
+      },
+      []
+    >(
+      `SELECT id, class_requirement, weapon_style, attack_pattern_id,
+              attack_damage_multiplier, attack_projectile_count,
+              attack_spread_degrees, attack_burst_count,
+              attack_burst_interval_ms, attack_aoe_radius, attack_aoe_delay_ms
+       FROM item_definitions
+       WHERE type = 'weapon'`,
+    )
+    .all();
+
+  const apply = db.query(
+    `UPDATE item_definitions
+     SET weapon_style = ?2,
+         attack_pattern_id = ?3,
+         attack_damage_multiplier = ?4,
+         attack_projectile_count = ?5,
+         attack_spread_degrees = ?6,
+         attack_burst_count = ?7,
+         attack_burst_interval_ms = ?8,
+         attack_aoe_radius = ?9,
+         attack_aoe_delay_ms = ?10
+     WHERE id = ?1`,
+  );
+
+  for (const row of weaponRows) {
+    const resolved = resolveWeaponAttackConfig(
+      {
+        id: row.id,
+        name: row.id,
+        iconKey: row.id,
+        type: "weapon",
+        classRequirement: row.class_requirement,
+        minLevelToEquip: null,
+        weaponDamageFlat: 0,
+        weaponRangeFlat: 0,
+        weaponSpeedPercent: 0,
+        weaponStyle: row.weapon_style,
+        attackPatternId: row.attack_pattern_id,
+        attackDamageMultiplier: row.attack_damage_multiplier,
+        attackProjectileCount: row.attack_projectile_count,
+        attackSpreadDegrees: row.attack_spread_degrees,
+        attackBurstCount: row.attack_burst_count,
+        attackBurstIntervalMs: row.attack_burst_interval_ms,
+        attackAoeRadius: row.attack_aoe_radius,
+        attackAoeDelayMs: row.attack_aoe_delay_ms,
+      },
+      row.class_requirement ?? "knight",
+    );
+
+    apply.run(
+      row.id,
+      resolved.weaponStyle,
+      resolved.attackPatternId,
+      resolved.damageMultiplier,
+      resolved.projectileCount,
+      resolved.spreadDegrees,
+      resolved.burstCount,
+      resolved.burstIntervalMs,
+      resolved.aoeRadius,
+      resolved.aoeDelayMs,
+    );
+  }
 }
 
 function ensureEnemyArchetypeProgressionColumns(db: Database): void {

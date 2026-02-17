@@ -1,4 +1,5 @@
 import type {
+  AttackPatternId,
   CharacterBaseCombatStats,
   CharacterClass,
   ClientToServerMessage,
@@ -12,9 +13,11 @@ import type {
   PlayerSnapshot,
   PortalTrigger,
   ProjectileSnapshot,
+  ResolvedWeaponAttackConfig,
   ServerToClientMessage,
   Vector2,
   WeaponStatModifiers,
+  WeaponStyle,
   WorldMap,
 } from "@mmo/shared";
 import {
@@ -38,6 +41,7 @@ import {
   normalizeWeaponStatModifiers,
   positionCollidesWithMap,
   resolveMovementWithSliding,
+  resolveWeaponAttackConfig,
   stringifyServerMessage,
 } from "@mmo/shared";
 import type { ServerWebSocket } from "bun";
@@ -46,10 +50,17 @@ const SNAPSHOT_INTERVAL_MS = 100;
 const SIMULATION_INTERVAL_MS = 50;
 const ENEMY_SPAWN_ATTEMPTS = 12;
 const ENEMY_IDLE_EPSILON = 4;
-const MELEE_ARC_COS_THRESHOLD = 0.4;
 const PLAYER_PROJECTILE_SPEED = 640;
 const PLAYER_PROJECTILE_TTL_MS = 900;
 const PLAYER_PROJECTILE_RADIUS = 8;
+const SWORD_CLEAVE_ARC_THRESHOLD = 0.45;
+const SPINBLADE_CAST_COOLDOWN_MIN_MS = 2_000;
+const SPINBLADE_SWING_COOLDOWN_MS = 300;
+const SPINBLADE_SPEED = 220;
+const SPINBLADE_TTL_MS = 3_200;
+const SPINBLADE_RADIUS = 20;
+const SPINBLADE_HIT_INTERVAL_MS = 1_000;
+const ATTACK_TRACKER_TTL_MS = 8_000;
 const LOOT_BAG_DESPAWN_MS = 5 * 60 * 1000;
 const LOOT_BAG_OWNER_GRACE_MS = 10 * 1000;
 const LOOT_BAG_INTERACT_RADIUS_SQ =
@@ -91,9 +102,11 @@ interface PlayerState {
   weaponDamageFlat: number;
   weaponRangeFlat: number;
   weaponSpeedPercent: number;
+  attackConfig: ResolvedWeaponAttackConfig;
   level: number;
   xp: number;
   nextAttackAtMs: number;
+  nextSpinbladeCastAtMs: number;
   pendingRespawn: boolean;
   openedContainerId: string | null;
   socket: ServerWebSocket<RealtimeSocketData>;
@@ -132,6 +145,42 @@ interface ProjectileState {
   damage: number;
   ttlMsRemaining: number;
   colorHex: string;
+  style: "orb" | "blade_spin";
+  destroyOnHit: boolean;
+  nextDamageAllowedByTargetAtMs: Map<string, number>;
+  attackInstanceId: string | null;
+  capSingleTargetPerAttack: boolean;
+}
+
+interface PendingBurstProjectileEvent {
+  id: string;
+  kind: "burst_projectile";
+  ownerCharacterId: string;
+  triggerAtMs: number;
+  origin: Vector2;
+  direction: Vector2;
+  damage: number;
+  colorHex: string;
+  attackInstanceId: string | null;
+  capSingleTargetPerAttack: boolean;
+}
+
+interface PendingAoeImpactEvent {
+  id: string;
+  kind: "aoe_impact";
+  ownerCharacterId: string;
+  triggerAtMs: number;
+  center: Vector2;
+  radius: number;
+  damage: number;
+}
+
+type PendingAttackEvent = PendingBurstProjectileEvent | PendingAoeImpactEvent;
+
+interface AttackHitTracker {
+  enemyIds: Set<string>;
+  playerIds: Set<string>;
+  expiresAtMs: number;
 }
 
 interface LootBagState {
@@ -152,6 +201,7 @@ interface JoinWorldOptions {
   baseStats?: Partial<CharacterBaseCombatStats>;
   progression?: Partial<PlayerProgression>;
   weaponModifiers?: Partial<WeaponStatModifiers>;
+  attackConfig?: Partial<ResolvedWeaponAttackConfig>;
 }
 
 interface CharacterProgressionUpdate {
@@ -232,6 +282,16 @@ export interface RealtimeSession {
   characterWeaponDamageFlat: number | null;
   characterWeaponRangeFlat: number | null;
   characterWeaponSpeedPercent: number | null;
+  characterWeaponStyle: WeaponStyle | null;
+  characterAttackPatternId: AttackPatternId | null;
+  characterAttackDamageMultiplier: number | null;
+  characterAttackProjectileCount: number | null;
+  characterAttackSpreadDegrees: number | null;
+  characterAttackBurstCount: number | null;
+  characterAttackBurstIntervalMs: number | null;
+  characterAttackAoeRadius: number | null;
+  characterAttackAoeDelayMs: number | null;
+  characterAttackMaxTargetHitsPerAttack: number | null;
   characterLevel: number | null;
   characterXp: number | null;
   characterXpToNextLevel: number | null;
@@ -279,6 +339,7 @@ function toProjectileSnapshot(projectile: ProjectileState): ProjectileSnapshot {
     velocity: projectile.velocity,
     radius: projectile.radius,
     colorHex: projectile.colorHex,
+    style: projectile.style,
   };
 }
 
@@ -341,6 +402,15 @@ function normalizeDirection(from: Vector2, to: Vector2): Vector2 {
 
 function dotProduct(first: Vector2, second: Vector2): number {
   return first.x * second.x + first.y * second.y;
+}
+
+function rotateDirection(direction: Vector2, radians: number): Vector2 {
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
+  return {
+    x: direction.x * cos - direction.y * sin,
+    y: direction.x * sin + direction.y * cos,
+  };
 }
 
 function createEmptyLootBagSlots(): Array<InventoryItemInstance | null> {
@@ -433,6 +503,88 @@ function resolveWeaponModifiers(
   return normalizeWeaponStatModifiers(partialModifiers);
 }
 
+function resolveAttackConfig(
+  characterClass: CharacterClass,
+  partialConfig?: Partial<ResolvedWeaponAttackConfig>,
+): ResolvedWeaponAttackConfig {
+  return resolveWeaponAttackConfig(
+    {
+      id: "runtime-weapon",
+      name: "Runtime Weapon",
+      iconKey: "runtime-weapon",
+      type: "weapon",
+      classRequirement: characterClass,
+      minLevelToEquip: null,
+      weaponDamageFlat: 0,
+      weaponRangeFlat: 0,
+      weaponSpeedPercent: 0,
+      weaponStyle: partialConfig?.weaponStyle ?? null,
+      attackPatternId: partialConfig?.attackPatternId ?? null,
+      attackDamageMultiplier: partialConfig?.damageMultiplier ?? null,
+      attackProjectileCount: partialConfig?.projectileCount ?? null,
+      attackSpreadDegrees: partialConfig?.spreadDegrees ?? null,
+      attackBurstCount: partialConfig?.burstCount ?? null,
+      attackBurstIntervalMs: partialConfig?.burstIntervalMs ?? null,
+      attackAoeRadius: partialConfig?.aoeRadius ?? null,
+      attackAoeDelayMs: partialConfig?.aoeDelayMs ?? null,
+    },
+    characterClass,
+  );
+}
+
+function readSessionWeaponModifiers(
+  session: RealtimeSession,
+): Partial<WeaponStatModifiers> {
+  return {
+    damageFlat: session.characterWeaponDamageFlat ?? undefined,
+    rangeFlat: session.characterWeaponRangeFlat ?? undefined,
+    speedPercent: session.characterWeaponSpeedPercent ?? undefined,
+  };
+}
+
+function writeSessionWeaponModifiers(
+  session: RealtimeSession,
+  modifiers: WeaponStatModifiers,
+): void {
+  session.characterWeaponDamageFlat = modifiers.damageFlat;
+  session.characterWeaponRangeFlat = modifiers.rangeFlat;
+  session.characterWeaponSpeedPercent = modifiers.speedPercent;
+}
+
+function readSessionAttackConfig(
+  session: RealtimeSession,
+): Partial<ResolvedWeaponAttackConfig> {
+  return {
+    weaponStyle: session.characterWeaponStyle ?? undefined,
+    attackPatternId: session.characterAttackPatternId ?? undefined,
+    damageMultiplier: session.characterAttackDamageMultiplier ?? undefined,
+    projectileCount: session.characterAttackProjectileCount ?? undefined,
+    spreadDegrees: session.characterAttackSpreadDegrees ?? undefined,
+    burstCount: session.characterAttackBurstCount ?? undefined,
+    burstIntervalMs: session.characterAttackBurstIntervalMs ?? undefined,
+    aoeRadius: session.characterAttackAoeRadius ?? undefined,
+    aoeDelayMs: session.characterAttackAoeDelayMs ?? undefined,
+    maxTargetHitsPerAttack:
+      session.characterAttackMaxTargetHitsPerAttack ?? undefined,
+  };
+}
+
+function writeSessionAttackConfig(
+  session: RealtimeSession,
+  attack: ResolvedWeaponAttackConfig,
+): void {
+  session.characterWeaponStyle = attack.weaponStyle;
+  session.characterAttackPatternId = attack.attackPatternId;
+  session.characterAttackDamageMultiplier = attack.damageMultiplier;
+  session.characterAttackProjectileCount = attack.projectileCount;
+  session.characterAttackSpreadDegrees = attack.spreadDegrees;
+  session.characterAttackBurstCount = attack.burstCount;
+  session.characterAttackBurstIntervalMs = attack.burstIntervalMs;
+  session.characterAttackAoeRadius = attack.aoeRadius;
+  session.characterAttackAoeDelayMs = attack.aoeDelayMs;
+  session.characterAttackMaxTargetHitsPerAttack = attack.maxTargetHitsPerAttack;
+}
+
 function computeEffectiveCombatStatsForLevel(
   baseStats: CharacterBaseCombatStats,
   level: number,
@@ -480,6 +632,8 @@ class WorldInstance {
   private players = new Map<string, PlayerState>();
   private enemies = new Map<string, EnemyState>();
   private projectiles = new Map<string, ProjectileState>();
+  private pendingAttackEvents: PendingAttackEvent[] = [];
+  private attackHitTracker = new Map<string, AttackHitTracker>();
   private lootBags = new Map<string, LootBagState>();
   private spawners = new Map<string, SpawnerRuntimeState>();
   private deadPlayerQueue = new Map<
@@ -552,6 +706,7 @@ class WorldInstance {
     baseStats: Partial<CharacterBaseCombatStats>,
     progression: Partial<PlayerProgression>,
     weaponModifiers?: Partial<WeaponStatModifiers>,
+    attackConfig?: Partial<ResolvedWeaponAttackConfig>,
     spawnOverride?: Vector2,
   ): PlayerState {
     const fallbackSpawn = findSpawnPoint(this.map, this.map.playerSpawnId) ??
@@ -560,6 +715,10 @@ class WorldInstance {
     const resolvedBaseStats = resolveBaseStats(characterClass, baseStats);
     const resolvedProgression = resolveProgression(progression);
     const resolvedWeaponModifiers = resolveWeaponModifiers(weaponModifiers);
+    const resolvedAttackConfig = resolveAttackConfig(
+      characterClass,
+      attackConfig,
+    );
     const effectiveCombatStats = computeEffectiveCombatStatsForLevel(
       resolvedBaseStats,
       resolvedProgression.level,
@@ -597,9 +756,11 @@ class WorldInstance {
       weaponDamageFlat: resolvedWeaponModifiers.damageFlat,
       weaponRangeFlat: resolvedWeaponModifiers.rangeFlat,
       weaponSpeedPercent: resolvedWeaponModifiers.speedPercent,
+      attackConfig: resolvedAttackConfig,
       level: resolvedProgression.level,
       xp: resolvedProgression.xp,
       nextAttackAtMs: 0,
+      nextSpinbladeCastAtMs: 0,
       pendingRespawn: false,
       openedContainerId: null,
     };
@@ -730,30 +891,93 @@ class WorldInstance {
     }
 
     const direction = normalizeDirection(player.position, message.aim);
-    const attackStyle = player.class === "mage" ? "ranged" : "melee";
-    player.nextAttackAtMs = now + player.baseAttackSpeedMs;
+    const attackConfig = player.attackConfig;
+    let target: Vector2 | undefined;
+    let aoeRadius: number | undefined;
+    let impactDelayMs: number | undefined;
+    let attackCooldownMs = player.baseAttackSpeedMs;
+
+    switch (attackConfig.attackPatternId) {
+      case "sword_cleave":
+        this.applyMeleeAttack(
+          player,
+          direction,
+          SWORD_CLEAVE_ARC_THRESHOLD,
+          attackConfig.damageMultiplier,
+          attackConfig.maxTargetHitsPerAttack,
+        );
+        break;
+      case "sword_spinblade":
+        attackCooldownMs = SPINBLADE_SWING_COOLDOWN_MS;
+        this.applyMeleeAttack(
+          player,
+          direction,
+          SWORD_CLEAVE_ARC_THRESHOLD,
+          1,
+          attackConfig.maxTargetHitsPerAttack,
+        );
+        if (now >= player.nextSpinbladeCastAtMs) {
+          this.spawnSpinbladeProjectile(player, direction);
+          player.nextSpinbladeCastAtMs =
+            now +
+            Math.max(player.baseAttackSpeedMs, SPINBLADE_CAST_COOLDOWN_MIN_MS);
+        }
+        break;
+      case "sword_whirl":
+        target = { x: player.position.x, y: player.position.y };
+        aoeRadius = attackConfig.aoeRadius;
+        impactDelayMs = 0;
+        this.applyAoeImpact(
+          player.id,
+          target,
+          attackConfig.aoeRadius,
+          player.baseDamage * attackConfig.damageMultiplier,
+        );
+        break;
+      case "wand_multishot":
+        this.spawnMultiShotProjectiles(player, direction, now);
+        break;
+      case "wand_burst":
+        this.enqueueBurstProjectiles(player, direction, now);
+        break;
+      case "staff_ground_aoe": {
+        const clamped = this.resolveAoeTarget(
+          player,
+          message.aim,
+          attackConfig.aoeRadius,
+        );
+        target = clamped;
+        aoeRadius = attackConfig.aoeRadius;
+        impactDelayMs = attackConfig.aoeDelayMs;
+        this.enqueueAoeImpact(player, clamped, now);
+        break;
+      }
+      default:
+        this.spawnPlayerProjectile(player, direction, player.baseDamage);
+        break;
+    }
+    player.nextAttackAtMs = now + attackCooldownMs;
 
     this.broadcast({
       type: "combat.attackPerformed",
       attackerId: player.id,
-      attackStyle,
+      attackStyle: attackConfig.attackStyle,
+      attackPatternId: attackConfig.attackPatternId,
+      weaponStyle: attackConfig.weaponStyle,
       origin: { x: player.position.x, y: player.position.y },
       direction,
       range: player.baseAttackRange,
+      target,
+      aoeRadius,
+      impactDelayMs,
     });
-
-    if (attackStyle === "melee") {
-      this.applyMeleeAttack(player, direction);
-      return;
-    }
-
-    this.spawnPlayerProjectile(player, direction);
   }
 
   updatePlayerWeaponModifiers(
     characterId: string,
     connectionId: string,
     modifiers: WeaponStatModifiers,
+    attackConfig?: Partial<ResolvedWeaponAttackConfig>,
   ): PlayerState | null {
     const player = this.players.get(characterId);
     if (!player || player.connectionId !== connectionId) {
@@ -766,6 +990,10 @@ class WorldInstance {
     player.weaponDamageFlat = safeModifiers.damageFlat;
     player.weaponRangeFlat = safeModifiers.rangeFlat;
     player.weaponSpeedPercent = safeModifiers.speedPercent;
+    player.attackConfig = resolveAttackConfig(
+      player.class,
+      attackConfig ?? player.attackConfig,
+    );
 
     const effectiveStats = computeEffectiveCombatStatsForLevel(
       {
@@ -826,7 +1054,9 @@ class WorldInstance {
   private simulate(dtMs: number): void {
     const now = Date.now();
     this.tickSpawners(now);
-    this.tickProjectiles(dtMs);
+    this.tickPendingAttackEvents(now);
+    this.tickProjectiles(dtMs, now);
+    this.pruneAttackHitTracker(now);
     this.tickEnemies(now, dtMs);
     this.tickLootBags(now);
     this.flushDeadPlayers();
@@ -962,7 +1192,7 @@ class WorldInstance {
     }
   }
 
-  private tickProjectiles(dtMs: number): void {
+  private tickProjectiles(dtMs: number, now: number): void {
     if (this.projectiles.size === 0) {
       return;
     }
@@ -1008,13 +1238,78 @@ class WorldInstance {
 
       projectile.position = nextPosition;
 
-      if (this.tryHitEnemyWithProjectile(projectile)) {
-        this.projectiles.delete(projectile.id);
+      if (projectile.style === "blade_spin") {
+        this.applySpinbladeProjectileHits(projectile, now);
         continue;
       }
 
-      if (this.tryHitPlayerWithProjectile(projectile)) {
-        this.projectiles.delete(projectile.id);
+      if (this.tryHitEnemyWithProjectile(projectile, now)) {
+        if (projectile.destroyOnHit) {
+          this.projectiles.delete(projectile.id);
+          continue;
+        }
+      }
+
+      if (this.tryHitPlayerWithProjectile(projectile, now)) {
+        if (projectile.destroyOnHit) {
+          this.projectiles.delete(projectile.id);
+        }
+      }
+    }
+  }
+
+  private tickPendingAttackEvents(now: number): void {
+    if (this.pendingAttackEvents.length === 0) {
+      return;
+    }
+
+    const remaining: PendingAttackEvent[] = [];
+    for (const event of this.pendingAttackEvents) {
+      if (now < event.triggerAtMs) {
+        remaining.push(event);
+        continue;
+      }
+
+      if (event.kind === "burst_projectile") {
+        const owner = this.players.get(event.ownerCharacterId);
+        if (!owner || owner.pendingRespawn || owner.currentHealth <= 0) {
+          continue;
+        }
+        this.spawnProjectile({
+          ownerCharacterId: event.ownerCharacterId,
+          origin: event.origin,
+          direction: event.direction,
+          damage: event.damage,
+          colorHex: event.colorHex,
+          attackInstanceId: event.attackInstanceId,
+          capSingleTargetPerAttack: event.capSingleTargetPerAttack,
+        });
+        continue;
+      }
+
+      const owner = this.players.get(event.ownerCharacterId);
+      if (!owner || owner.pendingRespawn || owner.currentHealth <= 0) {
+        continue;
+      }
+      this.applyAoeImpact(
+        event.ownerCharacterId,
+        event.center,
+        event.radius,
+        event.damage,
+      );
+    }
+
+    this.pendingAttackEvents = remaining;
+  }
+
+  private pruneAttackHitTracker(now: number): void {
+    if (this.attackHitTracker.size === 0) {
+      return;
+    }
+
+    for (const [attackInstanceId, tracker] of this.attackHitTracker) {
+      if (tracker.expiresAtMs <= now) {
+        this.attackHitTracker.delete(attackInstanceId);
       }
     }
   }
@@ -1447,11 +1742,18 @@ class WorldInstance {
     this.applyDamageToPlayer(target, enemy.archetype.damage);
   }
 
-  private applyMeleeAttack(player: PlayerState, direction: Vector2): void {
+  private applyMeleeAttack(
+    player: PlayerState,
+    direction: Vector2,
+    arcThreshold: number,
+    damageMultiplier = 1,
+    maxTargets = Number.POSITIVE_INFINITY,
+  ): void {
     if (!this.canPlayerDamageEnemy()) {
       return;
     }
 
+    let hits = 0;
     for (const enemy of this.enemies.values()) {
       const distanceToEnemySq = distanceSquared(
         player.position,
@@ -1464,35 +1766,352 @@ class WorldInstance {
       }
 
       const facing = normalizeDirection(player.position, enemy.position);
-      if (dotProduct(facing, direction) < MELEE_ARC_COS_THRESHOLD) {
+      if (dotProduct(facing, direction) < arcThreshold) {
         continue;
       }
 
-      this.applyDamageToEnemy(enemy.id, player.baseDamage, player.id);
+      this.applyDamageToEnemy(
+        enemy.id,
+        player.baseDamage * damageMultiplier,
+        player.id,
+      );
+      hits += 1;
+      if (hits >= maxTargets) {
+        return;
+      }
     }
   }
 
-  private spawnPlayerProjectile(player: PlayerState, direction: Vector2): void {
+  private resolveProjectileColorHex(player: PlayerState): string {
+    switch (player.attackConfig.weaponStyle) {
+      case "sword":
+        return "#fbbf24";
+      case "staff":
+        return "#38bdf8";
+      default:
+        return "#67e8f9";
+    }
+  }
+
+  private spawnProjectile(input: {
+    ownerCharacterId: string;
+    origin: Vector2;
+    direction: Vector2;
+    damage: number;
+    colorHex: string;
+    speed?: number;
+    ttlMs?: number;
+    radius?: number;
+    style?: "orb" | "blade_spin";
+    destroyOnHit?: boolean;
+    attackInstanceId: string | null;
+    capSingleTargetPerAttack: boolean;
+  }): void {
+    const speed = input.speed ?? PLAYER_PROJECTILE_SPEED;
+    const ttlMs = input.ttlMs ?? PLAYER_PROJECTILE_TTL_MS;
+    const radius = input.radius ?? PLAYER_PROJECTILE_RADIUS;
+
     const projectile: ProjectileState = {
       id: `projectile-${crypto.randomUUID()}`,
-      ownerCharacterId: player.id,
+      ownerCharacterId: input.ownerCharacterId,
       position: {
-        x: player.position.x + direction.x * (PLAYER_COLLIDER_SIZE.width / 2),
-        y: player.position.y + direction.y * (PLAYER_COLLIDER_SIZE.height / 2),
+        x:
+          input.origin.x + input.direction.x * (PLAYER_COLLIDER_SIZE.width / 2),
+        y:
+          input.origin.y +
+          input.direction.y * (PLAYER_COLLIDER_SIZE.height / 2),
       },
       velocity: {
-        x: direction.x * PLAYER_PROJECTILE_SPEED,
-        y: direction.y * PLAYER_PROJECTILE_SPEED,
+        x: input.direction.x * speed,
+        y: input.direction.y * speed,
       },
-      radius: PLAYER_PROJECTILE_RADIUS,
-      damage: player.baseDamage,
-      ttlMsRemaining: PLAYER_PROJECTILE_TTL_MS,
-      colorHex: player.class === "mage" ? "#67e8f9" : "#fbbf24",
+      radius,
+      damage: input.damage,
+      ttlMsRemaining: ttlMs,
+      colorHex: input.colorHex,
+      style: input.style ?? "orb",
+      destroyOnHit: input.destroyOnHit ?? true,
+      nextDamageAllowedByTargetAtMs: new Map<string, number>(),
+      attackInstanceId: input.attackInstanceId,
+      capSingleTargetPerAttack: input.capSingleTargetPerAttack,
     };
     this.projectiles.set(projectile.id, projectile);
   }
 
-  private tryHitEnemyWithProjectile(projectile: ProjectileState): boolean {
+  private spawnPlayerProjectile(
+    player: PlayerState,
+    direction: Vector2,
+    damage: number,
+    attackInstanceId: string | null = null,
+    capSingleTargetPerAttack = false,
+  ): void {
+    this.spawnProjectile({
+      ownerCharacterId: player.id,
+      origin: player.position,
+      direction,
+      damage,
+      colorHex: this.resolveProjectileColorHex(player),
+      attackInstanceId,
+      capSingleTargetPerAttack,
+    });
+  }
+
+  private spawnSpinbladeProjectile(
+    player: PlayerState,
+    direction: Vector2,
+  ): void {
+    this.spawnProjectile({
+      ownerCharacterId: player.id,
+      origin: player.position,
+      direction,
+      damage: player.baseDamage * player.attackConfig.damageMultiplier,
+      colorHex: this.resolveProjectileColorHex(player),
+      speed: SPINBLADE_SPEED,
+      ttlMs: SPINBLADE_TTL_MS,
+      radius: SPINBLADE_RADIUS,
+      style: "blade_spin",
+      destroyOnHit: false,
+      attackInstanceId: null,
+      capSingleTargetPerAttack: false,
+    });
+  }
+
+  private spawnMultiShotProjectiles(
+    player: PlayerState,
+    direction: Vector2,
+    now: number,
+  ): void {
+    const config = player.attackConfig;
+    const projectileCount = Math.max(1, config.projectileCount);
+    const spreadRadians = (config.spreadDegrees * Math.PI) / 180;
+    const step =
+      projectileCount <= 1 ? 0 : spreadRadians / (projectileCount - 1);
+    const start = -spreadRadians / 2;
+    const attackInstanceId = `attack-${crypto.randomUUID()}`;
+    this.attackHitTracker.set(attackInstanceId, {
+      enemyIds: new Set<string>(),
+      playerIds: new Set<string>(),
+      expiresAtMs: now + ATTACK_TRACKER_TTL_MS,
+    });
+
+    for (let index = 0; index < projectileCount; index += 1) {
+      const offset = start + step * index;
+      const projectileDirection = rotateDirection(direction, offset);
+      this.spawnPlayerProjectile(
+        player,
+        projectileDirection,
+        player.baseDamage * config.damageMultiplier,
+        attackInstanceId,
+        true,
+      );
+    }
+  }
+
+  private enqueueBurstProjectiles(
+    player: PlayerState,
+    direction: Vector2,
+    now: number,
+  ): void {
+    const config = player.attackConfig;
+    const eventCount = Math.max(1, config.burstCount);
+    const colorHex = this.resolveProjectileColorHex(player);
+    for (let index = 0; index < eventCount; index += 1) {
+      this.pendingAttackEvents.push({
+        id: `pending-${crypto.randomUUID()}`,
+        kind: "burst_projectile",
+        ownerCharacterId: player.id,
+        triggerAtMs: now + index * config.burstIntervalMs,
+        origin: { x: player.position.x, y: player.position.y },
+        direction: { x: direction.x, y: direction.y },
+        damage: player.baseDamage * config.damageMultiplier,
+        colorHex,
+        attackInstanceId: null,
+        capSingleTargetPerAttack: false,
+      });
+    }
+  }
+
+  private resolveAoeTarget(
+    player: PlayerState,
+    aim: Vector2,
+    radius: number,
+  ): Vector2 {
+    const direction = normalizeDirection(player.position, aim);
+    const distance = Math.min(
+      player.baseAttackRange,
+      Math.hypot(aim.x - player.position.x, aim.y - player.position.y),
+    );
+    const colliderSize = {
+      width: Math.max(20, radius * 1.7),
+      height: Math.max(20, radius * 1.7),
+    };
+    const step = Math.max(8, radius * 0.35);
+    let candidateDistance = distance;
+
+    for (let attempts = 0; attempts < 12; attempts += 1) {
+      const candidate = clampToWorldBounds(
+        {
+          x: player.position.x + direction.x * candidateDistance,
+          y: player.position.y + direction.y * candidateDistance,
+        },
+        this.map,
+        colliderSize,
+      );
+      if (!positionCollidesWithMap(candidate, this.map, colliderSize)) {
+        return candidate;
+      }
+      candidateDistance = Math.max(12, candidateDistance - step);
+    }
+
+    return clampToWorldBounds(
+      {
+        x:
+          player.position.x +
+          direction.x * Math.min(36, player.baseAttackRange),
+        y:
+          player.position.y +
+          direction.y * Math.min(36, player.baseAttackRange),
+      },
+      this.map,
+      colliderSize,
+    );
+  }
+
+  private enqueueAoeImpact(
+    player: PlayerState,
+    center: Vector2,
+    now: number,
+  ): void {
+    const config = player.attackConfig;
+    this.pendingAttackEvents.push({
+      id: `pending-${crypto.randomUUID()}`,
+      kind: "aoe_impact",
+      ownerCharacterId: player.id,
+      triggerAtMs: now + config.aoeDelayMs,
+      center,
+      radius: config.aoeRadius,
+      damage: player.baseDamage * config.damageMultiplier,
+    });
+  }
+
+  private applyAoeImpact(
+    ownerCharacterId: string,
+    center: Vector2,
+    radius: number,
+    damage: number,
+  ): void {
+    for (const enemy of this.enemies.values()) {
+      const extraRadius =
+        Math.max(enemy.archetype.visualWidth, enemy.archetype.visualHeight) / 2;
+      if (
+        distanceSquared(center, enemy.position) >
+        (radius + extraRadius) ** 2
+      ) {
+        continue;
+      }
+      this.applyDamageToEnemy(enemy.id, damage, ownerCharacterId);
+    }
+
+    if (!this.canPlayerDamagePlayer()) {
+      return;
+    }
+    for (const player of this.players.values()) {
+      if (player.id === ownerCharacterId) {
+        continue;
+      }
+      if (distanceSquared(center, player.position) > (radius + 16) ** 2) {
+        continue;
+      }
+      this.applyDamageToPlayer(player, damage);
+    }
+  }
+
+  private applySpinbladeProjectileHits(
+    projectile: ProjectileState,
+    now: number,
+  ): void {
+    if (this.canPlayerDamageEnemy()) {
+      for (const enemy of this.enemies.values()) {
+        const halfWidth = enemy.archetype.visualWidth / 2;
+        const halfHeight = enemy.archetype.visualHeight / 2;
+        const hit =
+          projectile.position.x + projectile.radius >=
+            enemy.position.x - halfWidth &&
+          projectile.position.x - projectile.radius <=
+            enemy.position.x + halfWidth &&
+          projectile.position.y + projectile.radius >=
+            enemy.position.y - halfHeight &&
+          projectile.position.y - projectile.radius <=
+            enemy.position.y + halfHeight;
+        if (!hit) {
+          continue;
+        }
+
+        const targetKey = `enemy:${enemy.id}`;
+        const nextAllowedAt =
+          projectile.nextDamageAllowedByTargetAtMs.get(targetKey) ?? 0;
+        if (now < nextAllowedAt) {
+          continue;
+        }
+
+        this.applyDamageToEnemy(
+          enemy.id,
+          projectile.damage,
+          projectile.ownerCharacterId,
+        );
+        projectile.nextDamageAllowedByTargetAtMs.set(
+          targetKey,
+          now + SPINBLADE_HIT_INTERVAL_MS,
+        );
+      }
+    }
+
+    if (!this.canPlayerDamagePlayer()) {
+      return;
+    }
+
+    for (const player of this.players.values()) {
+      if (player.id === projectile.ownerCharacterId) {
+        continue;
+      }
+      if (player.currentHealth <= 0 || player.pendingRespawn) {
+        continue;
+      }
+
+      const halfWidth = PLAYER_COLLIDER_SIZE.width / 2;
+      const halfHeight = PLAYER_COLLIDER_SIZE.height / 2;
+      const hit =
+        projectile.position.x + projectile.radius >=
+          player.position.x - halfWidth &&
+        projectile.position.x - projectile.radius <=
+          player.position.x + halfWidth &&
+        projectile.position.y + projectile.radius >=
+          player.position.y - halfHeight &&
+        projectile.position.y - projectile.radius <=
+          player.position.y + halfHeight;
+      if (!hit) {
+        continue;
+      }
+
+      const targetKey = `player:${player.id}`;
+      const nextAllowedAt =
+        projectile.nextDamageAllowedByTargetAtMs.get(targetKey) ?? 0;
+      if (now < nextAllowedAt) {
+        continue;
+      }
+
+      this.applyDamageToPlayer(player, projectile.damage);
+      projectile.nextDamageAllowedByTargetAtMs.set(
+        targetKey,
+        now + SPINBLADE_HIT_INTERVAL_MS,
+      );
+    }
+  }
+
+  private tryHitEnemyWithProjectile(
+    projectile: ProjectileState,
+    now: number,
+  ): boolean {
     if (!this.canPlayerDamageEnemy()) {
       return false;
     }
@@ -1513,6 +2132,25 @@ class WorldInstance {
         continue;
       }
 
+      if (
+        projectile.capSingleTargetPerAttack &&
+        projectile.attackInstanceId !== null
+      ) {
+        const tracker =
+          this.attackHitTracker.get(projectile.attackInstanceId) ??
+          ({
+            enemyIds: new Set<string>(),
+            playerIds: new Set<string>(),
+            expiresAtMs: now + ATTACK_TRACKER_TTL_MS,
+          } satisfies AttackHitTracker);
+        if (tracker.enemyIds.has(enemy.id)) {
+          continue;
+        }
+        tracker.enemyIds.add(enemy.id);
+        tracker.expiresAtMs = now + ATTACK_TRACKER_TTL_MS;
+        this.attackHitTracker.set(projectile.attackInstanceId, tracker);
+      }
+
       this.applyDamageToEnemy(
         enemy.id,
         projectile.damage,
@@ -1524,7 +2162,10 @@ class WorldInstance {
     return false;
   }
 
-  private tryHitPlayerWithProjectile(projectile: ProjectileState): boolean {
+  private tryHitPlayerWithProjectile(
+    projectile: ProjectileState,
+    now: number,
+  ): boolean {
     if (!this.canPlayerDamagePlayer()) {
       return false;
     }
@@ -1550,6 +2191,25 @@ class WorldInstance {
           player.position.y + halfHeight;
       if (!hit) {
         continue;
+      }
+
+      if (
+        projectile.capSingleTargetPerAttack &&
+        projectile.attackInstanceId !== null
+      ) {
+        const tracker =
+          this.attackHitTracker.get(projectile.attackInstanceId) ??
+          ({
+            enemyIds: new Set<string>(),
+            playerIds: new Set<string>(),
+            expiresAtMs: now + ATTACK_TRACKER_TTL_MS,
+          } satisfies AttackHitTracker);
+        if (tracker.playerIds.has(player.id)) {
+          continue;
+        }
+        tracker.playerIds.add(player.id);
+        tracker.expiresAtMs = now + ATTACK_TRACKER_TTL_MS;
+        this.attackHitTracker.set(projectile.attackInstanceId, tracker);
       }
 
       this.applyDamageToPlayer(player, projectile.damage);
@@ -1724,28 +2384,25 @@ class WorldInstance {
 
   private syncPlayerSessionProgress(player: PlayerState): void {
     const xpToNextLevel = getXpToNextLevelForLevel(player.level);
-    player.socket.data.session.characterCurrentHealth = player.currentHealth;
-    player.socket.data.session.characterMaxHealth = player.maxHealth;
-    player.socket.data.session.characterBaseDamage = player.baseDamage;
-    player.socket.data.session.characterBaseAttackSpeedMs =
-      player.baseAttackSpeedMs;
-    player.socket.data.session.characterBaseAttackRange =
-      player.baseAttackRange;
-    player.socket.data.session.characterRawMaxHealth = player.rawMaxHealth;
-    player.socket.data.session.characterRawBaseDamage = player.rawBaseDamage;
-    player.socket.data.session.characterRawBaseAttackSpeedMs =
-      player.rawBaseAttackSpeedMs;
-    player.socket.data.session.characterRawBaseAttackRange =
-      player.rawBaseAttackRange;
-    player.socket.data.session.characterWeaponDamageFlat =
-      player.weaponDamageFlat;
-    player.socket.data.session.characterWeaponRangeFlat =
-      player.weaponRangeFlat;
-    player.socket.data.session.characterWeaponSpeedPercent =
-      player.weaponSpeedPercent;
-    player.socket.data.session.characterLevel = player.level;
-    player.socket.data.session.characterXp = player.xp;
-    player.socket.data.session.characterXpToNextLevel = xpToNextLevel;
+    const session = player.socket.data.session;
+    session.characterCurrentHealth = player.currentHealth;
+    session.characterMaxHealth = player.maxHealth;
+    session.characterBaseDamage = player.baseDamage;
+    session.characterBaseAttackSpeedMs = player.baseAttackSpeedMs;
+    session.characterBaseAttackRange = player.baseAttackRange;
+    session.characterRawMaxHealth = player.rawMaxHealth;
+    session.characterRawBaseDamage = player.rawBaseDamage;
+    session.characterRawBaseAttackSpeedMs = player.rawBaseAttackSpeedMs;
+    session.characterRawBaseAttackRange = player.rawBaseAttackRange;
+    writeSessionWeaponModifiers(session, {
+      damageFlat: player.weaponDamageFlat,
+      rangeFlat: player.weaponRangeFlat,
+      speedPercent: player.weaponSpeedPercent,
+    });
+    writeSessionAttackConfig(session, player.attackConfig);
+    session.characterLevel = player.level;
+    session.characterXp = player.xp;
+    session.characterXpToNextLevel = xpToNextLevel;
   }
 
   private emitFloatingText(
@@ -1958,6 +2615,16 @@ export class WorldManager {
         characterWeaponDamageFlat: null,
         characterWeaponRangeFlat: null,
         characterWeaponSpeedPercent: null,
+        characterWeaponStyle: null,
+        characterAttackPatternId: null,
+        characterAttackDamageMultiplier: null,
+        characterAttackProjectileCount: null,
+        characterAttackSpreadDegrees: null,
+        characterAttackBurstCount: null,
+        characterAttackBurstIntervalMs: null,
+        characterAttackAoeRadius: null,
+        characterAttackAoeDelayMs: null,
+        characterAttackMaxTargetHitsPerAttack: null,
         characterLevel: null,
         characterXp: null,
         characterXpToNextLevel: null,
@@ -1974,76 +2641,69 @@ export class WorldManager {
     colorHex: string,
     options?: JoinWorldOptions,
   ): Vector2 | null {
+    const session = socket.data.session;
     const instance = this.getOrCreate(worldId);
     if (!instance) {
       return null;
     }
 
-    const currentWorldId = socket.data.session.worldId;
+    const currentWorldId = session.worldId;
     if (currentWorldId) {
       this.leaveWorld(socket);
     }
 
     const player = instance.addPlayer(
-      socket.data.session.connectionId,
+      session.connectionId,
       characterId,
       nickname,
       characterClass,
       colorHex,
       socket,
       options?.combatStats ?? {
-        currentHealth: socket.data.session.characterCurrentHealth ?? undefined,
-        maxHealth: socket.data.session.characterMaxHealth ?? undefined,
-        baseDamage: socket.data.session.characterBaseDamage ?? undefined,
-        baseAttackSpeedMs:
-          socket.data.session.characterBaseAttackSpeedMs ?? undefined,
-        baseAttackRange:
-          socket.data.session.characterBaseAttackRange ?? undefined,
+        currentHealth: session.characterCurrentHealth ?? undefined,
+        maxHealth: session.characterMaxHealth ?? undefined,
+        baseDamage: session.characterBaseDamage ?? undefined,
+        baseAttackSpeedMs: session.characterBaseAttackSpeedMs ?? undefined,
+        baseAttackRange: session.characterBaseAttackRange ?? undefined,
       },
       options?.baseStats ?? {
-        maxHp: socket.data.session.characterRawMaxHealth ?? undefined,
-        baseDamage: socket.data.session.characterRawBaseDamage ?? undefined,
-        baseAttackSpeedMs:
-          socket.data.session.characterRawBaseAttackSpeedMs ?? undefined,
-        baseAttackRange:
-          socket.data.session.characterRawBaseAttackRange ?? undefined,
+        maxHp: session.characterRawMaxHealth ?? undefined,
+        baseDamage: session.characterRawBaseDamage ?? undefined,
+        baseAttackSpeedMs: session.characterRawBaseAttackSpeedMs ?? undefined,
+        baseAttackRange: session.characterRawBaseAttackRange ?? undefined,
       },
       options?.progression ?? {
-        level: socket.data.session.characterLevel ?? undefined,
-        xp: socket.data.session.characterXp ?? undefined,
+        level: session.characterLevel ?? undefined,
+        xp: session.characterXp ?? undefined,
       },
-      options?.weaponModifiers ?? {
-        damageFlat: socket.data.session.characterWeaponDamageFlat ?? undefined,
-        rangeFlat: socket.data.session.characterWeaponRangeFlat ?? undefined,
-        speedPercent:
-          socket.data.session.characterWeaponSpeedPercent ?? undefined,
-      },
+      options?.weaponModifiers ?? readSessionWeaponModifiers(session),
+      options?.attackConfig ?? readSessionAttackConfig(session),
       options?.spawnOverride,
     );
     const spawn = player.position;
-    socket.data.session.worldId = worldId;
-    socket.data.session.characterId = characterId;
-    socket.data.session.characterNickname = nickname;
-    socket.data.session.characterClass = characterClass;
-    socket.data.session.characterColorHex = colorHex;
-    socket.data.session.characterCurrentHealth = player.currentHealth;
-    socket.data.session.characterMaxHealth = player.maxHealth;
-    socket.data.session.characterBaseDamage = player.baseDamage;
-    socket.data.session.characterBaseAttackSpeedMs = player.baseAttackSpeedMs;
-    socket.data.session.characterBaseAttackRange = player.baseAttackRange;
-    socket.data.session.characterRawMaxHealth = player.rawMaxHealth;
-    socket.data.session.characterRawBaseDamage = player.rawBaseDamage;
-    socket.data.session.characterRawBaseAttackSpeedMs =
-      player.rawBaseAttackSpeedMs;
-    socket.data.session.characterRawBaseAttackRange = player.rawBaseAttackRange;
-    socket.data.session.characterWeaponDamageFlat = player.weaponDamageFlat;
-    socket.data.session.characterWeaponRangeFlat = player.weaponRangeFlat;
-    socket.data.session.characterWeaponSpeedPercent = player.weaponSpeedPercent;
-    socket.data.session.characterLevel = player.level;
-    socket.data.session.characterXp = player.xp;
-    socket.data.session.characterXpToNextLevel = getXpToNextLevelForLevel(
-      player.level,
-    );
+    session.worldId = worldId;
+    session.characterId = characterId;
+    session.characterNickname = nickname;
+    session.characterClass = characterClass;
+    session.characterColorHex = colorHex;
+    session.characterCurrentHealth = player.currentHealth;
+    session.characterMaxHealth = player.maxHealth;
+    session.characterBaseDamage = player.baseDamage;
+    session.characterBaseAttackSpeedMs = player.baseAttackSpeedMs;
+    session.characterBaseAttackRange = player.baseAttackRange;
+    session.characterRawMaxHealth = player.rawMaxHealth;
+    session.characterRawBaseDamage = player.rawBaseDamage;
+    session.characterRawBaseAttackSpeedMs = player.rawBaseAttackSpeedMs;
+    session.characterRawBaseAttackRange = player.rawBaseAttackRange;
+    writeSessionWeaponModifiers(session, {
+      damageFlat: player.weaponDamageFlat,
+      rangeFlat: player.weaponRangeFlat,
+      speedPercent: player.weaponSpeedPercent,
+    });
+    writeSessionAttackConfig(session, player.attackConfig);
+    session.characterLevel = player.level;
+    session.characterXp = player.xp;
+    session.characterXpToNextLevel = getXpToNextLevelForLevel(player.level);
 
     socket.send(
       stringifyServerMessage({
@@ -2067,41 +2727,39 @@ export class WorldManager {
   }
 
   leaveWorld(socket: ServerWebSocket<RealtimeSocketData>): void {
-    const { connectionId, characterId, worldId } = socket.data.session;
+    const session = socket.data.session;
+    const { connectionId, characterId, worldId } = session;
     if (!characterId || !worldId) {
       return;
     }
 
     const instance = this.instances.get(worldId);
     if (!instance) {
-      socket.data.session.worldId = null;
+      session.worldId = null;
       return;
     }
 
     const removed = instance.removePlayer(characterId, connectionId);
-    socket.data.session.worldId = null;
+    session.worldId = null;
     if (removed) {
-      socket.data.session.characterCurrentHealth = removed.currentHealth;
-      socket.data.session.characterMaxHealth = removed.maxHealth;
-      socket.data.session.characterBaseDamage = removed.baseDamage;
-      socket.data.session.characterBaseAttackSpeedMs =
-        removed.baseAttackSpeedMs;
-      socket.data.session.characterBaseAttackRange = removed.baseAttackRange;
-      socket.data.session.characterRawMaxHealth = removed.rawMaxHealth;
-      socket.data.session.characterRawBaseDamage = removed.rawBaseDamage;
-      socket.data.session.characterRawBaseAttackSpeedMs =
-        removed.rawBaseAttackSpeedMs;
-      socket.data.session.characterRawBaseAttackRange =
-        removed.rawBaseAttackRange;
-      socket.data.session.characterWeaponDamageFlat = removed.weaponDamageFlat;
-      socket.data.session.characterWeaponRangeFlat = removed.weaponRangeFlat;
-      socket.data.session.characterWeaponSpeedPercent =
-        removed.weaponSpeedPercent;
-      socket.data.session.characterLevel = removed.level;
-      socket.data.session.characterXp = removed.xp;
-      socket.data.session.characterXpToNextLevel = getXpToNextLevelForLevel(
-        removed.level,
-      );
+      session.characterCurrentHealth = removed.currentHealth;
+      session.characterMaxHealth = removed.maxHealth;
+      session.characterBaseDamage = removed.baseDamage;
+      session.characterBaseAttackSpeedMs = removed.baseAttackSpeedMs;
+      session.characterBaseAttackRange = removed.baseAttackRange;
+      session.characterRawMaxHealth = removed.rawMaxHealth;
+      session.characterRawBaseDamage = removed.rawBaseDamage;
+      session.characterRawBaseAttackSpeedMs = removed.rawBaseAttackSpeedMs;
+      session.characterRawBaseAttackRange = removed.rawBaseAttackRange;
+      writeSessionWeaponModifiers(session, {
+        damageFlat: removed.weaponDamageFlat,
+        rangeFlat: removed.weaponRangeFlat,
+        speedPercent: removed.weaponSpeedPercent,
+      });
+      writeSessionAttackConfig(session, removed.attackConfig);
+      session.characterLevel = removed.level;
+      session.characterXp = removed.xp;
+      session.characterXpToNextLevel = getXpToNextLevelForLevel(removed.level);
     }
 
     if (instance.size === 0) {
@@ -2152,13 +2810,18 @@ export class WorldManager {
   updatePlayerWeaponModifiers(
     socket: ServerWebSocket<RealtimeSocketData>,
     modifiers: Partial<WeaponStatModifiers>,
+    attackConfig?: Partial<ResolvedWeaponAttackConfig>,
   ): void {
+    const session = socket.data.session;
     const normalized = resolveWeaponModifiers(modifiers);
-    const { connectionId, characterId, worldId } = socket.data.session;
+    const attack = resolveAttackConfig(
+      session.characterClass ?? "knight",
+      attackConfig ?? readSessionAttackConfig(session),
+    );
+    const { connectionId, characterId, worldId } = session;
 
-    socket.data.session.characterWeaponDamageFlat = normalized.damageFlat;
-    socket.data.session.characterWeaponRangeFlat = normalized.rangeFlat;
-    socket.data.session.characterWeaponSpeedPercent = normalized.speedPercent;
+    writeSessionWeaponModifiers(session, normalized);
+    writeSessionAttackConfig(session, attack);
 
     if (!characterId || !worldId) {
       return;
@@ -2173,14 +2836,15 @@ export class WorldManager {
       characterId,
       connectionId,
       normalized,
+      attack,
     );
     if (!updated) {
       return;
     }
 
-    socket.data.session.characterBaseDamage = updated.baseDamage;
-    socket.data.session.characterBaseAttackSpeedMs = updated.baseAttackSpeedMs;
-    socket.data.session.characterBaseAttackRange = updated.baseAttackRange;
+    session.characterBaseDamage = updated.baseDamage;
+    session.characterBaseAttackSpeedMs = updated.baseAttackSpeedMs;
+    session.characterBaseAttackRange = updated.baseAttackRange;
   }
 
   createPlayerDropLootBag(
@@ -2325,6 +2989,7 @@ export class WorldManager {
     socket: ServerWebSocket<RealtimeSocketData>,
     portal: PortalTrigger,
   ): void {
+    const session = socket.data.session;
     const {
       characterId,
       worldId,
@@ -2340,12 +3005,9 @@ export class WorldManager {
       characterRawBaseDamage,
       characterRawBaseAttackSpeedMs,
       characterRawBaseAttackRange,
-      characterWeaponDamageFlat,
-      characterWeaponRangeFlat,
-      characterWeaponSpeedPercent,
       characterLevel,
       characterXp,
-    } = socket.data.session;
+    } = session;
     if (
       !characterId ||
       !worldId ||
@@ -2402,11 +3064,8 @@ export class WorldManager {
           level: characterLevel ?? undefined,
           xp: characterXp ?? undefined,
         },
-        weaponModifiers: {
-          damageFlat: characterWeaponDamageFlat ?? undefined,
-          rangeFlat: characterWeaponRangeFlat ?? undefined,
-          speedPercent: characterWeaponSpeedPercent ?? undefined,
-        },
+        weaponModifiers: readSessionWeaponModifiers(session),
+        attackConfig: readSessionAttackConfig(session),
         spawnOverride: {
           x: targetSpawn.x + portal.exitOffset.x,
           y: targetSpawn.y + portal.exitOffset.y,
@@ -2419,6 +3078,7 @@ export class WorldManager {
     socket: ServerWebSocket<RealtimeSocketData>,
     characterId: string,
   ): void {
+    const session = socket.data.session;
     const {
       worldId,
       characterId: sessionCharacterId,
@@ -2430,12 +3090,9 @@ export class WorldManager {
       characterRawBaseDamage,
       characterRawBaseAttackSpeedMs,
       characterRawBaseAttackRange,
-      characterWeaponDamageFlat,
-      characterWeaponRangeFlat,
-      characterWeaponSpeedPercent,
       characterLevel,
       characterXp,
-    } = socket.data.session;
+    } = session;
     if (
       !worldId ||
       !sessionCharacterId ||
@@ -2473,14 +3130,10 @@ export class WorldManager {
     const scaledStats = computeEffectiveCombatStatsForLevel(
       baseStats,
       normalizedProgression.level,
-      resolveWeaponModifiers({
-        damageFlat: characterWeaponDamageFlat ?? undefined,
-        rangeFlat: characterWeaponRangeFlat ?? undefined,
-        speedPercent: characterWeaponSpeedPercent ?? undefined,
-      }),
+      resolveWeaponModifiers(readSessionWeaponModifiers(session)),
     );
     const maxHealth = Math.max(1, characterMaxHealth ?? scaledStats.maxHealth);
-    socket.data.session.characterCurrentHealth = maxHealth;
+    session.characterCurrentHealth = maxHealth;
 
     socket.send(
       stringifyServerMessage({
@@ -2522,11 +3175,8 @@ export class WorldManager {
           level: normalizedProgression.level,
           xp: normalizedProgression.xp,
         },
-        weaponModifiers: {
-          damageFlat: characterWeaponDamageFlat ?? undefined,
-          rangeFlat: characterWeaponRangeFlat ?? undefined,
-          speedPercent: characterWeaponSpeedPercent ?? undefined,
-        },
+        weaponModifiers: readSessionWeaponModifiers(session),
+        attackConfig: readSessionAttackConfig(session),
       },
     );
   }

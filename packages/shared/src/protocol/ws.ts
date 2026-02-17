@@ -1,12 +1,14 @@
 import { type CharacterClass, isCharacterClass } from "../characters";
 import type { EnemyBehaviorState, EnemySnapshot } from "../enemies";
 import {
+  type AttackPatternId,
   type ContainerActionErrorCode,
   type InventoryActionErrorCode,
   type InventoryItemInstance,
   type InventorySlotRef,
   type InventoryStatePayload,
   type StorageSlotRef,
+  type WeaponStyle,
   isInventorySlotRef,
   isStorageSlotRef,
 } from "../items";
@@ -42,6 +44,7 @@ export interface ProjectileSnapshot {
   velocity: Vector2;
   radius: number;
   colorHex: string;
+  style?: "orb" | "blade_spin";
 }
 
 export interface WorldSnapshotPayload {
@@ -195,10 +198,15 @@ export type ServerToClientMessage =
   | {
       type: "combat.attackPerformed";
       attackerId: string;
-      attackStyle: "melee" | "ranged";
+      attackStyle: "melee" | "ranged" | "aoe";
+      attackPatternId: AttackPatternId;
+      weaponStyle: WeaponStyle;
       origin: Vector2;
       direction: Vector2;
       range: number;
+      target?: Vector2;
+      aoeRadius?: number;
+      impactDelayMs?: number;
     }
   | {
       type: "combat.playerDied";
@@ -338,6 +346,7 @@ function isProjectileSnapshot(value: unknown): value is ProjectileSnapshot {
     return false;
   }
   const radius = value.radius;
+  const style = value.style;
 
   return (
     typeof value.id === "string" &&
@@ -350,7 +359,8 @@ function isProjectileSnapshot(value: unknown): value is ProjectileSnapshot {
     Number.isFinite(radius) &&
     radius > 0 &&
     typeof value.colorHex === "string" &&
-    value.colorHex.length > 0
+    value.colorHex.length > 0 &&
+    (style === undefined || style === "orb" || style === "blade_spin")
   );
 }
 

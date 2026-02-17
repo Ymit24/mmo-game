@@ -1,3 +1,10 @@
+import type {
+  AttackPatternId,
+  CharacterClass,
+  ItemType,
+  WeaponStyle,
+} from "@mmo/shared";
+
 const BASE = "/api/admin";
 const ADMIN_BEARER_TOKEN =
   import.meta.env.VITE_ADMIN_API_BEARER_TOKEN?.trim() ?? "";
@@ -81,19 +88,28 @@ export interface ItemDefinition {
   id: string;
   name: string;
   iconKey: string;
-  type: string;
-  classRequirement: string | null;
+  type: ItemType;
+  classRequirement: CharacterClass | null;
   minLevelToEquip: number | null;
   weaponDamageFlat: number | null;
   weaponRangeFlat: number | null;
   weaponSpeedPercent: number | null;
+  weaponStyle: WeaponStyle | null;
+  attackPatternId: AttackPatternId | null;
+  attackDamageMultiplier: number | null;
+  attackProjectileCount: number | null;
+  attackSpreadDegrees: number | null;
+  attackBurstCount: number | null;
+  attackBurstIntervalMs: number | null;
+  attackAoeRadius: number | null;
+  attackAoeDelayMs: number | null;
 }
 
 export interface LootEntry {
   id: string;
   itemDefinitionId: string;
   weight: number;
-  classAffinity: string | null;
+  classAffinity: CharacterClass | null;
 }
 
 export interface LootTable {

@@ -1,5 +1,9 @@
 import type { Database } from "bun:sqlite";
-import { type CharacterClass, parseWorldMap } from "@mmo/shared";
+import {
+  type CharacterClass,
+  parseWorldMap,
+  resolveWeaponAttackConfig,
+} from "@mmo/shared";
 import { guardAdminRequest } from "./guard";
 import {
   deleteMapFile,
@@ -322,6 +326,15 @@ interface ItemDefinitionRow {
   weapon_damage_flat: number | null;
   weapon_range_flat: number | null;
   weapon_speed_percent: number | null;
+  weapon_style: string | null;
+  attack_pattern_id: string | null;
+  attack_damage_multiplier: number | null;
+  attack_projectile_count: number | null;
+  attack_spread_degrees: number | null;
+  attack_burst_count: number | null;
+  attack_burst_interval_ms: number | null;
+  attack_aoe_radius: number | null;
+  attack_aoe_delay_ms: number | null;
 }
 
 function mapItemRow(row: ItemDefinitionRow) {
@@ -335,6 +348,97 @@ function mapItemRow(row: ItemDefinitionRow) {
     weaponDamageFlat: row.weapon_damage_flat,
     weaponRangeFlat: row.weapon_range_flat,
     weaponSpeedPercent: row.weapon_speed_percent,
+    weaponStyle: row.weapon_style,
+    attackPatternId: row.attack_pattern_id,
+    attackDamageMultiplier: row.attack_damage_multiplier,
+    attackProjectileCount: row.attack_projectile_count,
+    attackSpreadDegrees: row.attack_spread_degrees,
+    attackBurstCount: row.attack_burst_count,
+    attackBurstIntervalMs: row.attack_burst_interval_ms,
+    attackAoeRadius: row.attack_aoe_radius,
+    attackAoeDelayMs: row.attack_aoe_delay_ms,
+  };
+}
+
+function normalizeClassRequirement(value: unknown): CharacterClass | null {
+  if (value === "knight" || value === "mage") {
+    return value;
+  }
+  return null;
+}
+
+function resolveItemAttackColumns(body: Record<string, unknown>): {
+  weaponStyle: string | null;
+  attackPatternId: string | null;
+  attackDamageMultiplier: number | null;
+  attackProjectileCount: number | null;
+  attackSpreadDegrees: number | null;
+  attackBurstCount: number | null;
+  attackBurstIntervalMs: number | null;
+  attackAoeRadius: number | null;
+  attackAoeDelayMs: number | null;
+} {
+  const type = str(body.type, "misc");
+  if (type !== "weapon") {
+    return {
+      weaponStyle: null,
+      attackPatternId: null,
+      attackDamageMultiplier: null,
+      attackProjectileCount: null,
+      attackSpreadDegrees: null,
+      attackBurstCount: null,
+      attackBurstIntervalMs: null,
+      attackAoeRadius: null,
+      attackAoeDelayMs: null,
+    };
+  }
+
+  const classRequirement = normalizeClassRequirement(body.classRequirement);
+  const resolved = resolveWeaponAttackConfig(
+    {
+      id: str(body.id, "weapon"),
+      name: str(body.name, "Unnamed"),
+      iconKey: str(body.iconKey, str(body.id, "weapon")),
+      type: "weapon",
+      classRequirement,
+      minLevelToEquip: numOrNull(body.minLevelToEquip),
+      weaponDamageFlat: numOrNull(body.weaponDamageFlat),
+      weaponRangeFlat: numOrNull(body.weaponRangeFlat),
+      weaponSpeedPercent: numOrNull(body.weaponSpeedPercent),
+      weaponStyle: strOrNull(body.weaponStyle) as
+        | "sword"
+        | "wand"
+        | "staff"
+        | null,
+      attackPatternId: strOrNull(body.attackPatternId) as
+        | "sword_cleave"
+        | "sword_spinblade"
+        | "sword_whirl"
+        | "wand_multishot"
+        | "wand_burst"
+        | "staff_ground_aoe"
+        | null,
+      attackDamageMultiplier: numOrNull(body.attackDamageMultiplier),
+      attackProjectileCount: numOrNull(body.attackProjectileCount),
+      attackSpreadDegrees: numOrNull(body.attackSpreadDegrees),
+      attackBurstCount: numOrNull(body.attackBurstCount),
+      attackBurstIntervalMs: numOrNull(body.attackBurstIntervalMs),
+      attackAoeRadius: numOrNull(body.attackAoeRadius),
+      attackAoeDelayMs: numOrNull(body.attackAoeDelayMs),
+    },
+    classRequirement ?? "knight",
+  );
+
+  return {
+    weaponStyle: resolved.weaponStyle,
+    attackPatternId: resolved.attackPatternId,
+    attackDamageMultiplier: resolved.damageMultiplier,
+    attackProjectileCount: resolved.projectileCount,
+    attackSpreadDegrees: resolved.spreadDegrees,
+    attackBurstCount: resolved.burstCount,
+    attackBurstIntervalMs: resolved.burstIntervalMs,
+    attackAoeRadius: resolved.aoeRadius,
+    attackAoeDelayMs: resolved.aoeDelayMs,
   };
 }
 
@@ -343,7 +447,10 @@ function handleListItems(db: Database): Response {
     .query<ItemDefinitionRow, []>(
       `SELECT id, name, icon_key, type, class_requirement,
               min_level_to_equip, weapon_damage_flat, weapon_range_flat,
-              weapon_speed_percent
+              weapon_speed_percent, weapon_style, attack_pattern_id,
+              attack_damage_multiplier, attack_projectile_count,
+              attack_spread_degrees, attack_burst_count,
+              attack_burst_interval_ms, attack_aoe_radius, attack_aoe_delay_ms
        FROM item_definitions ORDER BY type ASC, name ASC`,
     )
     .all();
@@ -355,7 +462,10 @@ function handleGetItem(db: Database, id: string): Response {
     .query<ItemDefinitionRow, [string]>(
       `SELECT id, name, icon_key, type, class_requirement,
               min_level_to_equip, weapon_damage_flat, weapon_range_flat,
-              weapon_speed_percent
+              weapon_speed_percent, weapon_style, attack_pattern_id,
+              attack_damage_multiplier, attack_projectile_count,
+              attack_spread_degrees, attack_burst_count,
+              attack_burst_interval_ms, attack_aoe_radius, attack_aoe_delay_ms
        FROM item_definitions WHERE id = ?1 LIMIT 1`,
     )
     .get(id);
@@ -375,13 +485,17 @@ async function handleCreateItem(
   }
 
   const timestamp = new Date().toISOString();
+  const attack = resolveItemAttackColumns(body);
   try {
     db.query(
       `INSERT INTO item_definitions (
         id, name, icon_key, type, class_requirement,
         min_level_to_equip, weapon_damage_flat, weapon_range_flat,
-        weapon_speed_percent, created_at, updated_at
-      ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)`,
+        weapon_speed_percent, weapon_style, attack_pattern_id,
+        attack_damage_multiplier, attack_projectile_count,
+        attack_spread_degrees, attack_burst_count, attack_burst_interval_ms,
+        attack_aoe_radius, attack_aoe_delay_ms, created_at, updated_at
+      ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20)`,
     ).run(
       body.id,
       str(body.name, "Unnamed"),
@@ -392,6 +506,15 @@ async function handleCreateItem(
       numOrNull(body.weaponDamageFlat),
       numOrNull(body.weaponRangeFlat),
       numOrNull(body.weaponSpeedPercent),
+      attack.weaponStyle,
+      attack.attackPatternId,
+      attack.attackDamageMultiplier,
+      attack.attackProjectileCount,
+      attack.attackSpreadDegrees,
+      attack.attackBurstCount,
+      attack.attackBurstIntervalMs,
+      attack.attackAoeRadius,
+      attack.attackAoeDelayMs,
       timestamp,
       timestamp,
     );
@@ -429,11 +552,16 @@ async function handleUpdateItem(
   }
 
   const timestamp = new Date().toISOString();
+  const attack = resolveItemAttackColumns({ ...body, id });
   db.query(
     `UPDATE item_definitions SET
       name = ?2, icon_key = ?3, type = ?4, class_requirement = ?5,
       min_level_to_equip = ?6, weapon_damage_flat = ?7,
-      weapon_range_flat = ?8, weapon_speed_percent = ?9, updated_at = ?10
+      weapon_range_flat = ?8, weapon_speed_percent = ?9, weapon_style = ?10,
+      attack_pattern_id = ?11, attack_damage_multiplier = ?12,
+      attack_projectile_count = ?13, attack_spread_degrees = ?14,
+      attack_burst_count = ?15, attack_burst_interval_ms = ?16,
+      attack_aoe_radius = ?17, attack_aoe_delay_ms = ?18, updated_at = ?19
      WHERE id = ?1`,
   ).run(
     id,
@@ -445,6 +573,15 @@ async function handleUpdateItem(
     numOrNull(body.weaponDamageFlat),
     numOrNull(body.weaponRangeFlat),
     numOrNull(body.weaponSpeedPercent),
+    attack.weaponStyle,
+    attack.attackPatternId,
+    attack.attackDamageMultiplier,
+    attack.attackProjectileCount,
+    attack.attackSpreadDegrees,
+    attack.attackBurstCount,
+    attack.attackBurstIntervalMs,
+    attack.attackAoeRadius,
+    attack.attackAoeDelayMs,
     timestamp,
   );
 

@@ -1,14 +1,15 @@
 # MMO Project Notes
 
 - Runtime/tooling: Bun + TypeScript across all packages.
-- Monorepo layout: `client`, `server`, and `shared` packages.
+- Monorepo layout: `client`, `editor`, `server`, and `shared` packages.
 - Client: Vite + React app for landing page, auth flow, account management, and character/world entry.
+- Editor: Vite + React admin content editor for enemies/items/loot/progression/maps.
 - Server: HTTP REST API for auth/account + character flows; JWT auth expected.
 - Security: keep JWT signing key private (server-only secret management).
 - Realtime game: browser 2D game client built with Phaser 3 using WebSocket connection.
 - Server topology (phase 1): single Bun process handling REST + WS.
-- Shared package purpose: common models/protocol contracts/behavior utilities used by both client and server.
-- Shared code policy: when logic/types/utilities are needed by both `client` and `server`, place them in `shared` instead of duplicating; if duplication appears during feature work, refactor it, and do a quick duplicate-code pass before considering the feature done.
+- Shared package purpose: common models/protocol contracts/behavior utilities used by client/editor/server.
+- Shared code policy: when logic/types/utilities are needed by more than one package, place them in `shared` instead of duplicating; if duplication appears during feature work, refactor it, and do a quick duplicate-code pass before considering the feature done.
 
 ## Game runtime decisions (phase 1)
 
@@ -18,6 +19,40 @@
 - World model: instance-per-worldId (starting with hub world), low-pop room broadcast in phase 1.
 - Protocol: JSON WebSocket message envelopes with shared discriminated unions in `@mmo/shared`.
 - Maps/content: handcrafted typed JSON only for phase 1.
+
+## Combat and weapon attack snapshot (implemented)
+
+- Shared (`packages/shared`):
+  - Weapon attack typing/default resolution lives in `packages/shared/src/combat/attacks.ts`.
+  - Supported attack patterns: `sword_cleave`, `sword_spinblade`, `sword_whirl`, `wand_multishot`, `wand_burst`, `staff_ground_aoe`.
+  - `ItemDefinition` includes weapon attack tuning fields (`weaponStyle`, `attackPatternId`, multiplier/projectile/spread/burst/AOE tuning) in `packages/shared/src/items.ts`.
+  - WS contracts include richer combat payloads:
+    - `combat.attackPerformed` includes `attackPatternId`, `weaponStyle`, `target?`, `aoeRadius?`, and `impactDelayMs?`.
+    - Projectile snapshots include optional `style` (`orb` | `blade_spin`).
+- Server (`packages/server`):
+  - `item_definitions` schema stores weapon attack metadata and enforces bounds/checks; bootstrap performs migration + backfill normalization for legacy rows.
+  - Realtime session captures both weapon stat modifiers and resolved attack config from equipped weapon loadout.
+  - World combat flow is pattern-driven (melee/ranged/aoe), including spinblade projectile behavior, burst projectile scheduling, and delayed ground-AOE impact.
+- Client (`packages/client`):
+  - Phaser runtime renders pattern-specific attack effects and supports delayed AOE telegraph/impact timing.
+  - Game item tooltip surfaces attack pattern metadata for equipped/inspected weapons.
+
+## Admin content editor snapshot (implemented)
+
+- Package scope:
+  - Editor UI in `packages/editor`.
+  - Server admin API handlers in `packages/server/src/admin/routes.ts`.
+- Local dev:
+  - Root script `bun run dev:editor` runs server + editor together.
+- Admin API/auth:
+  - Base path: `/api/admin`.
+  - Guarded by bearer token (`ADMIN_API_ENABLED` + `ADMIN_API_BEARER_TOKEN`).
+  - Browser-based admin calls should use `ADMIN_API_ALLOWED_ORIGINS` when cross-origin.
+  - Editor uses `VITE_ADMIN_API_BEARER_TOKEN` for authenticated requests.
+- Item admin behavior:
+  - Item routes return and persist weapon attack metadata fields.
+  - Server normalizes/clamps weapon attack configuration with shared `resolveWeaponAttackConfig`.
+  - Non-weapon items coerce attack metadata fields to `null`.
 
 ## Server auth snapshot (implemented)
 

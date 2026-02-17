@@ -24,6 +24,7 @@ export interface AuthErrorResponse {
 export * from "./auth/credentials";
 export * from "./auth/roles";
 export * from "./characters";
+export * from "./combat/attacks";
 export * from "./enemies";
 export * from "./items";
 export * from "./protocol/ws";

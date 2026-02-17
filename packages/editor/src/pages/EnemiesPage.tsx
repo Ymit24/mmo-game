@@ -1,3 +1,4 @@
+import { estimatePatternDps, resolveWeaponAttackConfig } from "@mmo/shared";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   type EnemyArchetype,
@@ -53,6 +54,7 @@ function computePlayerStats(
   level: number,
   weapon: ItemDefinition | null,
   progression: LevelProgressionRow[],
+  targetCount = 1,
 ): {
   maxHp: number;
   damage: number;
@@ -86,7 +88,14 @@ function computePlayerStats(
     200,
     Math.round(base.speedMs * Math.max(0.05, speedFactor)),
   );
-  const dps = totalSpeedMs > 0 ? (totalDmg / totalSpeedMs) * 1000 : 0;
+  const resolvedClass = characterClass === "mage" ? "mage" : "knight";
+  const attackConfig = resolveWeaponAttackConfig(weapon, resolvedClass);
+  const dps = estimatePatternDps(
+    totalDmg,
+    totalSpeedMs,
+    attackConfig,
+    targetCount,
+  );
 
   return {
     maxHp: scaledHp,
@@ -744,6 +753,7 @@ function CombatSimulator({
   const [playerClass, setPlayerClass] = useState<string>("knight");
   const [playerLevel, setPlayerLevel] = useState<number>(enemy.level);
   const [weaponId, setWeaponId] = useState<string>("");
+  const [targetCount, setTargetCount] = useState<number>(1);
 
   // Reset player level when enemy changes
   useEffect(() => {
@@ -766,8 +776,15 @@ function CombatSimulator({
   );
 
   const playerStats = useMemo(
-    () => computePlayerStats(playerClass, playerLevel, weapon, progression),
-    [playerClass, playerLevel, weapon, progression],
+    () =>
+      computePlayerStats(
+        playerClass,
+        playerLevel,
+        weapon,
+        progression,
+        targetCount,
+      ),
+    [playerClass, playerLevel, weapon, progression, targetCount],
   );
 
   const sim = useMemo(
@@ -784,8 +801,14 @@ function CombatSimulator({
       hpPercent: number;
     }> = [];
     for (let lv = 1; lv <= 60; lv++) {
-      const ps = computePlayerStats(playerClass, lv, weapon, progression);
-      const sr = computeSimResults(ps, enemy);
+      const adjusted = computePlayerStats(
+        playerClass,
+        lv,
+        weapon,
+        progression,
+        targetCount,
+      );
+      const sr = computeSimResults(adjusted, enemy);
       results.push({
         level: lv,
         wins: sr.playerWins,
@@ -797,7 +820,7 @@ function CombatSimulator({
       });
     }
     return results;
-  }, [playerClass, weapon, enemy, progression]);
+  }, [playerClass, weapon, enemy, progression, targetCount]);
 
   const minWinLevel = levelSweep.find((r) => r.wins)?.level ?? null;
 
@@ -808,7 +831,7 @@ function CombatSimulator({
         <h3 className="text-danger text-[10px] uppercase tracking-widest mb-3">
           Player Configuration
         </h3>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-4 gap-3">
           <Field label="Class">
             <select
               value={playerClass}
@@ -849,6 +872,16 @@ function CombatSimulator({
                   {w.minLevelToEquip ? ` (Lv.${w.minLevelToEquip}+)` : ""}
                 </option>
               ))}
+            </select>
+          </Field>
+          <Field label="Target Count">
+            <select
+              value={targetCount}
+              onChange={(e) => setTargetCount(Number(e.target.value) || 1)}
+              className="w-full"
+            >
+              <option value={1}>Single target</option>
+              <option value={3}>Three targets</option>
             </select>
           </Field>
         </div>
