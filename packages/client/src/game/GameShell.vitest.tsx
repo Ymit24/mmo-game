@@ -19,6 +19,11 @@ const dropRequests: Array<{
     | { kind: "bag"; index: number }
     | { kind: "equip"; slot: "weapon" | "armor" };
 }> = [];
+const consumeRequests: Array<{
+  from:
+    | { kind: "bag"; index: number }
+    | { kind: "equip"; slot: "weapon" | "armor" };
+}> = [];
 const containerMoveRequests: Array<{
   from:
     | { kind: "bag"; index: number }
@@ -29,10 +34,12 @@ const containerMoveRequests: Array<{
     | { kind: "equip"; slot: "weapon" | "armor" }
     | { kind: "container"; containerId: string; index: number };
 }> = [];
+let bagSlotOneDefinitionId = "training_sword";
 
 interface RuntimeMockBridge {
   onInventoryMoveRequest: (listener: (request: unknown) => void) => void;
   onInventoryDropRequest: (listener: (request: unknown) => void) => void;
+  onInventoryConsumeRequest: (listener: (request: unknown) => void) => void;
   onContainerMoveRequest: (listener: (request: unknown) => void) => void;
   updateState: (state: Record<string, unknown>) => void;
 }
@@ -85,6 +92,15 @@ vi.mock("./phaser/runtime", () => ({
         },
       );
     });
+    bridge.onInventoryConsumeRequest((request: unknown) => {
+      consumeRequests.push(
+        request as {
+          from:
+            | { kind: "bag"; index: number }
+            | { kind: "equip"; slot: "weapon" | "armor" };
+        },
+      );
+    });
     bridge.onContainerMoveRequest((request: unknown) => {
       containerMoveRequests.push(
         request as {
@@ -111,7 +127,7 @@ vi.mock("./phaser/runtime", () => ({
         bagSlots: [
           {
             id: "inv-1",
-            itemDefinitionId: "training_sword",
+            itemDefinitionId: bagSlotOneDefinitionId,
           },
           null,
           null,
@@ -134,6 +150,7 @@ vi.mock("./phaser/runtime", () => ({
             type: "weapon",
             classRequirement: "knight",
             minLevelToEquip: 1,
+            potionHealFlat: null,
             armorMaxHpFlat: null,
             armorDamageReductionPercent: null,
             weaponDamageFlat: 4,
@@ -148,6 +165,29 @@ vi.mock("./phaser/runtime", () => ({
             attackBurstIntervalMs: 0,
             attackAoeRadius: 0,
             attackAoeDelayMs: 0,
+          },
+          basic_health_potion: {
+            id: "basic_health_potion",
+            name: "Basic Health Potion",
+            iconKey: "basic_health_potion",
+            type: "potion",
+            classRequirement: null,
+            minLevelToEquip: null,
+            potionHealFlat: 50,
+            armorMaxHpFlat: null,
+            armorDamageReductionPercent: null,
+            weaponDamageFlat: null,
+            weaponRangeFlat: null,
+            weaponSpeedPercent: null,
+            weaponStyle: null,
+            attackPatternId: null,
+            attackDamageMultiplier: null,
+            attackProjectileCount: null,
+            attackSpreadDegrees: null,
+            attackBurstCount: null,
+            attackBurstIntervalMs: null,
+            attackAoeRadius: null,
+            attackAoeDelayMs: null,
           },
         },
       },
@@ -189,8 +229,10 @@ vi.mock("./phaser/runtime", () => ({
 
 describe("GameShell inventory UI", () => {
   beforeEach(() => {
+    bagSlotOneDefinitionId = "training_sword";
     moveRequests.length = 0;
     dropRequests.length = 0;
+    consumeRequests.length = 0;
     containerMoveRequests.length = 0;
     saveSession({
       token: "token",
@@ -367,5 +409,42 @@ describe("GameShell inventory UI", () => {
       to: { kind: "container", containerId: "lootbag-1", index: 1 },
     });
     expect(dropRequests).toHaveLength(0);
+  });
+
+  test("right-click consume emits consume request only for potion bag items", async () => {
+    bagSlotOneDefinitionId = "training_sword";
+    render(
+      <MemoryRouter>
+        <AuthProvider>
+          <GameShell characterId="character-1" />
+        </AuthProvider>
+      </MemoryRouter>,
+    );
+
+    const bagSlotOne = await screen.findByRole("button", {
+      name: /Bag Slot 1/i,
+    });
+    fireEvent.contextMenu(bagSlotOne);
+    expect(consumeRequests).toHaveLength(0);
+  });
+
+  test("right-click consume emits request for potion bag items", async () => {
+    bagSlotOneDefinitionId = "basic_health_potion";
+    render(
+      <MemoryRouter>
+        <AuthProvider>
+          <GameShell characterId="character-1" />
+        </AuthProvider>
+      </MemoryRouter>,
+    );
+
+    const bagSlotOne = await screen.findByRole("button", {
+      name: /Bag Slot 1/i,
+    });
+    fireEvent.contextMenu(bagSlotOne);
+
+    expect(consumeRequests).toContainEqual({
+      from: { kind: "bag", index: 0 },
+    });
   });
 });

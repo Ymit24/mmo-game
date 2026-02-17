@@ -32,7 +32,7 @@ describe("enemy loot repository", () => {
       "slime_scout",
       "knight",
       {
-        random: sequenceRandom([0.01, 0.6]),
+        random: sequenceRandom([0.01, 0.95]),
       },
     );
     expect(knightDrops).toEqual(["iron_broadsword"]);
@@ -42,7 +42,7 @@ describe("enemy loot repository", () => {
       "slime_scout",
       "mage",
       {
-        random: sequenceRandom([0.01, 0.6]),
+        random: sequenceRandom([0.01, 0.1]),
       },
     );
     expect(mageDrops).toEqual(["adept_focus_wand"]);

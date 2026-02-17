@@ -29,6 +29,7 @@ const EMPTY_ITEM: Omit<ItemDefinition, "id"> & { id: string } = {
   type: "misc",
   classRequirement: null,
   minLevelToEquip: null,
+  potionHealFlat: null,
   armorMaxHpFlat: null,
   armorDamageReductionPercent: null,
   weaponDamageFlat: null,
@@ -365,15 +366,29 @@ function normalizeCharacterClassForItem(item: ItemDefinition): CharacterClass {
 }
 
 function withResolvedItemDefaults(item: ItemDefinition): ItemDefinition {
+  const withPotionDefaults: ItemDefinition =
+    item.type !== "potion"
+      ? {
+          ...item,
+          potionHealFlat: null,
+        }
+      : {
+          ...item,
+          potionHealFlat:
+            item.potionHealFlat === null
+              ? null
+              : Math.max(1, item.potionHealFlat),
+        };
+
   const withArmorDefaults: ItemDefinition =
     item.type !== "armor"
       ? {
-          ...item,
+          ...withPotionDefaults,
           armorMaxHpFlat: null,
           armorDamageReductionPercent: null,
         }
       : {
-          ...item,
+          ...withPotionDefaults,
           armorMaxHpFlat:
             item.armorMaxHpFlat === null
               ? null
@@ -515,6 +530,7 @@ export function ItemsPage() {
 
   const isWeapon = editing?.type === "weapon";
   const isArmor = editing?.type === "armor";
+  const isPotion = editing?.type === "potion";
   const resolvedEditingAttack = useMemo(() => {
     if (!editing || editing.type !== "weapon") {
       return null;
@@ -609,6 +625,11 @@ export function ItemsPage() {
                   {item.type === "armor" && item.armorMaxHpFlat !== null && (
                     <span className="text-[10px] text-vec-cyan">
                       +{item.armorMaxHpFlat} HP
+                    </span>
+                  )}
+                  {item.type === "potion" && item.potionHealFlat !== null && (
+                    <span className="text-[10px] text-vec-green">
+                      +{item.potionHealFlat} HP
                     </span>
                   )}
                 </div>
@@ -1065,6 +1086,30 @@ export function ItemsPage() {
                         onChange={(e) =>
                           updateField(
                             "armorDamageReductionPercent",
+                            e.target.value ? Number(e.target.value) : null,
+                          )
+                        }
+                        className="w-full"
+                      />
+                    </Field>
+                  </div>
+                </div>
+              )}
+
+              {isPotion && (
+                <div className="editor-panel p-4 animate-fade-in">
+                  <h3 className="text-vec-green text-[10px] uppercase tracking-widest mb-3">
+                    Potion Stats
+                  </h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="HP Restore">
+                      <input
+                        type="number"
+                        min={1}
+                        value={editing.potionHealFlat ?? ""}
+                        onChange={(e) =>
+                          updateField(
+                            "potionHealFlat",
                             e.target.value ? Number(e.target.value) : null,
                           )
                         }

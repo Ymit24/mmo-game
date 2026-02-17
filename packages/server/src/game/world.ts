@@ -530,6 +530,7 @@ function resolveAttackConfig(
       type: "weapon",
       classRequirement: characterClass,
       minLevelToEquip: null,
+      potionHealFlat: null,
       armorMaxHpFlat: 0,
       armorDamageReductionPercent: 0,
       weaponDamageFlat: 0,
@@ -1095,6 +1096,68 @@ class WorldInstance {
       modifiers,
       attackConfig,
     );
+  }
+
+  applyDirectHealToPlayer(
+    characterId: string,
+    connectionId: string,
+    amount: number,
+  ): {
+    restoredHealth: number;
+    currentHealth: number;
+    maxHealth: number;
+  } | null {
+    const player = this.players.get(characterId);
+    if (!player || player.connectionId !== connectionId) {
+      return null;
+    }
+    if (player.pendingRespawn || player.currentHealth <= 0) {
+      return null;
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return {
+        restoredHealth: 0,
+        currentHealth: player.currentHealth,
+        maxHealth: player.maxHealth,
+      };
+    }
+
+    const before = player.currentHealth;
+    player.currentHealth = clampHealth(
+      player.currentHealth + amount,
+      player.maxHealth,
+    );
+    const restoredHealth = Math.max(
+      0,
+      Math.round(player.currentHealth - before),
+    );
+    this.syncPlayerSessionProgress(player);
+
+    return {
+      restoredHealth,
+      currentHealth: player.currentHealth,
+      maxHealth: player.maxHealth,
+    };
+  }
+
+  alignPlayerCurrentHealth(
+    characterId: string,
+    connectionId: string,
+    candidateCurrentHealth: number,
+  ): number | null {
+    const player = this.players.get(characterId);
+    if (!player || player.connectionId !== connectionId) {
+      return null;
+    }
+    if (!Number.isFinite(candidateCurrentHealth)) {
+      return player.currentHealth;
+    }
+    player.currentHealth = clampHealth(
+      Math.min(player.currentHealth, candidateCurrentHealth),
+      player.maxHealth,
+    );
+    this.syncPlayerSessionProgress(player);
+    return player.currentHealth;
   }
 
   broadcast(
@@ -2965,6 +3028,46 @@ export class WorldManager {
       modifiers,
       attackConfig,
     );
+  }
+
+  applyDirectHealToPlayer(
+    socket: ServerWebSocket<RealtimeSocketData>,
+    amount: number,
+  ): {
+    restoredHealth: number;
+    currentHealth: number;
+    maxHealth: number;
+  } | null {
+    const { connectionId, characterId, worldId, characterCurrentHealth } =
+      socket.data.session;
+    if (!characterId || !worldId) {
+      return null;
+    }
+
+    const instance = this.instances.get(worldId);
+    if (!instance) {
+      return null;
+    }
+    if (typeof characterCurrentHealth === "number") {
+      instance.alignPlayerCurrentHealth(
+        characterId,
+        connectionId,
+        characterCurrentHealth,
+      );
+    }
+
+    const healed = instance.applyDirectHealToPlayer(
+      characterId,
+      connectionId,
+      amount,
+    );
+    if (!healed) {
+      return null;
+    }
+
+    socket.data.session.characterCurrentHealth = healed.currentHealth;
+    socket.data.session.characterMaxHealth = healed.maxHealth;
+    return healed;
   }
 
   createPlayerDropLootBag(

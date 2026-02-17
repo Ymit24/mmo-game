@@ -470,6 +470,7 @@ function ensureItemDefinitionsTable(db: Database): void {
       type TEXT NOT NULL CHECK (type IN ('weapon', 'armor', 'potion', 'misc')),
       class_requirement TEXT CHECK (class_requirement IS NULL OR class_requirement IN ('knight', 'mage')),
       min_level_to_equip INTEGER CHECK (min_level_to_equip IS NULL OR min_level_to_equip >= 1),
+      potion_heal_flat REAL CHECK (potion_heal_flat IS NULL OR potion_heal_flat >= 1),
       armor_max_hp_flat REAL CHECK (armor_max_hp_flat IS NULL OR armor_max_hp_flat >= 0),
       armor_damage_reduction_percent REAL CHECK (
         armor_damage_reduction_percent IS NULL OR
@@ -697,6 +698,11 @@ function ensureItemDefinitionAttackColumns(db: Database): void {
       "ALTER TABLE item_definitions ADD COLUMN armor_max_hp_flat REAL CHECK (armor_max_hp_flat IS NULL OR armor_max_hp_flat >= 0);",
     );
   }
+  if (!hasColumn("potion_heal_flat")) {
+    db.exec(
+      "ALTER TABLE item_definitions ADD COLUMN potion_heal_flat REAL CHECK (potion_heal_flat IS NULL OR potion_heal_flat >= 1);",
+    );
+  }
   if (!hasColumn("armor_damage_reduction_percent")) {
     db.exec(
       `ALTER TABLE item_definitions ADD COLUMN armor_damage_reduction_percent REAL CHECK (armor_damage_reduction_percent IS NULL OR (armor_damage_reduction_percent >= 0 AND armor_damage_reduction_percent <= ${MAX_ARMOR_DAMAGE_REDUCTION_PERCENT}));`,
@@ -822,6 +828,17 @@ function ensureItemDefinitionSeeds(db: Database): void {
       created_at,
       updated_at
     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
+  );
+  const potionStatement = db.query(
+    `INSERT OR IGNORE INTO item_definitions (
+      id,
+      name,
+      icon_key,
+      type,
+      potion_heal_flat,
+      created_at,
+      updated_at
+    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
   );
 
   statement.run(
@@ -1177,6 +1194,25 @@ function ensureItemDefinitionSeeds(db: Database): void {
     timestamp,
     timestamp,
   );
+
+  potionStatement.run(
+    "basic_health_potion",
+    "Basic Health Potion",
+    "basic_health_potion",
+    "potion",
+    50,
+    timestamp,
+    timestamp,
+  );
+  potionStatement.run(
+    "greater_health_potion",
+    "Greater Health Potion",
+    "greater_health_potion",
+    "potion",
+    150,
+    timestamp,
+    timestamp,
+  );
 }
 
 function backfillItemDefinitionAttackDefaults(db: Database): void {
@@ -1201,6 +1237,11 @@ function backfillItemDefinitionAttackDefaults(db: Database): void {
   ).run();
   db.query(
     `UPDATE item_definitions
+     SET potion_heal_flat = NULL
+     WHERE type <> 'potion'`,
+  ).run();
+  db.query(
+    `UPDATE item_definitions
      SET armor_max_hp_flat = CASE
            WHEN armor_max_hp_flat IS NULL THEN NULL
            WHEN armor_max_hp_flat < 0 THEN 0
@@ -1214,6 +1255,15 @@ function backfillItemDefinitionAttackDefaults(db: Database): void {
            ELSE armor_damage_reduction_percent
          END
      WHERE type = 'armor'`,
+  ).run();
+  db.query(
+    `UPDATE item_definitions
+     SET potion_heal_flat = CASE
+           WHEN potion_heal_flat IS NULL THEN NULL
+           WHEN potion_heal_flat < 1 THEN 1
+           ELSE ROUND(potion_heal_flat)
+         END
+     WHERE type = 'potion'`,
   ).run();
 
   const weaponRows = db
@@ -1265,6 +1315,7 @@ function backfillItemDefinitionAttackDefaults(db: Database): void {
         type: "weapon",
         classRequirement: row.class_requirement,
         minLevelToEquip: null,
+        potionHealFlat: null,
         armorMaxHpFlat: 0,
         armorDamageReductionPercent: 0,
         weaponDamageFlat: 0,
@@ -1394,25 +1445,25 @@ function ensureEnemyLootTables(db: Database): void {
 
 function ensureEnemyLootSeed(db: Database): void {
   const timestamp = new Date().toISOString();
+  const seededEnemyLevels = new Map(
+    ENEMY_ARCHETYPE_PROGRESSION_SEEDS.map((row) => [row.id, row.level]),
+  );
+  const lowTierEnemies = [...seededEnemyLevels.entries()]
+    .filter(([, level]) => level >= 1 && level <= 9)
+    .map(([id]) => id);
+  const highTierEnemies = [...seededEnemyLevels.entries()]
+    .filter(([, level]) => level >= 10)
+    .map(([id]) => id);
 
-  db.query(
+  const upsertLootTable = db.query(
     `INSERT OR IGNORE INTO enemy_loot_tables (
       enemy_archetype_id,
       drop_chance,
       created_at,
       updated_at
     ) VALUES (?1, ?2, ?3, ?4)`,
-  ).run("slime_scout", 0.3, timestamp, timestamp);
-  db.query(
-    `INSERT OR IGNORE INTO enemy_loot_tables (
-      enemy_archetype_id,
-      drop_chance,
-      created_at,
-      updated_at
-    ) VALUES (?1, ?2, ?3, ?4)`,
-  ).run("stone_golem", 0.4, timestamp, timestamp);
-
-  db.query(
+  );
+  const upsertLootEntry = db.query(
     `INSERT OR IGNORE INTO enemy_loot_table_entries (
       id,
       enemy_archetype_id,
@@ -1422,7 +1473,36 @@ function ensureEnemyLootSeed(db: Database): void {
       created_at,
       updated_at
     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
-  ).run(
+  );
+
+  upsertLootTable.run("slime_scout", 0.3, timestamp, timestamp);
+  upsertLootTable.run("stone_golem", 0.4, timestamp, timestamp);
+  for (const enemyId of lowTierEnemies) {
+    upsertLootTable.run(enemyId, 0.3, timestamp, timestamp);
+    upsertLootEntry.run(
+      `seed-${enemyId}-basic-health-potion`,
+      enemyId,
+      "basic_health_potion",
+      1,
+      null,
+      timestamp,
+      timestamp,
+    );
+  }
+  for (const enemyId of highTierEnemies) {
+    upsertLootTable.run(enemyId, 0.4, timestamp, timestamp);
+    upsertLootEntry.run(
+      `seed-${enemyId}-greater-health-potion`,
+      enemyId,
+      "greater_health_potion",
+      1,
+      null,
+      timestamp,
+      timestamp,
+    );
+  }
+
+  upsertLootEntry.run(
     "seed-slime-scout-iron-broadsword",
     "slime_scout",
     "iron_broadsword",
@@ -1432,17 +1512,7 @@ function ensureEnemyLootSeed(db: Database): void {
     timestamp,
   );
 
-  db.query(
-    `INSERT OR IGNORE INTO enemy_loot_table_entries (
-      id,
-      enemy_archetype_id,
-      item_definition_id,
-      weight,
-      class_affinity,
-      created_at,
-      updated_at
-    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
-  ).run(
+  upsertLootEntry.run(
     "seed-slime-scout-adept-focus-wand",
     "slime_scout",
     "adept_focus_wand",
@@ -1451,17 +1521,7 @@ function ensureEnemyLootSeed(db: Database): void {
     timestamp,
     timestamp,
   );
-  db.query(
-    `INSERT OR IGNORE INTO enemy_loot_table_entries (
-      id,
-      enemy_archetype_id,
-      item_definition_id,
-      weight,
-      class_affinity,
-      created_at,
-      updated_at
-    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
-  ).run(
+  upsertLootEntry.run(
     "seed-stone-golem-steel-bulwark",
     "stone_golem",
     "steel_bulwark_armor",
@@ -1470,17 +1530,7 @@ function ensureEnemyLootSeed(db: Database): void {
     timestamp,
     timestamp,
   );
-  db.query(
-    `INSERT OR IGNORE INTO enemy_loot_table_entries (
-      id,
-      enemy_archetype_id,
-      item_definition_id,
-      weight,
-      class_affinity,
-      created_at,
-      updated_at
-    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
-  ).run(
+  upsertLootEntry.run(
     "seed-stone-golem-glyphweave",
     "stone_golem",
     "glyphweave_robe",

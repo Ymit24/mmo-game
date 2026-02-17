@@ -273,6 +273,20 @@ export function GameShell({ characterId }: GameShellProps) {
     bridge.requestInventoryDrop({ from });
   }
 
+  function onBagSlotContextMenu(
+    event: React.MouseEvent<HTMLButtonElement>,
+    slotRef: InventorySlotRef,
+    definitionType: string | null,
+  ): void {
+    if (definitionType !== "potion") {
+      return;
+    }
+    event.preventDefault();
+    bridge.requestInventoryConsume({
+      from: slotRef,
+    });
+  }
+
   function findFirstEmptyBagSlot(): InventorySlotRef | null {
     for (let index = 0; index < bagSlots.length; index += 1) {
       if (!bagSlots[index]) {
@@ -705,6 +719,10 @@ export function GameShell({ characterId }: GameShellProps) {
                     kind: "bag",
                     index,
                   };
+                  const inventorySlotRef: InventorySlotRef = {
+                    kind: "bag",
+                    index,
+                  };
                   const key = slotRefKey(slotRef);
                   const definition = instance
                     ? (definitions[instance.itemDefinitionId] ?? null)
@@ -731,6 +749,13 @@ export function GameShell({ characterId }: GameShellProps) {
                       onDrop={(event) => onSlotDrop(event, slotRef)}
                       onClick={(event) =>
                         onSlotShiftClick(event, slotRef, !!instance)
+                      }
+                      onContextMenu={(event) =>
+                        onBagSlotContextMenu(
+                          event,
+                          inventorySlotRef,
+                          definition?.type ?? null,
+                        )
                       }
                       onMouseEnter={(event) => onSlotMouseEnter(event, slotRef)}
                       onMouseLeave={() => onSlotMouseLeave(slotRef)}

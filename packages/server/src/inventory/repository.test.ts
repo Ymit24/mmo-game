@@ -3,6 +3,7 @@ import { getCharacterClassBaseCombatStats } from "@mmo/shared";
 
 import { createDatabase } from "../db";
 import {
+  consumeInventoryItem,
   dropInventoryItem,
   getEquipmentLoadoutFromInventoryState,
   getWeaponLoadoutFromInventoryState,
@@ -444,6 +445,68 @@ describe("inventory repository", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe("INVENTORY_CLASS_REQUIREMENT_FAILED");
+    }
+    db.close();
+  });
+
+  test("consumeInventoryItem removes potion from inventory and returns restore amount", () => {
+    const db = createDatabase(":memory:");
+    const { characterId } = seedCharacter(db);
+    insertInventoryItem(db, {
+      id: "inv-potion",
+      characterId,
+      definitionId: "basic_health_potion",
+      slotKind: "bag",
+      slotIndex: 0,
+    });
+
+    const result = consumeInventoryItem(db, characterId, {
+      kind: "bag",
+      index: 0,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.restoreAmount).toBe(50);
+      expect(result.consumedItemInstanceId).toBe("inv-potion");
+      expect(result.consumedItemDefinitionId).toBe("basic_health_potion");
+      expect(result.state.bagSlots[0]).toBeNull();
+    }
+    db.close();
+  });
+
+  test("consumeInventoryItem rejects non-potion items", () => {
+    const db = createDatabase(":memory:");
+    const { characterId } = seedCharacter(db);
+    insertInventoryItem(db, {
+      id: "inv-weapon",
+      characterId,
+      definitionId: "training_sword",
+      slotKind: "bag",
+      slotIndex: 0,
+    });
+
+    const result = consumeInventoryItem(db, characterId, {
+      kind: "bag",
+      index: 0,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("INVENTORY_ITEM_NOT_CONSUMABLE");
+    }
+    db.close();
+  });
+
+  test("consumeInventoryItem rejects empty/invalid source", () => {
+    const db = createDatabase(":memory:");
+    const { characterId } = seedCharacter(db);
+
+    const result = consumeInventoryItem(db, characterId, {
+      kind: "bag",
+      index: 0,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("INVENTORY_SOURCE_EMPTY");
     }
     db.close();
   });

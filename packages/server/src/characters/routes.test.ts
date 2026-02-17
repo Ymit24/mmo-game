@@ -393,6 +393,24 @@ describe("character routes", () => {
         slot_index: 4,
       },
       {
+        nickname: "StarterKnight",
+        item_definition_id: "basic_health_potion",
+        slot_kind: "bag",
+        slot_index: 5,
+      },
+      {
+        nickname: "StarterKnight",
+        item_definition_id: "basic_health_potion",
+        slot_kind: "bag",
+        slot_index: 6,
+      },
+      {
+        nickname: "StarterKnight",
+        item_definition_id: "basic_health_potion",
+        slot_kind: "bag",
+        slot_index: 7,
+      },
+      {
         nickname: "StarterMage",
         item_definition_id: "training_wand",
         slot_kind: "weapon",
@@ -433,6 +451,24 @@ describe("character routes", () => {
         item_definition_id: "astral_ward_raiment",
         slot_kind: "bag",
         slot_index: 4,
+      },
+      {
+        nickname: "StarterMage",
+        item_definition_id: "basic_health_potion",
+        slot_kind: "bag",
+        slot_index: 5,
+      },
+      {
+        nickname: "StarterMage",
+        item_definition_id: "basic_health_potion",
+        slot_kind: "bag",
+        slot_index: 6,
+      },
+      {
+        nickname: "StarterMage",
+        item_definition_id: "basic_health_potion",
+        slot_kind: "bag",
+        slot_index: 7,
       },
     ]);
   });

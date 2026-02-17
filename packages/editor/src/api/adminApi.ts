@@ -91,6 +91,7 @@ export interface ItemDefinition {
   type: ItemType;
   classRequirement: CharacterClass | null;
   minLevelToEquip: number | null;
+  potionHealFlat: number | null;
   armorMaxHpFlat: number | null;
   armorDamageReductionPercent: number | null;
   weaponDamageFlat: number | null;

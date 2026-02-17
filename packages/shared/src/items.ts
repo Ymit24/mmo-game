@@ -48,6 +48,7 @@ export interface ItemDefinition {
   type: ItemType;
   classRequirement: CharacterClass | null;
   minLevelToEquip: number | null;
+  potionHealFlat: number | null;
   armorMaxHpFlat: number | null;
   armorDamageReductionPercent: number | null;
   weaponDamageFlat: number | null;
@@ -94,6 +95,8 @@ export const INVENTORY_ACTION_ERROR_CODES = {
   slotTypeMismatch: "INVENTORY_SLOT_TYPE_MISMATCH",
   classRequirementFailed: "INVENTORY_CLASS_REQUIREMENT_FAILED",
   levelRequirementFailed: "INVENTORY_LEVEL_REQUIREMENT_FAILED",
+  itemNotConsumable: "INVENTORY_ITEM_NOT_CONSUMABLE",
+  healthFull: "INVENTORY_HEALTH_FULL",
   notOwner: "INVENTORY_NOT_OWNER",
   requestInvalid: "INVENTORY_REQUEST_INVALID",
 } as const;
@@ -310,6 +313,19 @@ export function itemDefinitionToArmorModifiers(
     maxHpFlat: definition.armorMaxHpFlat ?? 0,
     damageReductionPercent: definition.armorDamageReductionPercent ?? 0,
   });
+}
+
+export function itemDefinitionToPotionHeal(
+  definition: ItemDefinition | null | undefined,
+): number {
+  if (!definition || definition.type !== "potion") {
+    return 0;
+  }
+  const heal = definition.potionHealFlat ?? 0;
+  if (!Number.isFinite(heal)) {
+    return 0;
+  }
+  return Math.max(0, Math.floor(heal));
 }
 
 export function normalizeArmorStatModifiers(
