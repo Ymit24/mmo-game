@@ -15,6 +15,8 @@ describe("armor item helpers", () => {
       name: "Training Sword",
       iconKey: "training_sword",
       type: "weapon",
+      isStackable: false,
+      maxStackSize: null,
       classRequirement: "knight",
       minLevelToEquip: 1,
       potionHealFlat: null,

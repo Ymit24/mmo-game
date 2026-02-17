@@ -356,7 +356,7 @@ function toLootBagSnapshot(lootBag: LootBagState): LootBagSnapshot {
   let itemCount = 0;
   for (const item of lootBag.slots) {
     if (item) {
-      itemCount += 1;
+      itemCount += item.quantity;
     }
   }
 
@@ -432,7 +432,7 @@ function countFilledSlots(
   let count = 0;
   for (const slot of slots) {
     if (slot) {
-      count += 1;
+      count += slot.quantity;
     }
   }
   return count;
@@ -528,6 +528,8 @@ function resolveAttackConfig(
       name: "Runtime Weapon",
       iconKey: "runtime-weapon",
       type: "weapon",
+      isStackable: false,
+      maxStackSize: null,
       classRequirement: characterClass,
       minLevelToEquip: null,
       potionHealFlat: null,
@@ -1562,6 +1564,7 @@ class WorldInstance {
       .map((itemDefinitionId) => ({
         id: `loot-${crypto.randomUUID()}`,
         itemDefinitionId,
+        quantity: 1,
       }));
 
     const lootBag = this.spawnLootBagAtPosition(

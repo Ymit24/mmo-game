@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.1.3 - 2026-02-17
+
+### Added
+- Stackable item support across inventory and loot containers with per-item metadata (`isStackable`, `maxStackSize`) and quantity-aware item instances.
+- Alt-drag stack splitting UX in the in-world inventory HUD with quick quantity controls (`1`, `Half`, `All`) and Enter/Escape shortcuts.
+
+### Changed
+- Starter loadouts now grant one stack of 3 basic health potions instead of three separate potion instances.
+- Inventory/container move logic now supports partial stack moves, automatic stack merging, and partial stack drops.
+- Potion consume flow now decrements stack quantity before removing the slot.
+- Loot bag item counts now reflect total item quantity, not only occupied slots.
+- DB schema includes `character_inventory.stack_count` and stack metadata on `item_definitions`, with startup normalization and legacy stack merge pass.
+- Admin/editor item contracts now include stack metadata fields.
+
+### Fixed
+- Legacy characters with duplicate stackable bag items are auto-merged on server startup.
+
 ## 0.1.2 - 2026-02-17
 
 ### Added

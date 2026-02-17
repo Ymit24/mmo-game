@@ -119,6 +119,8 @@ describe("database bootstrap", () => {
       .map((column) => column.name);
     expect(itemColumns).toContain("id");
     expect(itemColumns).toContain("icon_key");
+    expect(itemColumns).toContain("is_stackable");
+    expect(itemColumns).toContain("max_stack_size");
     expect(itemColumns).toContain("class_requirement");
     expect(itemColumns).toContain("weapon_speed_percent");
     expect(itemColumns).toContain("armor_max_hp_flat");
@@ -154,6 +156,7 @@ describe("database bootstrap", () => {
     expect(inventoryColumns).toContain("item_definition_id");
     expect(inventoryColumns).toContain("slot_kind");
     expect(inventoryColumns).toContain("slot_index");
+    expect(inventoryColumns).toContain("stack_count");
     db.close();
   });
 
@@ -658,6 +661,33 @@ describe("database bootstrap", () => {
       attack_damage_multiplier: 0.73,
       attack_burst_count: 5,
       attack_burst_interval_ms: 120,
+    });
+    db.close();
+  });
+
+  test("bootstrap does not reapply potion stack defaults after migration is marked", () => {
+    const db = createDatabase(":memory:");
+
+    db.query(
+      `UPDATE item_definitions
+       SET is_stackable = 0,
+           max_stack_size = NULL
+       WHERE id = 'basic_health_potion'`,
+    ).run();
+
+    bootstrapDatabase(db);
+
+    const potion = db
+      .query<{ is_stackable: number; max_stack_size: number | null }, []>(
+        `SELECT is_stackable, max_stack_size
+         FROM item_definitions
+         WHERE id = 'basic_health_potion'
+         LIMIT 1`,
+      )
+      .get();
+    expect(potion).toEqual({
+      is_stackable: 0,
+      max_stack_size: null,
     });
     db.close();
   });

@@ -327,6 +327,7 @@ describe("character routes", () => {
           item_definition_id: string;
           slot_kind: string;
           slot_index: number | null;
+          stack_count: number;
         },
         []
       >(
@@ -334,7 +335,8 @@ describe("character routes", () => {
            c.nickname,
            i.item_definition_id,
            i.slot_kind,
-           i.slot_index
+           i.slot_index,
+           i.stack_count
          FROM character_inventory i
          INNER JOIN characters c
            ON c.id = i.character_id
@@ -355,120 +357,112 @@ describe("character routes", () => {
         item_definition_id: "training_sword",
         slot_kind: "weapon",
         slot_index: null,
+        stack_count: 1,
       },
       {
         nickname: "StarterKnight",
         item_definition_id: "training_hauberk",
         slot_kind: "armor",
         slot_index: null,
+        stack_count: 1,
       },
       {
         nickname: "StarterKnight",
         item_definition_id: "iron_broadsword",
         slot_kind: "bag",
         slot_index: 0,
+        stack_count: 1,
       },
       {
         nickname: "StarterKnight",
         item_definition_id: "runed_greatsword",
         slot_kind: "bag",
         slot_index: 1,
+        stack_count: 1,
       },
       {
         nickname: "StarterKnight",
         item_definition_id: "dragonbone_blade",
         slot_kind: "bag",
         slot_index: 2,
+        stack_count: 1,
       },
       {
         nickname: "StarterKnight",
         item_definition_id: "steel_bulwark_armor",
         slot_kind: "bag",
         slot_index: 3,
+        stack_count: 1,
       },
       {
         nickname: "StarterKnight",
         item_definition_id: "aegis_plate",
         slot_kind: "bag",
         slot_index: 4,
+        stack_count: 1,
       },
       {
         nickname: "StarterKnight",
         item_definition_id: "basic_health_potion",
         slot_kind: "bag",
         slot_index: 5,
-      },
-      {
-        nickname: "StarterKnight",
-        item_definition_id: "basic_health_potion",
-        slot_kind: "bag",
-        slot_index: 6,
-      },
-      {
-        nickname: "StarterKnight",
-        item_definition_id: "basic_health_potion",
-        slot_kind: "bag",
-        slot_index: 7,
+        stack_count: 3,
       },
       {
         nickname: "StarterMage",
         item_definition_id: "training_wand",
         slot_kind: "weapon",
         slot_index: null,
+        stack_count: 1,
       },
       {
         nickname: "StarterMage",
         item_definition_id: "training_robe",
         slot_kind: "armor",
         slot_index: null,
+        stack_count: 1,
       },
       {
         nickname: "StarterMage",
         item_definition_id: "adept_focus_wand",
         slot_kind: "bag",
         slot_index: 0,
+        stack_count: 1,
       },
       {
         nickname: "StarterMage",
         item_definition_id: "stormweave_rod",
         slot_kind: "bag",
         slot_index: 1,
+        stack_count: 1,
       },
       {
         nickname: "StarterMage",
         item_definition_id: "arcane_scepter",
         slot_kind: "bag",
         slot_index: 2,
+        stack_count: 1,
       },
       {
         nickname: "StarterMage",
         item_definition_id: "glyphweave_robe",
         slot_kind: "bag",
         slot_index: 3,
+        stack_count: 1,
       },
       {
         nickname: "StarterMage",
         item_definition_id: "astral_ward_raiment",
         slot_kind: "bag",
         slot_index: 4,
+        stack_count: 1,
       },
       {
         nickname: "StarterMage",
         item_definition_id: "basic_health_potion",
         slot_kind: "bag",
         slot_index: 5,
-      },
-      {
-        nickname: "StarterMage",
-        item_definition_id: "basic_health_potion",
-        slot_kind: "bag",
-        slot_index: 6,
-      },
-      {
-        nickname: "StarterMage",
-        item_definition_id: "basic_health_potion",
-        slot_kind: "bag",
-        slot_index: 7,
+        stack_count: 3,
       },
     ]);
   });

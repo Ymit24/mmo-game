@@ -89,6 +89,8 @@ export interface ItemDefinition {
   name: string;
   iconKey: string;
   type: ItemType;
+  isStackable: boolean;
+  maxStackSize: number | null;
   classRequirement: CharacterClass | null;
   minLevelToEquip: number | null;
   potionHealFlat: number | null;

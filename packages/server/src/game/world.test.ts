@@ -2674,6 +2674,7 @@ describe("world manager", () => {
       {
         id: "loot-item-1",
         itemDefinitionId: "training_sword",
+        quantity: 1,
       },
     );
     expect(lootBag).not.toBeNull();
@@ -2718,6 +2719,7 @@ describe("world manager", () => {
         {
           id: "loot-item-2",
           itemDefinitionId: "training_sword",
+          quantity: 1,
         },
       );
       expect(lootBag).not.toBeNull();

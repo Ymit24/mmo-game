@@ -19,6 +19,7 @@ import {
   type WeaponStyle,
   getInventorySlotPlacementError,
   itemDefinitionToArmorModifiers,
+  itemDefinitionToMaxStackSize,
   itemDefinitionToPotionHeal,
   itemDefinitionToWeaponModifiers,
   resolveWeaponAttackConfig,
@@ -30,6 +31,8 @@ interface ItemDefinitionRow {
   name: string;
   icon_key: string;
   type: string;
+  is_stackable: number;
+  max_stack_size: number | null;
   class_requirement: CharacterClass | null;
   min_level_to_equip: number | null;
   potion_heal_flat: number | null;
@@ -52,6 +55,7 @@ interface ItemDefinitionRow {
 interface InventoryRow {
   id: string;
   item_definition_id: string;
+  stack_count: number;
   slot_kind: "bag" | "weapon" | "armor";
   slot_index: number | null;
 }
@@ -62,6 +66,8 @@ interface InventoryRowWithDefinition extends InventoryRow {
   def_name: string;
   def_icon_key: string;
   def_type: string;
+  def_is_stackable: number;
+  def_max_stack_size: number | null;
   def_class_requirement: CharacterClass | null;
   def_min_level_to_equip: number | null;
   def_potion_heal_flat: number | null;
@@ -102,8 +108,8 @@ interface InventoryMoveSuccessResult {
 interface InventoryDropSuccessResult {
   ok: true;
   from: InventorySlotRef;
-  removedItemInstanceId: string;
-  removedItemDefinitionId: string;
+  droppedItemDefinitionId: string;
+  droppedCount: number;
   state: InventoryStatePayload;
 }
 
@@ -112,6 +118,7 @@ interface InventoryConsumeSuccessResult {
   from: InventorySlotRef;
   consumedItemInstanceId: string;
   consumedItemDefinitionId: string;
+  consumedCount: number;
   restoreAmount: number;
   state: InventoryStatePayload;
 }
@@ -144,7 +151,8 @@ const STARTER_LOADOUT_BY_CLASS: Record<
     equippedArmorId: string;
     bagWeaponIds: [string, string, string];
     bagArmorIds: [string, string];
-    bagPotionIds: [string, string, string];
+    bagPotionDefinitionId: string;
+    bagPotionCount: number;
   }
 > = {
   knight: {
@@ -152,22 +160,16 @@ const STARTER_LOADOUT_BY_CLASS: Record<
     equippedArmorId: "training_hauberk",
     bagWeaponIds: ["iron_broadsword", "runed_greatsword", "dragonbone_blade"],
     bagArmorIds: ["steel_bulwark_armor", "aegis_plate"],
-    bagPotionIds: [
-      "basic_health_potion",
-      "basic_health_potion",
-      "basic_health_potion",
-    ],
+    bagPotionDefinitionId: "basic_health_potion",
+    bagPotionCount: 3,
   },
   mage: {
     equippedWeaponId: "training_wand",
     equippedArmorId: "training_robe",
     bagWeaponIds: ["adept_focus_wand", "stormweave_rod", "arcane_scepter"],
     bagArmorIds: ["glyphweave_robe", "astral_ward_raiment"],
-    bagPotionIds: [
-      "basic_health_potion",
-      "basic_health_potion",
-      "basic_health_potion",
-    ],
+    bagPotionDefinitionId: "basic_health_potion",
+    bagPotionCount: 3,
   },
 };
 
@@ -177,6 +179,8 @@ function mapItemDefinition(row: ItemDefinitionRow): ItemDefinition {
     name: row.name,
     iconKey: row.icon_key,
     type: row.type as ItemDefinition["type"],
+    isStackable: row.is_stackable === 1,
+    maxStackSize: row.max_stack_size,
     classRequirement: row.class_requirement,
     minLevelToEquip: row.min_level_to_equip,
     potionHealFlat: row.potion_heal_flat,
@@ -205,6 +209,8 @@ function mapItemDefinitionFromInventoryRow(
     name: row.def_name,
     iconKey: row.def_icon_key,
     type: row.def_type as ItemDefinition["type"],
+    isStackable: row.def_is_stackable === 1,
+    maxStackSize: row.def_max_stack_size,
     classRequirement: row.def_class_requirement,
     minLevelToEquip: row.def_min_level_to_equip,
     potionHealFlat: row.def_potion_heal_flat,
@@ -228,10 +234,12 @@ function mapItemDefinitionFromInventoryRow(
 function mapInventoryInstance(row: InventoryRow): {
   id: string;
   itemDefinitionId: string;
+  quantity: number;
 } {
   return {
     id: row.id,
     itemDefinitionId: row.item_definition_id,
+    quantity: row.stack_count,
   };
 }
 
@@ -274,6 +282,8 @@ function getItemDefinitionMap(db: Database): Record<string, ItemDefinition> {
          name,
          icon_key,
          type,
+         is_stackable,
+         max_stack_size,
          class_requirement,
          min_level_to_equip,
          potion_heal_flat,
@@ -312,6 +322,7 @@ function getCharacterInventoryRows(
       `SELECT
          id,
          item_definition_id,
+         stack_count,
          slot_kind,
          slot_index
        FROM character_inventory
@@ -337,6 +348,7 @@ function findInventoryItemForSlot(
           `SELECT
              inv.id,
              inv.item_definition_id,
+             inv.stack_count,
              inv.slot_kind,
              inv.slot_index,
              inv.created_at,
@@ -344,6 +356,8 @@ function findInventoryItemForSlot(
              def.name AS def_name,
              def.icon_key AS def_icon_key,
              def.type AS def_type,
+             def.is_stackable AS def_is_stackable,
+             def.max_stack_size AS def_max_stack_size,
              def.class_requirement AS def_class_requirement,
              def.min_level_to_equip AS def_min_level_to_equip,
              def.potion_heal_flat AS def_potion_heal_flat,
@@ -379,6 +393,7 @@ function findInventoryItemForSlot(
         `SELECT
            inv.id,
            inv.item_definition_id,
+           inv.stack_count,
            inv.slot_kind,
            inv.slot_index,
            inv.created_at,
@@ -386,6 +401,8 @@ function findInventoryItemForSlot(
            def.name AS def_name,
            def.icon_key AS def_icon_key,
            def.type AS def_type,
+           def.is_stackable AS def_is_stackable,
+           def.max_stack_size AS def_max_stack_size,
            def.class_requirement AS def_class_requirement,
            def.min_level_to_equip AS def_min_level_to_equip,
            def.potion_heal_flat AS def_potion_heal_flat,
@@ -474,6 +491,58 @@ function updateInventoryRowSlot(
   ).run(rowId, storage.slotKind, storage.slotIndex, timestamp);
 }
 
+function updateInventoryRowStackCount(
+  db: Database,
+  rowId: string,
+  quantity: number,
+  timestamp: string,
+): void {
+  db.query(
+    `UPDATE character_inventory
+     SET stack_count = ?2,
+         updated_at = ?3
+     WHERE id = ?1`,
+  ).run(rowId, quantity, timestamp);
+}
+
+function deleteInventoryRow(
+  db: Database,
+  rowId: string,
+  characterId: string,
+): void {
+  db.query(
+    `DELETE FROM character_inventory
+     WHERE id = ?1 AND character_id = ?2`,
+  ).run(rowId, characterId);
+}
+
+function resolveRequestedCount(
+  requested: number | undefined,
+  sourceQuantity: number,
+): number | null {
+  if (requested === undefined) {
+    return sourceQuantity;
+  }
+  if (!Number.isSafeInteger(requested) || requested < 1) {
+    return null;
+  }
+  if (requested > sourceQuantity) {
+    return null;
+  }
+  return requested;
+}
+
+function canMergeStacks(
+  source: InventoryRowWithDefinition,
+  destination: InventoryRowWithDefinition,
+): boolean {
+  if (source.item_definition_id !== destination.item_definition_id) {
+    return false;
+  }
+  const sourceDefinition = mapItemDefinitionFromInventoryRow(source);
+  return sourceDefinition.isStackable;
+}
+
 function swapInventoryRowSlots(
   db: Database,
   characterId: string,
@@ -503,15 +572,17 @@ function swapInventoryRowSlots(
        item_definition_id,
        slot_kind,
        slot_index,
+       stack_count,
        created_at,
        updated_at
-     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
   ).run(
     destination.id,
     characterId,
     destination.item_definition_id,
     fromStorage.slotKind,
     fromStorage.slotIndex,
+    destination.stack_count,
     destination.created_at,
     timestamp,
   );
@@ -584,6 +655,8 @@ export function getEquippedWeaponDefinitionForCharacter(
          def.name,
          def.icon_key,
          def.type,
+         def.is_stackable,
+         def.max_stack_size,
          def.class_requirement,
          def.min_level_to_equip,
          def.potion_heal_flat,
@@ -814,50 +887,16 @@ export function grantStarterInventoryForCharacter(
        item_definition_id,
        slot_kind,
        slot_index,
+       stack_count,
        created_at,
        updated_at
-     ) VALUES (?1, ?2, ?3, 'bag', ?4, ?5, ?6)`,
+     ) VALUES (?1, ?2, ?3, 'bag', ?4, ?5, ?6, ?7)`,
   ).run(
     crypto.randomUUID(),
     characterId,
-    starterLoadout.bagPotionIds[0],
+    starterLoadout.bagPotionDefinitionId,
     5,
-    timestamp,
-    timestamp,
-  );
-  db.query(
-    `INSERT INTO character_inventory (
-       id,
-       character_id,
-       item_definition_id,
-       slot_kind,
-       slot_index,
-       created_at,
-       updated_at
-     ) VALUES (?1, ?2, ?3, 'bag', ?4, ?5, ?6)`,
-  ).run(
-    crypto.randomUUID(),
-    characterId,
-    starterLoadout.bagPotionIds[1],
-    6,
-    timestamp,
-    timestamp,
-  );
-  db.query(
-    `INSERT INTO character_inventory (
-       id,
-       character_id,
-       item_definition_id,
-       slot_kind,
-       slot_index,
-       created_at,
-       updated_at
-     ) VALUES (?1, ?2, ?3, 'bag', ?4, ?5, ?6)`,
-  ).run(
-    crypto.randomUUID(),
-    characterId,
-    starterLoadout.bagPotionIds[2],
-    7,
+    starterLoadout.bagPotionCount,
     timestamp,
     timestamp,
   );
@@ -868,6 +907,7 @@ export function moveInventoryItem(
   characterId: string,
   from: InventorySlotRef,
   to: InventorySlotRef,
+  count: number | undefined,
   context: InventoryActionContext,
 ): InventoryMoveResult {
   if (!slotToStorage(from) || !slotToStorage(to)) {
@@ -901,6 +941,14 @@ export function moveInventoryItem(
     }
 
     const sourceDefinition = mapItemDefinitionFromInventoryRow(source);
+    const requestedCount = resolveRequestedCount(count, source.stack_count);
+    if (requestedCount === null) {
+      return {
+        ok: false,
+        code: INVENTORY_ACTION_ERROR_CODES.requestInvalid,
+        message: "Requested stack count is invalid.",
+      };
+    }
     const sourceDestinationError = validateDestination(
       sourceDefinition,
       to,
@@ -908,6 +956,13 @@ export function moveInventoryItem(
     );
     if (sourceDestinationError) {
       return sourceDestinationError;
+    }
+    if (to.kind === "equip" && requestedCount < source.stack_count) {
+      return {
+        ok: false,
+        code: INVENTORY_ACTION_ERROR_CODES.requestInvalid,
+        message: "Cannot split stacks into equipment slots.",
+      };
     }
 
     const destination = findInventoryItemForSlot(db, characterId, to);
@@ -926,17 +981,90 @@ export function moveInventoryItem(
 
     const timestamp = new Date().toISOString();
     if (destination) {
-      swapInventoryRowSlots(
-        db,
-        characterId,
-        source.id,
-        from,
-        destination,
-        to,
-        timestamp,
-      );
+      if (canMergeStacks(source, destination)) {
+        const maxStackSize = itemDefinitionToMaxStackSize(sourceDefinition);
+        const destinationSpace = Math.max(
+          0,
+          maxStackSize - destination.stack_count,
+        );
+        const movedCount = Math.min(requestedCount, destinationSpace);
+
+        if (movedCount > 0) {
+          updateInventoryRowStackCount(
+            db,
+            destination.id,
+            destination.stack_count + movedCount,
+            timestamp,
+          );
+          const sourceRemaining = source.stack_count - movedCount;
+          if (sourceRemaining <= 0) {
+            deleteInventoryRow(db, source.id, characterId);
+          } else {
+            updateInventoryRowStackCount(
+              db,
+              source.id,
+              sourceRemaining,
+              timestamp,
+            );
+          }
+        }
+      } else if (requestedCount === source.stack_count) {
+        swapInventoryRowSlots(
+          db,
+          characterId,
+          source.id,
+          from,
+          destination,
+          to,
+          timestamp,
+        );
+      } else {
+        return {
+          ok: false,
+          code: INVENTORY_ACTION_ERROR_CODES.requestInvalid,
+          message: "Cannot split-stack swap with occupied slot.",
+        };
+      }
     } else {
-      updateInventoryRowSlot(db, source.id, to, timestamp);
+      if (requestedCount === source.stack_count) {
+        updateInventoryRowSlot(db, source.id, to, timestamp);
+      } else {
+        updateInventoryRowStackCount(
+          db,
+          source.id,
+          source.stack_count - requestedCount,
+          timestamp,
+        );
+        const storage = slotToStorage(to);
+        if (!storage) {
+          return {
+            ok: false,
+            code: INVENTORY_ACTION_ERROR_CODES.slotInvalid,
+            message: "Inventory slot is invalid.",
+          };
+        }
+        db.query(
+          `INSERT INTO character_inventory (
+             id,
+             character_id,
+             item_definition_id,
+             slot_kind,
+             slot_index,
+             stack_count,
+             created_at,
+             updated_at
+           ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
+        ).run(
+          crypto.randomUUID(),
+          characterId,
+          source.item_definition_id,
+          storage.slotKind,
+          storage.slotIndex,
+          requestedCount,
+          timestamp,
+          timestamp,
+        );
+      }
     }
 
     db.exec("COMMIT;");
@@ -963,6 +1091,7 @@ export function dropInventoryItem(
   db: Database,
   characterId: string,
   from: InventorySlotRef,
+  count: number | undefined,
 ): InventoryDropResult {
   if (!slotToStorage(from)) {
     return {
@@ -984,11 +1113,26 @@ export function dropInventoryItem(
         message: "Source slot is empty.",
       };
     }
+    const requestedCount = resolveRequestedCount(count, source.stack_count);
+    if (requestedCount === null) {
+      return {
+        ok: false,
+        code: INVENTORY_ACTION_ERROR_CODES.requestInvalid,
+        message: "Requested stack count is invalid.",
+      };
+    }
 
-    db.query(
-      `DELETE FROM character_inventory
-       WHERE id = ?1 AND character_id = ?2`,
-    ).run(source.id, characterId);
+    const timestamp = new Date().toISOString();
+    if (requestedCount === source.stack_count) {
+      deleteInventoryRow(db, source.id, characterId);
+    } else {
+      updateInventoryRowStackCount(
+        db,
+        source.id,
+        source.stack_count - requestedCount,
+        timestamp,
+      );
+    }
 
     db.exec("COMMIT;");
     committed = true;
@@ -996,8 +1140,8 @@ export function dropInventoryItem(
     return {
       ok: true,
       from,
-      removedItemInstanceId: source.id,
-      removedItemDefinitionId: source.item_definition_id,
+      droppedItemDefinitionId: source.item_definition_id,
+      droppedCount: requestedCount,
       state: loadInventoryStateForCharacter(db, characterId),
     };
   } finally {
@@ -1055,10 +1199,17 @@ export function consumeInventoryItem(
       };
     }
 
-    db.query(
-      `DELETE FROM character_inventory
-       WHERE id = ?1 AND character_id = ?2`,
-    ).run(source.id, characterId);
+    const timestamp = new Date().toISOString();
+    if (source.stack_count <= 1) {
+      deleteInventoryRow(db, source.id, characterId);
+    } else {
+      updateInventoryRowStackCount(
+        db,
+        source.id,
+        source.stack_count - 1,
+        timestamp,
+      );
+    }
 
     db.exec("COMMIT;");
     committed = true;
@@ -1068,6 +1219,7 @@ export function consumeInventoryItem(
       from,
       consumedItemInstanceId: source.id,
       consumedItemDefinitionId: source.item_definition_id,
+      consumedCount: 1,
       restoreAmount,
       state: loadInventoryStateForCharacter(db, characterId),
     };
@@ -1170,9 +1322,10 @@ function persistInventoryLayout(
          item_definition_id,
          slot_kind,
          slot_index,
+         stack_count,
          created_at,
          updated_at
-       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
     );
 
     for (let index = 0; index < state.bagSlots.length; index += 1) {
@@ -1186,6 +1339,7 @@ function persistInventoryLayout(
         item.itemDefinitionId,
         "bag",
         index,
+        item.quantity,
         timestamp,
         timestamp,
       );
@@ -1202,6 +1356,7 @@ function persistInventoryLayout(
         item.itemDefinitionId,
         slot,
         null,
+        item.quantity,
         timestamp,
         timestamp,
       );
@@ -1227,6 +1382,7 @@ export function moveBetweenInventoryAndContainer(
   containerSlotsInput: ReadonlyArray<InventoryItemInstance | null>,
   from: StorageSlotRef,
   to: StorageSlotRef,
+  count: number | undefined,
   context: InventoryActionContext,
 ): InventoryContainerMoveResult {
   if (
@@ -1273,6 +1429,21 @@ export function moveBetweenInventoryAndContainer(
       message: "Source item definition could not be resolved.",
     };
   }
+  const requestedCount = resolveRequestedCount(count, sourceItem.quantity);
+  if (requestedCount === null) {
+    return {
+      ok: false,
+      code: INVENTORY_ACTION_ERROR_CODES.requestInvalid,
+      message: "Requested stack count is invalid.",
+    };
+  }
+  if (to.kind === "equip" && requestedCount < sourceItem.quantity) {
+    return {
+      ok: false,
+      code: INVENTORY_ACTION_ERROR_CODES.requestInvalid,
+      message: "Cannot split stacks into equipment slots.",
+    };
+  }
 
   if (to.kind !== "container") {
     const destinationError = validateDestination(sourceDefinition, to, context);
@@ -1302,8 +1473,55 @@ export function moveBetweenInventoryAndContainer(
     }
   }
 
-  setStorageItem(from, inventoryState, containerSlots, destinationItem ?? null);
-  setStorageItem(to, inventoryState, containerSlots, sourceItem);
+  if (
+    destinationItem &&
+    destinationItem.itemDefinitionId === sourceItem.itemDefinitionId &&
+    sourceDefinition.isStackable
+  ) {
+    const maxStack = itemDefinitionToMaxStackSize(sourceDefinition);
+    const destinationSpace = Math.max(0, maxStack - destinationItem.quantity);
+    const moved = Math.min(requestedCount, destinationSpace);
+    if (moved > 0) {
+      const mergedDestination: InventoryItemInstance = {
+        ...destinationItem,
+        quantity: destinationItem.quantity + moved,
+      };
+      setStorageItem(to, inventoryState, containerSlots, mergedDestination);
+      const sourceRemaining = sourceItem.quantity - moved;
+      if (sourceRemaining <= 0) {
+        setStorageItem(from, inventoryState, containerSlots, null);
+      } else {
+        setStorageItem(from, inventoryState, containerSlots, {
+          ...sourceItem,
+          quantity: sourceRemaining,
+        });
+      }
+    }
+  } else if (requestedCount === sourceItem.quantity) {
+    setStorageItem(
+      from,
+      inventoryState,
+      containerSlots,
+      destinationItem ?? null,
+    );
+    setStorageItem(to, inventoryState, containerSlots, sourceItem);
+  } else if (!destinationItem) {
+    setStorageItem(from, inventoryState, containerSlots, {
+      ...sourceItem,
+      quantity: sourceItem.quantity - requestedCount,
+    });
+    setStorageItem(to, inventoryState, containerSlots, {
+      id: crypto.randomUUID(),
+      itemDefinitionId: sourceItem.itemDefinitionId,
+      quantity: requestedCount,
+    });
+  } else {
+    return {
+      ok: false,
+      code: INVENTORY_ACTION_ERROR_CODES.requestInvalid,
+      message: "Cannot split-stack swap with occupied slot.",
+    };
+  }
 
   if (from.kind !== "container" || to.kind !== "container") {
     persistInventoryLayout(db, characterId, inventoryState);

@@ -68,6 +68,11 @@ export function ItemTooltip({
           <p className="mt-0.5 text-[9px] text-muted capitalize">
             {definition.type}
           </p>
+          {item.quantity > 1 ? (
+            <p className="mt-0.5 text-[9px] text-vec-cyan">
+              Stack x{item.quantity}
+            </p>
+          ) : null}
         </div>
       </div>
 

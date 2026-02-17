@@ -4,6 +4,7 @@ import {
   type InventorySlotRef,
   LOOT_BAG_SLOT_COUNT,
   type StorageSlotRef,
+  itemDefinitionToMaxStackSize,
 } from "@mmo/shared";
 import { type DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -117,6 +118,13 @@ export function GameShell({ characterId }: GameShellProps) {
     slot: StorageSlotRef;
     rect: DOMRect;
   } | null>(null);
+  const [splitDraft, setSplitDraft] = useState<{
+    from: StorageSlotRef;
+    to: StorageSlotRef | null;
+    amount: number;
+    maxAmount: number;
+    mode: "move" | "drop";
+  } | null>(null);
   const dragInProgressRef = useRef<boolean>(false);
   const dropHighlightedSlotKey = isDraggingInventoryItem
     ? activeDropSlotKey
@@ -149,6 +157,21 @@ export function GameShell({ characterId }: GameShellProps) {
       window.removeEventListener("drop", clearDragUiState);
     };
   }, []);
+
+  useEffect(() => {
+    if (!splitDraft) {
+      return;
+    }
+    function onKeyDown(event: KeyboardEvent): void {
+      if (event.key === "Escape") {
+        setSplitDraft(null);
+      } else if (event.key === "Enter") {
+        confirmSplitAction();
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [splitDraft]);
 
   useEffect(() => {
     if (!containerRef.current || !auth.token) {
@@ -211,6 +234,7 @@ export function GameShell({ characterId }: GameShellProps) {
   ): void {
     setActiveDropSlotKey(null);
     setHoveredSlotKey(null);
+    setHoveredSlotData(null);
     setIsDraggingInventoryItem(true);
     dragInProgressRef.current = true;
     const encoded = encodeSlotRef(from);
@@ -227,6 +251,17 @@ export function GameShell({ characterId }: GameShellProps) {
     dragInProgressRef.current = false;
     const from = getDraggedSlot(event);
     if (!from) {
+      return;
+    }
+    const sourceItem = getItemAtSlot(from);
+    if (event.altKey && sourceItem && sourceItem.quantity > 1) {
+      setSplitDraft({
+        from,
+        to,
+        amount: Math.max(1, Math.floor(sourceItem.quantity / 2)),
+        maxAmount: sourceItem.quantity,
+        mode: "move",
+      });
       return;
     }
 
@@ -269,8 +304,71 @@ export function GameShell({ characterId }: GameShellProps) {
     if (!from || from.kind === "container") {
       return;
     }
+    const sourceItem = getItemAtSlot(from);
+    if (event.altKey && sourceItem && sourceItem.quantity > 1) {
+      setSplitDraft({
+        from,
+        to: null,
+        amount: Math.max(1, Math.floor(sourceItem.quantity / 2)),
+        maxAmount: sourceItem.quantity,
+        mode: "drop",
+      });
+      return;
+    }
 
     bridge.requestInventoryDrop({ from });
+  }
+
+  function getItemAtSlot(slot: StorageSlotRef) {
+    if (slot.kind === "bag") {
+      return bagSlots[slot.index] ?? null;
+    }
+    if (slot.kind === "equip") {
+      return equipSlots[slot.slot] ?? null;
+    }
+    if (openContainer && slot.containerId === openContainer.containerId) {
+      return containerSlots[slot.index] ?? null;
+    }
+    return null;
+  }
+
+  function confirmSplitAction(): void {
+    if (!splitDraft) {
+      return;
+    }
+    if (splitDraft.mode === "drop") {
+      if (splitDraft.from.kind === "container") {
+        setSplitDraft(null);
+        return;
+      }
+      bridge.requestInventoryDrop({
+        from: splitDraft.from,
+        count: splitDraft.amount,
+      });
+      setSplitDraft(null);
+      return;
+    }
+    if (!splitDraft.to) {
+      setSplitDraft(null);
+      return;
+    }
+    if (
+      splitDraft.from.kind === "container" ||
+      splitDraft.to.kind === "container"
+    ) {
+      bridge.requestContainerMove({
+        from: splitDraft.from,
+        to: splitDraft.to,
+        count: splitDraft.amount,
+      });
+    } else {
+      bridge.requestInventoryMove({
+        from: splitDraft.from,
+        to: splitDraft.to,
+        count: splitDraft.amount,
+      });
+    }
+    setSplitDraft(null);
   }
 
   function onBagSlotContextMenu(
@@ -300,6 +398,34 @@ export function GameShell({ characterId }: GameShellProps) {
     return null;
   }
 
+  function findFirstMergeableBagSlot(
+    sourceItem: NonNullable<ReturnType<typeof getItemAtSlot>>,
+    sourceSlot: StorageSlotRef,
+  ): InventorySlotRef | null {
+    const sourceDefinition = definitions[sourceItem.itemDefinitionId];
+    if (!sourceDefinition?.isStackable) {
+      return null;
+    }
+    const maxStack = itemDefinitionToMaxStackSize(sourceDefinition);
+    for (let index = 0; index < bagSlots.length; index += 1) {
+      if (sourceSlot.kind === "bag" && sourceSlot.index === index) {
+        continue;
+      }
+      const candidate = bagSlots[index];
+      if (
+        candidate &&
+        candidate.itemDefinitionId === sourceItem.itemDefinitionId &&
+        candidate.quantity < maxStack
+      ) {
+        return {
+          kind: "bag",
+          index,
+        };
+      }
+    }
+    return null;
+  }
+
   function findFirstEmptyContainerSlot(): StorageSlotRef | null {
     if (!openContainer) {
       return null;
@@ -318,6 +444,42 @@ export function GameShell({ characterId }: GameShellProps) {
     return null;
   }
 
+  function findFirstMergeableContainerSlot(
+    sourceItem: NonNullable<ReturnType<typeof getItemAtSlot>>,
+    sourceSlot: StorageSlotRef,
+  ): StorageSlotRef | null {
+    if (!openContainer) {
+      return null;
+    }
+    const sourceDefinition = definitions[sourceItem.itemDefinitionId];
+    if (!sourceDefinition?.isStackable) {
+      return null;
+    }
+    const maxStack = itemDefinitionToMaxStackSize(sourceDefinition);
+    for (let index = 0; index < containerSlots.length; index += 1) {
+      if (
+        sourceSlot.kind === "container" &&
+        sourceSlot.containerId === openContainer.containerId &&
+        sourceSlot.index === index
+      ) {
+        continue;
+      }
+      const candidate = containerSlots[index];
+      if (
+        candidate &&
+        candidate.itemDefinitionId === sourceItem.itemDefinitionId &&
+        candidate.quantity < maxStack
+      ) {
+        return {
+          kind: "container",
+          containerId: openContainer.containerId,
+          index,
+        };
+      }
+    }
+    return null;
+  }
+
   function onSlotShiftClick(
     event: React.MouseEvent<HTMLButtonElement>,
     slot: StorageSlotRef,
@@ -329,8 +491,14 @@ export function GameShell({ characterId }: GameShellProps) {
 
     event.preventDefault();
 
+    const sourceItem = getItemAtSlot(slot);
+    if (!sourceItem) {
+      return;
+    }
+
     if (slot.kind === "container") {
-      const destination = findFirstEmptyBagSlot();
+      const destination =
+        findFirstMergeableBagSlot(sourceItem, slot) ?? findFirstEmptyBagSlot();
       if (!destination) {
         return;
       }
@@ -342,7 +510,9 @@ export function GameShell({ characterId }: GameShellProps) {
       return;
     }
 
-    const destination = findFirstEmptyContainerSlot();
+    const destination =
+      findFirstMergeableContainerSlot(sourceItem, slot) ??
+      findFirstEmptyContainerSlot();
     if (!destination) {
       return;
     }
@@ -438,7 +608,7 @@ export function GameShell({ characterId }: GameShellProps) {
                             onSlotMouseEnter(event, slotRef)
                           }
                           onMouseLeave={() => onSlotMouseLeave(slotRef)}
-                          className={`flex min-h-16 flex-col items-center justify-center border p-1 ${
+                          className={`relative flex min-h-16 flex-col items-center justify-center border p-1 ${
                             dropHighlightedSlotKey === key
                               ? "border-amber-300 bg-amber-300/12"
                               : hoveredSlotKey === key
@@ -463,6 +633,11 @@ export function GameShell({ characterId }: GameShellProps) {
                               <span className="mt-0.5 w-full truncate text-center text-[7px] leading-tight text-amber-100">
                                 {definition.name}
                               </span>
+                              {instance.quantity > 1 ? (
+                                <span className="pointer-events-none absolute right-1 top-1 rounded border border-amber-200/60 bg-void px-1 text-[8px] leading-none text-amber-200">
+                                  x{instance.quantity}
+                                </span>
+                              ) : null}
                             </>
                           ) : (
                             <span className="text-[8px] text-amber-100/30">
@@ -666,7 +841,7 @@ export function GameShell({ characterId }: GameShellProps) {
                       }
                       onMouseEnter={(event) => onSlotMouseEnter(event, slotRef)}
                       onMouseLeave={() => onSlotMouseLeave(slotRef)}
-                      className={`flex flex-col items-center justify-center border p-1.5 aspect-square ${
+                      className={`relative flex flex-col items-center justify-center border p-1.5 aspect-square ${
                         dropHighlightedSlotKey === key
                           ? "border-vec-gold bg-vec-gold/10"
                           : hoveredSlotKey === key
@@ -691,6 +866,11 @@ export function GameShell({ characterId }: GameShellProps) {
                           <span className="mt-0.5 text-[8px] text-text-bright truncate w-full text-center">
                             {definition.name}
                           </span>
+                          {instance.quantity > 1 ? (
+                            <span className="pointer-events-none absolute right-1 top-1 rounded border border-vec-gold/60 bg-void px-1 text-[8px] leading-none text-vec-gold">
+                              x{instance.quantity}
+                            </span>
+                          ) : null}
                         </>
                       ) : (
                         <span className="text-[8px] text-muted/40 uppercase">
@@ -710,7 +890,9 @@ export function GameShell({ characterId }: GameShellProps) {
                   Inventory
                 </span>
                 <span className="text-[8px] text-muted">
-                  {isContainerOpen ? "E to close bag" : "E near bag to loot"}
+                  {isContainerOpen
+                    ? "E close • H quick heal • Alt-drag split"
+                    : "E near bag • H quick heal • Alt-drag split"}
                 </span>
               </div>
               <div className="grid grid-cols-3 gap-1">
@@ -759,7 +941,7 @@ export function GameShell({ characterId }: GameShellProps) {
                       }
                       onMouseEnter={(event) => onSlotMouseEnter(event, slotRef)}
                       onMouseLeave={() => onSlotMouseLeave(slotRef)}
-                      className={`flex flex-col items-center justify-center border aspect-square p-1 ${
+                      className={`relative flex flex-col items-center justify-center border aspect-square p-1 ${
                         dropHighlightedSlotKey === key
                           ? "border-vec-gold bg-vec-gold/10"
                           : hoveredSlotKey === key
@@ -784,6 +966,11 @@ export function GameShell({ characterId }: GameShellProps) {
                           <span className="mt-0.5 text-[7px] text-text-bright truncate w-full text-center leading-tight">
                             {definition.name}
                           </span>
+                          {instance.quantity > 1 ? (
+                            <span className="pointer-events-none absolute right-1 top-1 rounded border border-vec-gold/60 bg-void px-1 text-[8px] leading-none text-vec-gold">
+                              x{instance.quantity}
+                            </span>
+                          ) : null}
                         </>
                       ) : (
                         <span className="text-[8px] text-muted/30">
@@ -860,6 +1047,121 @@ export function GameShell({ characterId }: GameShellProps) {
           <p className="font-display text-xs text-vec-green animate-flicker">
             {uiState.transitionMessage}
           </p>
+        </div>
+      ) : null}
+
+      {splitDraft ? (
+        <div className="absolute inset-0 z-40 pointer-events-none flex items-end justify-center p-4">
+          <div className="pointer-events-auto w-full max-w-xs rounded-md border border-vec-gold/60 bg-void/95 p-3 shadow-[0_0_30px_rgba(250,204,21,0.18)]">
+            <p className="font-display text-[11px] uppercase tracking-[0.08em] text-vec-gold">
+              Split Stack
+            </p>
+            <p className="mt-1 text-[10px] text-muted">
+              Alt-drag detected. Choose quantity to{" "}
+              {splitDraft.mode === "drop" ? "drop" : "move"}.
+            </p>
+            <div className="mt-2 flex items-center gap-2">
+              <input
+                type="range"
+                min={1}
+                max={splitDraft.maxAmount}
+                value={splitDraft.amount}
+                onChange={(event) =>
+                  setSplitDraft((current) =>
+                    current
+                      ? {
+                          ...current,
+                          amount: Number(event.target.value),
+                        }
+                      : null,
+                  )
+                }
+                className="w-full accent-[var(--vec-gold)]"
+              />
+              <input
+                type="number"
+                min={1}
+                max={splitDraft.maxAmount}
+                value={splitDraft.amount}
+                onChange={(event) =>
+                  setSplitDraft((current) =>
+                    current
+                      ? {
+                          ...current,
+                          amount: Math.max(
+                            1,
+                            Math.min(
+                              current.maxAmount,
+                              Number(event.target.value) || 1,
+                            ),
+                          ),
+                        }
+                      : null,
+                  )
+                }
+                className="w-16 border border-border bg-deep px-1.5 py-1 text-xs text-text"
+              />
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                className="border border-border px-2 py-1 text-[10px] text-muted hover:border-vec-cyan/60 hover:text-vec-cyan"
+                onClick={() =>
+                  setSplitDraft((current) =>
+                    current ? { ...current, amount: 1 } : null,
+                  )
+                }
+              >
+                1
+              </button>
+              <button
+                type="button"
+                className="border border-border px-2 py-1 text-[10px] text-muted hover:border-vec-cyan/60 hover:text-vec-cyan"
+                onClick={() =>
+                  setSplitDraft((current) =>
+                    current
+                      ? {
+                          ...current,
+                          amount: Math.max(
+                            1,
+                            Math.floor(current.maxAmount / 2),
+                          ),
+                        }
+                      : null,
+                  )
+                }
+              >
+                Half
+              </button>
+              <button
+                type="button"
+                className="border border-border px-2 py-1 text-[10px] text-muted hover:border-vec-cyan/60 hover:text-vec-cyan"
+                onClick={() =>
+                  setSplitDraft((current) =>
+                    current ? { ...current, amount: current.maxAmount } : null,
+                  )
+                }
+              >
+                All
+              </button>
+            </div>
+            <div className="mt-3 flex gap-2">
+              <button
+                type="button"
+                onClick={confirmSplitAction}
+                className="flex-1 border border-vec-gold bg-vec-gold/10 px-3 py-1.5 text-xs font-display text-vec-gold hover:bg-vec-gold/20"
+              >
+                Confirm
+              </button>
+              <button
+                type="button"
+                onClick={() => setSplitDraft(null)}
+                className="flex-1 border border-border px-3 py-1.5 text-xs text-muted hover:border-border-bright"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
 

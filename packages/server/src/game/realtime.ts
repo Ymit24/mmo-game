@@ -450,6 +450,7 @@ export function createRealtimeGateway(
               characterId,
               incoming.payload.from,
               incoming.payload.to,
+              incoming.payload.count,
               {
                 characterClass,
                 characterLevel,
@@ -497,6 +498,7 @@ export function createRealtimeGateway(
                 db,
                 characterId,
                 incoming.payload.from,
+                incoming.payload.count,
               );
               if (!result.ok) {
                 sendInventoryActionRejected(
@@ -523,16 +525,17 @@ export function createRealtimeGateway(
                 socket,
                 incoming.payload.position,
                 {
-                  id: result.removedItemInstanceId,
-                  itemDefinitionId: result.removedItemDefinitionId,
+                  id: `drop-${crypto.randomUUID()}`,
+                  itemDefinitionId: result.droppedItemDefinitionId,
+                  quantity: result.droppedCount,
                 },
               );
               socket.send(
                 stringifyServerMessage({
                   type: "inventory.drop.ack",
                   from: result.from,
-                  removedItemInstanceId: result.removedItemInstanceId,
-                  removedItemDefinitionId: result.removedItemDefinitionId,
+                  droppedItemDefinitionId: result.droppedItemDefinitionId,
+                  droppedCount: result.droppedCount,
                   state: result.state,
                 }),
               );
@@ -595,6 +598,7 @@ export function createRealtimeGateway(
                 from: result.from,
                 consumedItemInstanceId: result.consumedItemInstanceId,
                 consumedItemDefinitionId: result.consumedItemDefinitionId,
+                consumedCount: result.consumedCount,
                 restoredHealth: healed.restoredHealth,
                 currentHealth: healed.currentHealth,
                 maxHealth: healed.maxHealth,
@@ -700,6 +704,7 @@ export function createRealtimeGateway(
               openedContainer.slots,
               incoming.payload.from,
               incoming.payload.to,
+              incoming.payload.count,
               {
                 characterClass,
                 characterLevel,
