@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 import {
   type AttackPatternId,
   type CharacterClass,
+  MAX_ARMOR_DAMAGE_REDUCTION_PERCENT,
   MAX_CHARACTER_LEVEL,
   USER_ROLES,
   type WeaponStyle,
@@ -452,6 +453,11 @@ function ensureItemDefinitionsTable(db: Database): void {
       type TEXT NOT NULL CHECK (type IN ('weapon', 'armor', 'potion', 'misc')),
       class_requirement TEXT CHECK (class_requirement IS NULL OR class_requirement IN ('knight', 'mage')),
       min_level_to_equip INTEGER CHECK (min_level_to_equip IS NULL OR min_level_to_equip >= 1),
+      armor_max_hp_flat REAL CHECK (armor_max_hp_flat IS NULL OR armor_max_hp_flat >= 0),
+      armor_damage_reduction_percent REAL CHECK (
+        armor_damage_reduction_percent IS NULL OR
+        (armor_damage_reduction_percent >= 0 AND armor_damage_reduction_percent <= ${MAX_ARMOR_DAMAGE_REDUCTION_PERCENT})
+      ),
       weapon_damage_flat REAL,
       weapon_range_flat REAL,
       weapon_speed_percent REAL,
@@ -510,6 +516,16 @@ function ensureItemDefinitionAttackColumns(db: Database): void {
   if (!hasColumn("weapon_style")) {
     db.exec(
       "ALTER TABLE item_definitions ADD COLUMN weapon_style TEXT CHECK (weapon_style IS NULL OR weapon_style IN ('sword', 'wand', 'staff'));",
+    );
+  }
+  if (!hasColumn("armor_max_hp_flat")) {
+    db.exec(
+      "ALTER TABLE item_definitions ADD COLUMN armor_max_hp_flat REAL CHECK (armor_max_hp_flat IS NULL OR armor_max_hp_flat >= 0);",
+    );
+  }
+  if (!hasColumn("armor_damage_reduction_percent")) {
+    db.exec(
+      `ALTER TABLE item_definitions ADD COLUMN armor_damage_reduction_percent REAL CHECK (armor_damage_reduction_percent IS NULL OR (armor_damage_reduction_percent >= 0 AND armor_damage_reduction_percent <= ${MAX_ARMOR_DAMAGE_REDUCTION_PERCENT}));`,
     );
   }
   if (!hasColumn("attack_pattern_id")) {
@@ -618,6 +634,20 @@ function ensureItemDefinitionSeeds(db: Database): void {
       created_at,
       updated_at
     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)`,
+  );
+  const armorStatement = db.query(
+    `INSERT OR IGNORE INTO item_definitions (
+      id,
+      name,
+      icon_key,
+      type,
+      class_requirement,
+      min_level_to_equip,
+      armor_max_hp_flat,
+      armor_damage_reduction_percent,
+      created_at,
+      updated_at
+    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
   );
 
   statement.run(
@@ -895,6 +925,84 @@ function ensureItemDefinitionSeeds(db: Database): void {
     timestamp,
     timestamp,
   );
+
+  armorStatement.run(
+    "training_hauberk",
+    "Training Hauberk",
+    "training_hauberk",
+    "armor",
+    "knight",
+    1,
+    24,
+    8,
+    timestamp,
+    timestamp,
+  );
+
+  armorStatement.run(
+    "steel_bulwark_armor",
+    "Steel Bulwark Armor",
+    "steel_bulwark_armor",
+    "armor",
+    "knight",
+    8,
+    56,
+    26,
+    timestamp,
+    timestamp,
+  );
+
+  armorStatement.run(
+    "aegis_plate",
+    "Aegis Plate",
+    "aegis_plate",
+    "armor",
+    "knight",
+    15,
+    84,
+    45,
+    timestamp,
+    timestamp,
+  );
+
+  armorStatement.run(
+    "training_robe",
+    "Training Robe",
+    "training_robe",
+    "armor",
+    "mage",
+    1,
+    16,
+    6,
+    timestamp,
+    timestamp,
+  );
+
+  armorStatement.run(
+    "glyphweave_robe",
+    "Glyphweave Robe",
+    "glyphweave_robe",
+    "armor",
+    "mage",
+    8,
+    44,
+    24,
+    timestamp,
+    timestamp,
+  );
+
+  armorStatement.run(
+    "astral_ward_raiment",
+    "Astral Ward Raiment",
+    "astral_ward_raiment",
+    "armor",
+    "mage",
+    15,
+    72,
+    42,
+    timestamp,
+    timestamp,
+  );
 }
 
 function backfillItemDefinitionAttackDefaults(db: Database): void {
@@ -910,6 +1018,28 @@ function backfillItemDefinitionAttackDefaults(db: Database): void {
          attack_aoe_radius = NULL,
          attack_aoe_delay_ms = NULL
      WHERE type <> 'weapon'`,
+  ).run();
+  db.query(
+    `UPDATE item_definitions
+     SET armor_max_hp_flat = NULL,
+         armor_damage_reduction_percent = NULL
+     WHERE type <> 'armor'`,
+  ).run();
+  db.query(
+    `UPDATE item_definitions
+     SET armor_max_hp_flat = CASE
+           WHEN armor_max_hp_flat IS NULL THEN NULL
+           WHEN armor_max_hp_flat < 0 THEN 0
+           ELSE armor_max_hp_flat
+         END,
+         armor_damage_reduction_percent = CASE
+           WHEN armor_damage_reduction_percent IS NULL THEN NULL
+           WHEN armor_damage_reduction_percent < 0 THEN 0
+           WHEN armor_damage_reduction_percent > ${MAX_ARMOR_DAMAGE_REDUCTION_PERCENT}
+             THEN ${MAX_ARMOR_DAMAGE_REDUCTION_PERCENT}
+           ELSE armor_damage_reduction_percent
+         END
+     WHERE type = 'armor'`,
   ).run();
 
   const weaponRows = db
@@ -961,6 +1091,8 @@ function backfillItemDefinitionAttackDefaults(db: Database): void {
         type: "weapon",
         classRequirement: row.class_requirement,
         minLevelToEquip: null,
+        armorMaxHpFlat: 0,
+        armorDamageReductionPercent: 0,
         weaponDamageFlat: 0,
         weaponRangeFlat: 0,
         weaponSpeedPercent: 0,
@@ -1097,6 +1229,14 @@ function ensureEnemyLootSeed(db: Database): void {
       updated_at
     ) VALUES (?1, ?2, ?3, ?4)`,
   ).run("slime_scout", 0.3, timestamp, timestamp);
+  db.query(
+    `INSERT OR IGNORE INTO enemy_loot_tables (
+      enemy_archetype_id,
+      drop_chance,
+      created_at,
+      updated_at
+    ) VALUES (?1, ?2, ?3, ?4)`,
+  ).run("stone_golem", 0.4, timestamp, timestamp);
 
   db.query(
     `INSERT OR IGNORE INTO enemy_loot_table_entries (
@@ -1132,6 +1272,44 @@ function ensureEnemyLootSeed(db: Database): void {
     "seed-slime-scout-adept-focus-wand",
     "slime_scout",
     "adept_focus_wand",
+    1,
+    "mage",
+    timestamp,
+    timestamp,
+  );
+  db.query(
+    `INSERT OR IGNORE INTO enemy_loot_table_entries (
+      id,
+      enemy_archetype_id,
+      item_definition_id,
+      weight,
+      class_affinity,
+      created_at,
+      updated_at
+    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+  ).run(
+    "seed-stone-golem-steel-bulwark",
+    "stone_golem",
+    "steel_bulwark_armor",
+    1,
+    "knight",
+    timestamp,
+    timestamp,
+  );
+  db.query(
+    `INSERT OR IGNORE INTO enemy_loot_table_entries (
+      id,
+      enemy_archetype_id,
+      item_definition_id,
+      weight,
+      class_affinity,
+      created_at,
+      updated_at
+    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+  ).run(
+    "seed-stone-golem-glyphweave",
+    "stone_golem",
+    "glyphweave_robe",
     1,
     "mage",
     timestamp,

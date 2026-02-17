@@ -2,6 +2,7 @@ import {
   ATTACK_PATTERN_IDS,
   ATTACK_PATTERN_METADATA,
   type CharacterClass,
+  MAX_ARMOR_DAMAGE_REDUCTION_PERCENT,
   WEAPON_STYLES,
   estimatePatternDps,
   resolveWeaponAttackConfig,
@@ -26,6 +27,8 @@ const EMPTY_ITEM: Omit<ItemDefinition, "id"> & { id: string } = {
   type: "misc",
   classRequirement: null,
   minLevelToEquip: null,
+  armorMaxHpFlat: null,
+  armorDamageReductionPercent: null,
   weaponDamageFlat: null,
   weaponRangeFlat: null,
   weaponSpeedPercent: null,
@@ -328,10 +331,35 @@ function normalizeCharacterClassForItem(item: ItemDefinition): CharacterClass {
   return item.classRequirement === "mage" ? "mage" : "knight";
 }
 
-function withResolvedAttackDefaults(item: ItemDefinition): ItemDefinition {
-  if (item.type !== "weapon") {
+function withResolvedItemDefaults(item: ItemDefinition): ItemDefinition {
+  const withArmorDefaults: ItemDefinition =
+    item.type !== "armor"
+      ? {
+          ...item,
+          armorMaxHpFlat: null,
+          armorDamageReductionPercent: null,
+        }
+      : {
+          ...item,
+          armorMaxHpFlat:
+            item.armorMaxHpFlat === null
+              ? null
+              : Math.max(0, item.armorMaxHpFlat),
+          armorDamageReductionPercent:
+            item.armorDamageReductionPercent === null
+              ? null
+              : Math.max(
+                  0,
+                  Math.min(
+                    MAX_ARMOR_DAMAGE_REDUCTION_PERCENT,
+                    item.armorDamageReductionPercent,
+                  ),
+                ),
+        };
+
+  if (withArmorDefaults.type !== "weapon") {
     return {
-      ...item,
+      ...withArmorDefaults,
       weaponStyle: null,
       attackPatternId: null,
       attackDamageMultiplier: null,
@@ -345,11 +373,11 @@ function withResolvedAttackDefaults(item: ItemDefinition): ItemDefinition {
   }
 
   const resolved = resolveWeaponAttackConfig(
-    item,
-    normalizeCharacterClassForItem(item),
+    withArmorDefaults,
+    normalizeCharacterClassForItem(withArmorDefaults),
   );
   return {
-    ...item,
+    ...withArmorDefaults,
     weaponStyle: resolved.weaponStyle,
     attackPatternId: resolved.attackPatternId,
     attackDamageMultiplier: resolved.damageMultiplier,
@@ -374,7 +402,7 @@ export function ItemsPage() {
 
   const handleSelect = useCallback((item: ItemDefinition) => {
     setSelected(item);
-    setEditing(withResolvedAttackDefaults({ ...item }));
+    setEditing(withResolvedItemDefaults({ ...item }));
     setIsNew(false);
     setSaveError(null);
   }, []);
@@ -394,12 +422,12 @@ export function ItemsPage() {
       if (isNew) {
         const created = await createItem(editing);
         setSelected(created);
-        setEditing(created);
+        setEditing(withResolvedItemDefaults(created));
         setIsNew(false);
       } else {
         const updated = await updateItem(editing.id, editing);
         setSelected(updated);
-        setEditing(updated);
+        setEditing(withResolvedItemDefaults(updated));
       }
       refetch();
     } catch (err) {
@@ -440,7 +468,7 @@ export function ItemsPage() {
         if (!prev) {
           return prev;
         }
-        return withResolvedAttackDefaults({
+        return withResolvedItemDefaults({
           ...prev,
           [key]: value,
         } as ItemDefinition);
@@ -450,6 +478,7 @@ export function ItemsPage() {
   );
 
   const isWeapon = editing?.type === "weapon";
+  const isArmor = editing?.type === "armor";
   const resolvedEditingAttack = useMemo(() => {
     if (!editing || editing.type !== "weapon") {
       return null;
@@ -527,6 +556,17 @@ export function ItemsPage() {
                   {item.attackPatternId && (
                     <span className="text-[10px] text-vec-magenta-dim">
                       {ATTACK_PATTERN_METADATA[item.attackPatternId].shortLabel}
+                    </span>
+                  )}
+                  {item.type === "armor" &&
+                    item.armorDamageReductionPercent !== null && (
+                      <span className="text-[10px] text-vec-green">
+                        {item.armorDamageReductionPercent}%
+                      </span>
+                    )}
+                  {item.type === "armor" && item.armorMaxHpFlat !== null && (
+                    <span className="text-[10px] text-vec-cyan">
+                      +{item.armorMaxHpFlat} HP
                     </span>
                   )}
                 </div>
@@ -635,7 +675,7 @@ export function ItemsPage() {
                           if (!prev) {
                             return prev;
                           }
-                          return withResolvedAttackDefaults({
+                          return withResolvedItemDefaults({
                             ...prev,
                             type: e.target.value as ItemDefinition["type"],
                           });
@@ -924,6 +964,48 @@ export function ItemsPage() {
                       }
                     </p>
                   )}
+                </div>
+              )}
+
+              {/* Armor Stats (conditional) */}
+              {isArmor && (
+                <div className="editor-panel p-4 animate-fade-in">
+                  <h3 className="text-vec-cyan text-[10px] uppercase tracking-widest mb-3">
+                    Armor Stats
+                  </h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="Max HP Bonus">
+                      <input
+                        type="number"
+                        min={0}
+                        value={editing.armorMaxHpFlat ?? ""}
+                        onChange={(e) =>
+                          updateField(
+                            "armorMaxHpFlat",
+                            e.target.value ? Number(e.target.value) : null,
+                          )
+                        }
+                        className="w-full"
+                      />
+                    </Field>
+                    <Field
+                      label={`Damage Reduction % (0-${MAX_ARMOR_DAMAGE_REDUCTION_PERCENT})`}
+                    >
+                      <input
+                        type="number"
+                        min={0}
+                        max={MAX_ARMOR_DAMAGE_REDUCTION_PERCENT}
+                        value={editing.armorDamageReductionPercent ?? ""}
+                        onChange={(e) =>
+                          updateField(
+                            "armorDamageReductionPercent",
+                            e.target.value ? Number(e.target.value) : null,
+                          )
+                        }
+                        className="w-full"
+                      />
+                    </Field>
+                  </div>
                 </div>
               )}
 

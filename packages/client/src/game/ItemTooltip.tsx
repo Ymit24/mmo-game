@@ -5,6 +5,7 @@ import type {
 } from "@mmo/shared";
 import {
   ATTACK_PATTERN_METADATA,
+  itemDefinitionToArmorModifiers,
   itemDefinitionToWeaponModifiers,
 } from "@mmo/shared";
 import { resolveItemIconUrl } from "./itemIconMap";
@@ -13,6 +14,7 @@ interface ItemTooltipProps {
   item: InventoryItemInstance;
   definition: ItemDefinition;
   equippedWeaponDefinition?: ItemDefinition | null;
+  equippedArmorDefinition?: ItemDefinition | null;
   slotType: "bag" | EquipSlot;
 }
 
@@ -20,10 +22,12 @@ export function ItemTooltip({
   item,
   definition,
   equippedWeaponDefinition,
+  equippedArmorDefinition,
   slotType,
 }: ItemTooltipProps) {
   const iconUrl = resolveItemIconUrl(definition.iconKey);
   const isWeapon = definition.type === "weapon";
+  const isArmor = definition.type === "armor";
 
   // Get weapon stats for comparison
   const hoveredWeaponStats = isWeapon
@@ -31,6 +35,12 @@ export function ItemTooltip({
     : null;
   const equippedWeaponStats = equippedWeaponDefinition
     ? itemDefinitionToWeaponModifiers(equippedWeaponDefinition)
+    : null;
+  const hoveredArmorStats = isArmor
+    ? itemDefinitionToArmorModifiers(definition)
+    : null;
+  const equippedArmorStats = equippedArmorDefinition
+    ? itemDefinitionToArmorModifiers(equippedArmorDefinition)
     : null;
 
   return (
@@ -144,6 +154,43 @@ export function ItemTooltip({
                   hovered={hoveredWeaponStats.speedPercent}
                   equipped={equippedWeaponStats.speedPercent}
                   reverseColors
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Armor Stats */}
+      {isArmor && hoveredArmorStats && (
+        <div className="mb-2 border-t border-border/40 pt-1.5">
+          <p className="mb-1 text-[9px] text-muted uppercase">Armor Stats</p>
+
+          <div className="flex items-center justify-between text-[10px]">
+            <span className="text-text">Max HP</span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-vec-gold">
+                +{hoveredArmorStats.maxHpFlat}
+              </span>
+              {equippedArmorStats && slotType !== "armor" && (
+                <StatComparison
+                  hovered={hoveredArmorStats.maxHpFlat}
+                  equipped={equippedArmorStats.maxHpFlat}
+                />
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between text-[10px]">
+            <span className="text-text">Damage Reduction</span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-vec-gold">
+                {hoveredArmorStats.damageReductionPercent}%
+              </span>
+              {equippedArmorStats && slotType !== "armor" && (
+                <StatComparison
+                  hovered={hoveredArmorStats.damageReductionPercent}
+                  equipped={equippedArmorStats.damageReductionPercent}
                 />
               )}
             </div>

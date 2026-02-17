@@ -17,7 +17,7 @@ describe("enemy loot repository", () => {
     const db = createDatabase(":memory:");
     const drops = resolveEnemyLootDropDefinitionIds(
       db,
-      "stone_golem",
+      "unseeded_enemy",
       "knight",
     );
     expect(drops).toHaveLength(0);

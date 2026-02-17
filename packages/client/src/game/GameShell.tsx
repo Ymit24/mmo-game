@@ -9,6 +9,7 @@ import { type DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthContext";
+import { APP_VERSION } from "../version";
 import { ItemTooltip } from "./ItemTooltip";
 import { type GameBridgeState, createGameBridge } from "./bridge";
 import { resolveItemIconUrl } from "./itemIconMap";
@@ -775,6 +776,11 @@ export function GameShell({ characterId }: GameShellProps) {
                 </p>
               ) : null}
             </div>
+            <div className="border-t border-border/40 px-2 py-1.5">
+              <p className="text-center text-[8px] text-muted/50">
+                v{APP_VERSION}
+              </p>
+            </div>
           </aside>
         ) : null}
       </div>
@@ -867,6 +873,14 @@ export function GameShell({ characterId }: GameShellProps) {
           equippedWeapon && (slot.kind === "bag" || slot.kind === "container")
             ? uiState.inventory.definitions[equippedWeapon.itemDefinitionId]
             : undefined;
+        const equippedArmor =
+          slot.kind === "bag" || slot.kind === "container"
+            ? uiState.inventory.equipSlots.armor
+            : undefined;
+        const equippedArmorDefinition =
+          equippedArmor && (slot.kind === "bag" || slot.kind === "container")
+            ? uiState.inventory.definitions[equippedArmor.itemDefinitionId]
+            : undefined;
 
         // Calculate position: to the left of the slot, vertically centered
         const tooltipX = rect.left - 10;
@@ -885,6 +899,7 @@ export function GameShell({ characterId }: GameShellProps) {
               item={item}
               definition={definition}
               equippedWeaponDefinition={equippedWeaponDefinition}
+              equippedArmorDefinition={equippedArmorDefinition}
               slotType={slotType}
             />
           </div>

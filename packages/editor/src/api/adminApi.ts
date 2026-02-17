@@ -91,6 +91,8 @@ export interface ItemDefinition {
   type: ItemType;
   classRequirement: CharacterClass | null;
   minLevelToEquip: number | null;
+  armorMaxHpFlat: number | null;
+  armorDamageReductionPercent: number | null;
   weaponDamageFlat: number | null;
   weaponRangeFlat: number | null;
   weaponSpeedPercent: number | null;

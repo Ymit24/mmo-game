@@ -342,7 +342,8 @@ describe("character routes", () => {
          ORDER BY
            c.nickname ASC,
            CASE
-             WHEN i.slot_kind = 'weapon' THEN -1
+             WHEN i.slot_kind = 'weapon' THEN -2
+             WHEN i.slot_kind = 'armor' THEN -1
              ELSE i.slot_index
            END ASC`,
       )
@@ -353,6 +354,12 @@ describe("character routes", () => {
         nickname: "StarterKnight",
         item_definition_id: "training_sword",
         slot_kind: "weapon",
+        slot_index: null,
+      },
+      {
+        nickname: "StarterKnight",
+        item_definition_id: "training_hauberk",
+        slot_kind: "armor",
         slot_index: null,
       },
       {
@@ -374,9 +381,27 @@ describe("character routes", () => {
         slot_index: 2,
       },
       {
+        nickname: "StarterKnight",
+        item_definition_id: "steel_bulwark_armor",
+        slot_kind: "bag",
+        slot_index: 3,
+      },
+      {
+        nickname: "StarterKnight",
+        item_definition_id: "aegis_plate",
+        slot_kind: "bag",
+        slot_index: 4,
+      },
+      {
         nickname: "StarterMage",
         item_definition_id: "training_wand",
         slot_kind: "weapon",
+        slot_index: null,
+      },
+      {
+        nickname: "StarterMage",
+        item_definition_id: "training_robe",
+        slot_kind: "armor",
         slot_index: null,
       },
       {
@@ -396,6 +421,18 @@ describe("character routes", () => {
         item_definition_id: "arcane_scepter",
         slot_kind: "bag",
         slot_index: 2,
+      },
+      {
+        nickname: "StarterMage",
+        item_definition_id: "glyphweave_robe",
+        slot_kind: "bag",
+        slot_index: 3,
+      },
+      {
+        nickname: "StarterMage",
+        item_definition_id: "astral_ward_raiment",
+        slot_kind: "bag",
+        slot_index: 4,
       },
     ]);
   });

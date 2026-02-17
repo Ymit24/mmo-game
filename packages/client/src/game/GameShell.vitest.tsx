@@ -134,6 +134,8 @@ vi.mock("./phaser/runtime", () => ({
             type: "weapon",
             classRequirement: "knight",
             minLevelToEquip: 1,
+            armorMaxHpFlat: null,
+            armorDamageReductionPercent: null,
             weaponDamageFlat: 4,
             weaponRangeFlat: 8,
             weaponSpeedPercent: 5,

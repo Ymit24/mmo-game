@@ -118,4 +118,38 @@ describe("admin item routes", () => {
     expect(body.item.weaponStyle).toBeNull();
     expect(body.item.attackPatternId).toBeNull();
   });
+
+  test("create armor clamps armor mitigation fields and clears weapon metadata", async () => {
+    const response = await app.fetch(
+      adminRequest("/admin/items", "POST", {
+        id: "test_plate",
+        name: "Test Plate",
+        iconKey: "test_plate",
+        type: "armor",
+        classRequirement: "knight",
+        minLevelToEquip: 1,
+        armorMaxHpFlat: 25,
+        armorDamageReductionPercent: 99,
+        weaponStyle: "sword",
+        attackPatternId: "sword_cleave",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      item: {
+        type: string;
+        armorMaxHpFlat: number | null;
+        armorDamageReductionPercent: number | null;
+        weaponStyle: string | null;
+        attackPatternId: string | null;
+      };
+    };
+
+    expect(body.item.type).toBe("armor");
+    expect(body.item.armorMaxHpFlat).toBe(25);
+    expect(body.item.armorDamageReductionPercent).toBe(50);
+    expect(body.item.weaponStyle).toBeNull();
+    expect(body.item.attackPatternId).toBeNull();
+  });
 });

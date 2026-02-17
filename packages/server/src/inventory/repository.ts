@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import {
+  type ArmorStatModifiers,
   type AttackPatternId,
   type CharacterClass,
   EQUIP_SLOTS,
@@ -17,6 +18,7 @@ import {
   type WeaponStatModifiers,
   type WeaponStyle,
   getInventorySlotPlacementError,
+  itemDefinitionToArmorModifiers,
   itemDefinitionToWeaponModifiers,
   resolveWeaponAttackConfig,
   slotRefEquals,
@@ -29,6 +31,8 @@ interface ItemDefinitionRow {
   type: string;
   class_requirement: CharacterClass | null;
   min_level_to_equip: number | null;
+  armor_max_hp_flat: number | null;
+  armor_damage_reduction_percent: number | null;
   weapon_damage_flat: number | null;
   weapon_range_flat: number | null;
   weapon_speed_percent: number | null;
@@ -58,6 +62,8 @@ interface InventoryRowWithDefinition extends InventoryRow {
   def_type: string;
   def_class_requirement: CharacterClass | null;
   def_min_level_to_equip: number | null;
+  def_armor_max_hp_flat: number | null;
+  def_armor_damage_reduction_percent: number | null;
   def_weapon_damage_flat: number | null;
   def_weapon_range_flat: number | null;
   def_weapon_speed_percent: number | null;
@@ -120,16 +126,22 @@ const STARTER_LOADOUT_BY_CLASS: Record<
   CharacterClass,
   {
     equippedWeaponId: string;
+    equippedArmorId: string;
     bagWeaponIds: [string, string, string];
+    bagArmorIds: [string, string];
   }
 > = {
   knight: {
     equippedWeaponId: "training_sword",
+    equippedArmorId: "training_hauberk",
     bagWeaponIds: ["iron_broadsword", "runed_greatsword", "dragonbone_blade"],
+    bagArmorIds: ["steel_bulwark_armor", "aegis_plate"],
   },
   mage: {
     equippedWeaponId: "training_wand",
+    equippedArmorId: "training_robe",
     bagWeaponIds: ["adept_focus_wand", "stormweave_rod", "arcane_scepter"],
+    bagArmorIds: ["glyphweave_robe", "astral_ward_raiment"],
   },
 };
 
@@ -141,6 +153,8 @@ function mapItemDefinition(row: ItemDefinitionRow): ItemDefinition {
     type: row.type as ItemDefinition["type"],
     classRequirement: row.class_requirement,
     minLevelToEquip: row.min_level_to_equip,
+    armorMaxHpFlat: row.armor_max_hp_flat,
+    armorDamageReductionPercent: row.armor_damage_reduction_percent,
     weaponDamageFlat: row.weapon_damage_flat,
     weaponRangeFlat: row.weapon_range_flat,
     weaponSpeedPercent: row.weapon_speed_percent,
@@ -166,6 +180,8 @@ function mapItemDefinitionFromInventoryRow(
     type: row.def_type as ItemDefinition["type"],
     classRequirement: row.def_class_requirement,
     minLevelToEquip: row.def_min_level_to_equip,
+    armorMaxHpFlat: row.def_armor_max_hp_flat,
+    armorDamageReductionPercent: row.def_armor_damage_reduction_percent,
     weaponDamageFlat: row.def_weapon_damage_flat,
     weaponRangeFlat: row.def_weapon_range_flat,
     weaponSpeedPercent: row.def_weapon_speed_percent,
@@ -232,6 +248,8 @@ function getItemDefinitionMap(db: Database): Record<string, ItemDefinition> {
          type,
          class_requirement,
          min_level_to_equip,
+         armor_max_hp_flat,
+         armor_damage_reduction_percent,
          weapon_damage_flat,
          weapon_range_flat,
          weapon_speed_percent,
@@ -299,6 +317,8 @@ function findInventoryItemForSlot(
              def.type AS def_type,
              def.class_requirement AS def_class_requirement,
              def.min_level_to_equip AS def_min_level_to_equip,
+             def.armor_max_hp_flat AS def_armor_max_hp_flat,
+             def.armor_damage_reduction_percent AS def_armor_damage_reduction_percent,
              def.weapon_damage_flat AS def_weapon_damage_flat,
              def.weapon_range_flat AS def_weapon_range_flat,
              def.weapon_speed_percent AS def_weapon_speed_percent,
@@ -338,6 +358,8 @@ function findInventoryItemForSlot(
            def.type AS def_type,
            def.class_requirement AS def_class_requirement,
            def.min_level_to_equip AS def_min_level_to_equip,
+           def.armor_max_hp_flat AS def_armor_max_hp_flat,
+           def.armor_damage_reduction_percent AS def_armor_damage_reduction_percent,
            def.weapon_damage_flat AS def_weapon_damage_flat,
            def.weapon_range_flat AS def_weapon_range_flat,
            def.weapon_speed_percent AS def_weapon_speed_percent,
@@ -533,6 +555,8 @@ export function getEquippedWeaponDefinitionForCharacter(
          def.type,
          def.class_requirement,
          def.min_level_to_equip,
+         def.armor_max_hp_flat,
+         def.armor_damage_reduction_percent,
          def.weapon_damage_flat,
          def.weapon_range_flat,
          def.weapon_speed_percent,
@@ -568,23 +592,50 @@ export function getWeaponModifiersFromInventoryState(
   );
 }
 
+export function getArmorModifiersFromInventoryState(
+  state: InventoryStatePayload,
+): ArmorStatModifiers {
+  const armor = state.equipSlots.armor;
+  if (!armor) {
+    return itemDefinitionToArmorModifiers(null);
+  }
+  return itemDefinitionToArmorModifiers(
+    state.definitions[armor.itemDefinitionId] ?? null,
+  );
+}
+
 export interface WeaponLoadout {
   modifiers: WeaponStatModifiers;
   attack: ResolvedWeaponAttackConfig;
+}
+
+export interface EquipmentLoadout {
+  weapon: WeaponLoadout;
+  armor: ArmorStatModifiers;
+}
+
+export function getEquipmentLoadoutFromInventoryState(
+  state: InventoryStatePayload,
+  characterClass: CharacterClass,
+): EquipmentLoadout {
+  const weapon = state.equipSlots.weapon;
+  const weaponDefinition = weapon
+    ? (state.definitions[weapon.itemDefinitionId] ?? null)
+    : null;
+  return {
+    weapon: {
+      modifiers: itemDefinitionToWeaponModifiers(weaponDefinition),
+      attack: resolveWeaponAttackConfig(weaponDefinition, characterClass),
+    },
+    armor: getArmorModifiersFromInventoryState(state),
+  };
 }
 
 export function getWeaponLoadoutFromInventoryState(
   state: InventoryStatePayload,
   characterClass: CharacterClass,
 ): WeaponLoadout {
-  const weapon = state.equipSlots.weapon;
-  const definition = weapon
-    ? (state.definitions[weapon.itemDefinitionId] ?? null)
-    : null;
-  return {
-    modifiers: itemDefinitionToWeaponModifiers(definition),
-    attack: resolveWeaponAttackConfig(definition, characterClass),
-  };
+  return getEquipmentLoadoutFromInventoryState(state, characterClass).weapon;
 }
 
 export function grantStarterInventoryForCharacter(
@@ -594,6 +645,24 @@ export function grantStarterInventoryForCharacter(
   timestamp: string,
 ): void {
   const starterLoadout = STARTER_LOADOUT_BY_CLASS[characterClass];
+  db.query(
+    `INSERT INTO character_inventory (
+       id,
+       character_id,
+       item_definition_id,
+       slot_kind,
+       slot_index,
+       created_at,
+       updated_at
+     ) VALUES (?1, ?2, ?3, 'armor', NULL, ?4, ?5)`,
+  ).run(
+    crypto.randomUUID(),
+    characterId,
+    starterLoadout.equippedArmorId,
+    timestamp,
+    timestamp,
+  );
+
   db.query(
     `INSERT INTO character_inventory (
        id,
@@ -665,6 +734,44 @@ export function grantStarterInventoryForCharacter(
     characterId,
     starterLoadout.bagWeaponIds[2],
     2,
+    timestamp,
+    timestamp,
+  );
+
+  db.query(
+    `INSERT INTO character_inventory (
+       id,
+       character_id,
+       item_definition_id,
+       slot_kind,
+       slot_index,
+       created_at,
+       updated_at
+     ) VALUES (?1, ?2, ?3, 'bag', ?4, ?5, ?6)`,
+  ).run(
+    crypto.randomUUID(),
+    characterId,
+    starterLoadout.bagArmorIds[0],
+    3,
+    timestamp,
+    timestamp,
+  );
+
+  db.query(
+    `INSERT INTO character_inventory (
+       id,
+       character_id,
+       item_definition_id,
+       slot_kind,
+       slot_index,
+       created_at,
+       updated_at
+     ) VALUES (?1, ?2, ?3, 'bag', ?4, ?5, ?6)`,
+  ).run(
+    crypto.randomUUID(),
+    characterId,
+    starterLoadout.bagArmorIds[1],
+    4,
     timestamp,
     timestamp,
   );

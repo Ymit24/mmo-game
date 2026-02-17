@@ -4,6 +4,7 @@ import { getCharacterClassBaseCombatStats } from "@mmo/shared";
 import { createDatabase } from "../db";
 import {
   dropInventoryItem,
+  getEquipmentLoadoutFromInventoryState,
   getWeaponLoadoutFromInventoryState,
   loadInventoryStateForCharacter,
   moveBetweenInventoryAndContainer,
@@ -121,6 +122,27 @@ describe("inventory repository", () => {
     expect(state.bagSlots[0]?.itemDefinitionId).toBe("training_sword");
     expect(state.bagSlots[1]).toBeNull();
     expect(state.equipSlots.weapon).toBeNull();
+    expect(state.equipSlots.armor).toBeNull();
+    db.close();
+  });
+
+  test("getEquipmentLoadoutFromInventoryState resolves armor modifiers", () => {
+    const db = createDatabase(":memory:");
+    const { characterId } = seedCharacter(db, { characterClass: "knight" });
+    insertInventoryItem(db, {
+      id: "equipped-armor",
+      characterId,
+      definitionId: "training_hauberk",
+      slotKind: "armor",
+      slotIndex: null,
+    });
+
+    const state = loadInventoryStateForCharacter(db, characterId);
+    const loadout = getEquipmentLoadoutFromInventoryState(state, "knight");
+    expect(loadout.armor).toEqual({
+      maxHpFlat: 24,
+      damageReductionPercent: 8,
+    });
     db.close();
   });
 

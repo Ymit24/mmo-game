@@ -37,6 +37,33 @@
   - Phaser runtime renders pattern-specific attack effects and supports delayed AOE telegraph/impact timing.
   - Game item tooltip surfaces attack pattern metadata for equipped/inspected weapons.
 
+## Armor system snapshot (implemented)
+
+- Shared (`packages/shared`):
+  - `ItemDefinition` now includes armor tuning fields in `packages/shared/src/items.ts`:
+    - `armorMaxHpFlat`
+    - `armorDamageReductionPercent`
+  - Armor helpers are centralized in shared:
+    - `itemDefinitionToArmorModifiers`
+    - `normalizeArmorStatModifiers`
+    - `applyArmorModifiersToMaxHealth`
+    - `applyArmorDamageReduction`
+  - Phase 1 mitigation cap is `50%` (`MAX_ARMOR_DAMAGE_REDUCTION_PERCENT`).
+- Server (`packages/server`):
+  - `item_definitions` schema includes armor columns and migration/backfill normalization:
+    - `armor_max_hp_flat`
+    - `armor_damage_reduction_percent`
+  - Realtime/equipment updates are now full equipment recalculations (weapon + armor), not weapon-only updates.
+  - World runtime applies armor effects in combat:
+    - max health scaling includes armor HP bonus
+    - incoming player damage (PvE and PvP) applies percent mitigation
+    - max-health changes from equipment preserve current-health ratio
+  - Starter loadouts now include equipped starter armor and bag armor progression items.
+  - Loot seeds include armor drops (class-affinity weighted) for `stone_golem`.
+- Editor/client:
+  - Admin/editor item flows persist, clamp, and display armor stats.
+  - In-game tooltip supports armor stat display and equipped-armor comparison.
+
 ## Admin content editor snapshot (implemented)
 
 - Package scope:
@@ -50,9 +77,10 @@
   - Browser-based admin calls should use `ADMIN_API_ALLOWED_ORIGINS` when cross-origin.
   - Editor uses `VITE_ADMIN_API_BEARER_TOKEN` for authenticated requests.
 - Item admin behavior:
-  - Item routes return and persist weapon attack metadata fields.
+  - Item routes return and persist weapon + armor metadata fields.
   - Server normalizes/clamps weapon attack configuration with shared `resolveWeaponAttackConfig`.
   - Non-weapon items coerce attack metadata fields to `null`.
+  - Non-armor items coerce armor metadata fields to `null`.
 
 ## Server auth snapshot (implemented)
 
@@ -187,3 +215,9 @@
 ## Commit conventions
 
 - Always use Conventional Commits for commit messages.
+
+## Changelog discipline
+
+- Keep `CHANGELOG.md` up to date for every merged user-visible feature/fix/change.
+- Use zero-based semantic versioning for releases (for example: `0.1.0`, `0.1.1`, `0.2.0`).
+- Record release entries with date, version heading, and concise Added/Changed/Fixes notes.

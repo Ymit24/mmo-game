@@ -3,6 +3,7 @@ import {
   type ContainerActionErrorCode,
   type InventoryActionErrorCode,
   type StorageSlotRef,
+  applyArmorModifiersToMaxHealth,
   applyWeaponModifiersToCombatStats,
   computeLevelScaledCombatStats,
   getCharacterClassColorHex,
@@ -20,7 +21,7 @@ import {
 import type { ServerConfig } from "../config";
 import {
   dropInventoryItem,
-  getWeaponLoadoutFromInventoryState,
+  getEquipmentLoadoutFromInventoryState,
   loadInventoryStateForCharacter,
   moveBetweenInventoryAndContainer,
   moveInventoryItem,
@@ -283,10 +284,12 @@ export function createRealtimeGateway(
               db,
               character.id,
             );
-            const weaponLoadout = getWeaponLoadoutFromInventoryState(
+            const equipmentLoadout = getEquipmentLoadoutFromInventoryState(
               inventoryState,
               character.class,
             );
+            const armorModifiers = equipmentLoadout.armor;
+            const weaponLoadout = equipmentLoadout.weapon;
             const weaponModifiers = weaponLoadout.modifiers;
             socket.data.session.characterId = character.id;
             socket.data.session.characterNickname = character.nickname;
@@ -300,6 +303,10 @@ export function createRealtimeGateway(
               character.baseAttackSpeedMs;
             socket.data.session.characterRawBaseAttackRange =
               character.baseAttackRange;
+            socket.data.session.characterArmorMaxHpFlat =
+              armorModifiers.maxHpFlat;
+            socket.data.session.characterArmorDamageReductionPercent =
+              armorModifiers.damageReductionPercent;
             socket.data.session.characterWeaponDamageFlat =
               weaponModifiers.damageFlat;
             socket.data.session.characterWeaponRangeFlat =
@@ -348,7 +355,11 @@ export function createRealtimeGateway(
               },
               weaponModifiers,
             );
-            socket.data.session.characterMaxHealth = scaledBaseStats.maxHp;
+            const effectiveMaxHealth = applyArmorModifiersToMaxHealth(
+              scaledBaseStats.maxHp,
+              armorModifiers,
+            );
+            socket.data.session.characterMaxHealth = effectiveMaxHealth;
             socket.data.session.characterBaseDamage = effectiveStats.baseDamage;
             socket.data.session.characterBaseAttackSpeedMs =
               effectiveStats.baseAttackSpeedMs;
@@ -361,12 +372,12 @@ export function createRealtimeGateway(
               ? Math.max(
                   0,
                   Math.min(
-                    scaledBaseStats.maxHp,
+                    effectiveMaxHealth,
                     socket.data.session.characterCurrentHealth ??
-                      scaledBaseStats.maxHp,
+                      effectiveMaxHealth,
                   ),
                 )
-              : scaledBaseStats.maxHp;
+              : effectiveMaxHealth;
 
             const spawn = worlds.joinWorld(
               socket,
@@ -378,7 +389,7 @@ export function createRealtimeGateway(
               {
                 combatStats: {
                   currentHealth: socket.data.session.characterCurrentHealth,
-                  maxHealth: scaledBaseStats.maxHp,
+                  maxHealth: effectiveMaxHealth,
                   baseDamage: effectiveStats.baseDamage,
                   baseAttackSpeedMs: effectiveStats.baseAttackSpeedMs,
                   baseAttackRange: effectiveStats.baseAttackRange,
@@ -394,6 +405,7 @@ export function createRealtimeGateway(
                   xp: character.xp,
                   xpToNextLevel: character.xpToNextLevel,
                 },
+                armorModifiers,
                 weaponModifiers,
                 attackConfig: weaponLoadout.attack,
               },
@@ -446,15 +458,16 @@ export function createRealtimeGateway(
               sendInventoryActionRejected(socket, result.code, result.message);
               return;
             }
-            const weaponLoadout = getWeaponLoadoutFromInventoryState(
+            const equipmentLoadout = getEquipmentLoadoutFromInventoryState(
               result.state,
               characterClass,
             );
 
-            worlds.updatePlayerWeaponModifiers(
+            worlds.updatePlayerEquipmentModifiers(
               socket,
-              weaponLoadout.modifiers,
-              weaponLoadout.attack,
+              equipmentLoadout.armor,
+              equipmentLoadout.weapon.modifiers,
+              equipmentLoadout.weapon.attack,
             );
             socket.send(
               stringifyServerMessage({
@@ -494,15 +507,16 @@ export function createRealtimeGateway(
               }
               const characterClassForLoadout =
                 socket.data.session.characterClass ?? "knight";
-              const weaponLoadout = getWeaponLoadoutFromInventoryState(
+              const equipmentLoadout = getEquipmentLoadoutFromInventoryState(
                 result.state,
                 characterClassForLoadout,
               );
 
-              worlds.updatePlayerWeaponModifiers(
+              worlds.updatePlayerEquipmentModifiers(
                 socket,
-                weaponLoadout.modifiers,
-                weaponLoadout.attack,
+                equipmentLoadout.armor,
+                equipmentLoadout.weapon.modifiers,
+                equipmentLoadout.weapon.attack,
               );
               worlds.createPlayerDropLootBag(
                 socket,
@@ -633,15 +647,16 @@ export function createRealtimeGateway(
               );
               return;
             }
-            const weaponLoadout = getWeaponLoadoutFromInventoryState(
+            const equipmentLoadout = getEquipmentLoadoutFromInventoryState(
               result.inventoryState,
               characterClass,
             );
 
-            worlds.updatePlayerWeaponModifiers(
+            worlds.updatePlayerEquipmentModifiers(
               socket,
-              weaponLoadout.modifiers,
-              weaponLoadout.attack,
+              equipmentLoadout.armor,
+              equipmentLoadout.weapon.modifiers,
+              equipmentLoadout.weapon.attack,
             );
             const updateResult = worlds.updateOpenedContainerSlots(
               socket,
