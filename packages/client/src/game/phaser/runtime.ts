@@ -176,6 +176,7 @@ class HubScene extends Phaser.Scene {
   private arrowKeys: Phaser.Types.Input.Keyboard.CursorKeys | null = null;
   private attackKey: Phaser.Input.Keyboard.Key | null = null;
   private interactKey: Phaser.Input.Keyboard.Key | null = null;
+  private quickHealKey: Phaser.Input.Keyboard.Key | null = null;
 
   private unsubscribeInventoryMoveRequest: (() => void) | null = null;
   private unsubscribeInventoryDropRequest: (() => void) | null = null;
@@ -217,6 +218,8 @@ class HubScene extends Phaser.Scene {
       this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE) ?? null;
     this.interactKey =
       this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.E) ?? null;
+    this.quickHealKey =
+      this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.H) ?? null;
 
     this.input.on("pointermove", (pointer: Phaser.Input.Pointer) => {
       this.pointerWorld.set(pointer.worldX, pointer.worldY);
@@ -239,6 +242,9 @@ class HubScene extends Phaser.Scene {
     });
     this.interactKey?.on("down", () => {
       this.tryInteract();
+    });
+    this.quickHealKey?.on("down", () => {
+      this.tryQuickHeal();
     });
 
     this.unsubscribeInventoryMoveRequest = this.bridge.onInventoryMoveRequest(
@@ -343,6 +349,8 @@ class HubScene extends Phaser.Scene {
       this.attackKey = null;
       this.interactKey?.off("down");
       this.interactKey = null;
+      this.quickHealKey?.off("down");
+      this.quickHealKey = null;
       if (this.socket) {
         this.socket.close();
         this.socket = null;
@@ -474,6 +482,51 @@ class HubScene extends Phaser.Scene {
       type: "container.open",
       containerId: nearest.id,
     });
+  }
+
+  private tryQuickHeal(): void {
+    if (this.inputLocked || !this.localCharacterId) {
+      return;
+    }
+    if (!this.bridge.getState().isInWorld) {
+      return;
+    }
+
+    const activeElement = document.activeElement as HTMLElement | null;
+    const tagName = activeElement?.tagName;
+    if (
+      tagName === "INPUT" ||
+      tagName === "TEXTAREA" ||
+      activeElement?.isContentEditable
+    ) {
+      return;
+    }
+
+    const inventory = this.bridge.getState().inventory;
+    if (!inventory) {
+      return;
+    }
+
+    for (let index = 0; index < inventory.bagSlots.length; index += 1) {
+      const item = inventory.bagSlots[index];
+      if (!item) {
+        continue;
+      }
+      const definition = inventory.definitions[item.itemDefinitionId];
+      if (!definition || definition.type !== "potion") {
+        continue;
+      }
+      this.sendMessage({
+        type: "inventory.consume",
+        payload: {
+          from: {
+            kind: "bag",
+            index,
+          },
+        },
+      });
+      return;
+    }
   }
 
   private applyWorldMap(map: WorldMap): void {

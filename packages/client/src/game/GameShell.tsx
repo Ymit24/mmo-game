@@ -891,8 +891,8 @@ export function GameShell({ characterId }: GameShellProps) {
                 </span>
                 <span className="text-[8px] text-muted">
                   {isContainerOpen
-                    ? "E close • Alt-drag split"
-                    : "E near bag • Alt-drag split"}
+                    ? "E close • H quick heal • Alt-drag split"
+                    : "E near bag • H quick heal • Alt-drag split"}
                 </span>
               </div>
               <div className="grid grid-cols-3 gap-1">
