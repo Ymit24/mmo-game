@@ -1,4 +1,5 @@
 import type {
+  ArmorStatModifiers,
   AttackPatternId,
   CharacterBaseCombatStats,
   CharacterClass,
@@ -26,6 +27,8 @@ import {
   LOOT_BAG_SLOT_COUNT,
   PLAYER_COLLIDER_SIZE,
   WORLD_MAPS_BY_ID,
+  applyArmorDamageReduction,
+  applyArmorModifiersToMaxHealth,
   applyCharacterExperience,
   applyWeaponModifiersToCombatStats,
   centeredBoxToCollisionShape,
@@ -37,6 +40,7 @@ import {
   getCharacterClassBaseCombatStats,
   getXpToNextLevelForLevel,
   inputToVelocity,
+  normalizeArmorStatModifiers,
   normalizeCharacterProgress,
   normalizeWeaponStatModifiers,
   positionCollidesWithMap,
@@ -99,6 +103,8 @@ interface PlayerState {
   rawBaseDamage: number;
   rawBaseAttackSpeedMs: number;
   rawBaseAttackRange: number;
+  armorMaxHpFlat: number;
+  armorDamageReductionPercent: number;
   weaponDamageFlat: number;
   weaponRangeFlat: number;
   weaponSpeedPercent: number;
@@ -200,6 +206,7 @@ interface JoinWorldOptions {
   combatStats?: Partial<PlayerCombatStats>;
   baseStats?: Partial<CharacterBaseCombatStats>;
   progression?: Partial<PlayerProgression>;
+  armorModifiers?: Partial<ArmorStatModifiers>;
   weaponModifiers?: Partial<WeaponStatModifiers>;
   attackConfig?: Partial<ResolvedWeaponAttackConfig>;
 }
@@ -279,6 +286,8 @@ export interface RealtimeSession {
   characterRawBaseDamage: number | null;
   characterRawBaseAttackSpeedMs: number | null;
   characterRawBaseAttackRange: number | null;
+  characterArmorMaxHpFlat: number | null;
+  characterArmorDamageReductionPercent: number | null;
   characterWeaponDamageFlat: number | null;
   characterWeaponRangeFlat: number | null;
   characterWeaponSpeedPercent: number | null;
@@ -503,6 +512,12 @@ function resolveWeaponModifiers(
   return normalizeWeaponStatModifiers(partialModifiers);
 }
 
+function resolveArmorModifiers(
+  partialModifiers?: Partial<ArmorStatModifiers>,
+): ArmorStatModifiers {
+  return normalizeArmorStatModifiers(partialModifiers);
+}
+
 function resolveAttackConfig(
   characterClass: CharacterClass,
   partialConfig?: Partial<ResolvedWeaponAttackConfig>,
@@ -515,6 +530,8 @@ function resolveAttackConfig(
       type: "weapon",
       classRequirement: characterClass,
       minLevelToEquip: null,
+      armorMaxHpFlat: 0,
+      armorDamageReductionPercent: 0,
       weaponDamageFlat: 0,
       weaponRangeFlat: 0,
       weaponSpeedPercent: 0,
@@ -540,6 +557,25 @@ function readSessionWeaponModifiers(
     rangeFlat: session.characterWeaponRangeFlat ?? undefined,
     speedPercent: session.characterWeaponSpeedPercent ?? undefined,
   };
+}
+
+function readSessionArmorModifiers(
+  session: RealtimeSession,
+): Partial<ArmorStatModifiers> {
+  return {
+    maxHpFlat: session.characterArmorMaxHpFlat ?? undefined,
+    damageReductionPercent:
+      session.characterArmorDamageReductionPercent ?? undefined,
+  };
+}
+
+function writeSessionArmorModifiers(
+  session: RealtimeSession,
+  modifiers: ArmorStatModifiers,
+): void {
+  session.characterArmorMaxHpFlat = modifiers.maxHpFlat;
+  session.characterArmorDamageReductionPercent =
+    modifiers.damageReductionPercent;
 }
 
 function writeSessionWeaponModifiers(
@@ -588,6 +624,7 @@ function writeSessionAttackConfig(
 function computeEffectiveCombatStatsForLevel(
   baseStats: CharacterBaseCombatStats,
   level: number,
+  armorModifiers: ArmorStatModifiers,
   weaponModifiers: WeaponStatModifiers,
 ): Pick<
   PlayerCombatStats,
@@ -604,7 +641,7 @@ function computeEffectiveCombatStatsForLevel(
   );
 
   return {
-    maxHealth: scaledBase.maxHp,
+    maxHealth: applyArmorModifiersToMaxHealth(scaledBase.maxHp, armorModifiers),
     baseDamage: effective.baseDamage,
     baseAttackSpeedMs: effective.baseAttackSpeedMs,
     baseAttackRange: effective.baseAttackRange,
@@ -705,6 +742,7 @@ class WorldInstance {
     combatStats: Partial<PlayerCombatStats>,
     baseStats: Partial<CharacterBaseCombatStats>,
     progression: Partial<PlayerProgression>,
+    armorModifiers?: Partial<ArmorStatModifiers>,
     weaponModifiers?: Partial<WeaponStatModifiers>,
     attackConfig?: Partial<ResolvedWeaponAttackConfig>,
     spawnOverride?: Vector2,
@@ -714,6 +752,7 @@ class WorldInstance {
     const spawn = spawnOverride ?? fallbackSpawn;
     const resolvedBaseStats = resolveBaseStats(characterClass, baseStats);
     const resolvedProgression = resolveProgression(progression);
+    const resolvedArmorModifiers = resolveArmorModifiers(armorModifiers);
     const resolvedWeaponModifiers = resolveWeaponModifiers(weaponModifiers);
     const resolvedAttackConfig = resolveAttackConfig(
       characterClass,
@@ -722,6 +761,7 @@ class WorldInstance {
     const effectiveCombatStats = computeEffectiveCombatStatsForLevel(
       resolvedBaseStats,
       resolvedProgression.level,
+      resolvedArmorModifiers,
       resolvedWeaponModifiers,
     );
     const resolvedCombat = resolveCombatStats(characterClass, {
@@ -753,6 +793,9 @@ class WorldInstance {
       rawBaseDamage: resolvedBaseStats.baseDamage,
       rawBaseAttackSpeedMs: resolvedBaseStats.baseAttackSpeedMs,
       rawBaseAttackRange: resolvedBaseStats.baseAttackRange,
+      armorMaxHpFlat: resolvedArmorModifiers.maxHpFlat,
+      armorDamageReductionPercent:
+        resolvedArmorModifiers.damageReductionPercent,
       weaponDamageFlat: resolvedWeaponModifiers.damageFlat,
       weaponRangeFlat: resolvedWeaponModifiers.rangeFlat,
       weaponSpeedPercent: resolvedWeaponModifiers.speedPercent,
@@ -973,9 +1016,10 @@ class WorldInstance {
     });
   }
 
-  updatePlayerWeaponModifiers(
+  updatePlayerEquipmentModifiers(
     characterId: string,
     connectionId: string,
+    armorModifiers: ArmorStatModifiers,
     modifiers: WeaponStatModifiers,
     attackConfig?: Partial<ResolvedWeaponAttackConfig>,
   ): PlayerState | null {
@@ -984,9 +1028,18 @@ class WorldInstance {
       return null;
     }
 
+    const safeArmorModifiers = resolveArmorModifiers(armorModifiers);
     const safeModifiers = resolveWeaponModifiers(modifiers);
     const previousAttackSpeedMs = player.baseAttackSpeedMs;
     const previousNextAttackAtMs = player.nextAttackAtMs;
+    const previousMaxHealth = player.maxHealth;
+    const previousCurrentHealth = player.currentHealth;
+    const previousHealthRatio =
+      previousMaxHealth > 0 ? previousCurrentHealth / previousMaxHealth : 0;
+
+    player.armorMaxHpFlat = safeArmorModifiers.maxHpFlat;
+    player.armorDamageReductionPercent =
+      safeArmorModifiers.damageReductionPercent;
     player.weaponDamageFlat = safeModifiers.damageFlat;
     player.weaponRangeFlat = safeModifiers.rangeFlat;
     player.weaponSpeedPercent = safeModifiers.speedPercent;
@@ -1003,9 +1056,15 @@ class WorldInstance {
         baseAttackRange: player.rawBaseAttackRange,
       },
       player.level,
+      safeArmorModifiers,
       safeModifiers,
     );
 
+    player.maxHealth = effectiveStats.maxHealth;
+    player.currentHealth = clampHealth(
+      Math.round(player.maxHealth * previousHealthRatio),
+      player.maxHealth,
+    );
     player.baseDamage = effectiveStats.baseDamage;
     player.baseAttackSpeedMs = effectiveStats.baseAttackSpeedMs;
     player.baseAttackRange = effectiveStats.baseAttackRange;
@@ -1017,6 +1076,25 @@ class WorldInstance {
     );
 
     return player;
+  }
+
+  updatePlayerWeaponModifiers(
+    characterId: string,
+    connectionId: string,
+    modifiers: WeaponStatModifiers,
+    attackConfig?: Partial<ResolvedWeaponAttackConfig>,
+  ): PlayerState | null {
+    const player = this.players.get(characterId);
+    return this.updatePlayerEquipmentModifiers(
+      characterId,
+      connectionId,
+      {
+        maxHpFlat: player?.armorMaxHpFlat ?? 0,
+        damageReductionPercent: player?.armorDamageReductionPercent ?? 0,
+      },
+      modifiers,
+      attackConfig,
+    );
   }
 
   broadcast(
@@ -2275,14 +2353,18 @@ class WorldInstance {
       return;
     }
 
+    const reducedAmount = applyArmorDamageReduction(
+      amount,
+      player.armorDamageReductionPercent,
+    );
     player.currentHealth = clampHealth(
-      player.currentHealth - amount,
+      player.currentHealth - reducedAmount,
       player.maxHealth,
     );
     this.emitFloatingText(
       player.socket,
       player.position,
-      `-${Math.max(0, Math.round(amount))}`,
+      `-${Math.max(0, Math.round(reducedAmount))}`,
       "damage_player",
     );
     if (player.currentHealth > 0) {
@@ -2329,6 +2411,10 @@ class WorldInstance {
           baseAttackRange: player.rawBaseAttackRange,
         },
         player.level,
+        {
+          maxHpFlat: player.armorMaxHpFlat,
+          damageReductionPercent: player.armorDamageReductionPercent,
+        },
         {
           damageFlat: player.weaponDamageFlat,
           rangeFlat: player.weaponRangeFlat,
@@ -2394,6 +2480,10 @@ class WorldInstance {
     session.characterRawBaseDamage = player.rawBaseDamage;
     session.characterRawBaseAttackSpeedMs = player.rawBaseAttackSpeedMs;
     session.characterRawBaseAttackRange = player.rawBaseAttackRange;
+    writeSessionArmorModifiers(session, {
+      maxHpFlat: player.armorMaxHpFlat,
+      damageReductionPercent: player.armorDamageReductionPercent,
+    });
     writeSessionWeaponModifiers(session, {
       damageFlat: player.weaponDamageFlat,
       rangeFlat: player.weaponRangeFlat,
@@ -2612,6 +2702,8 @@ export class WorldManager {
         characterRawBaseDamage: null,
         characterRawBaseAttackSpeedMs: null,
         characterRawBaseAttackRange: null,
+        characterArmorMaxHpFlat: null,
+        characterArmorDamageReductionPercent: null,
         characterWeaponDamageFlat: null,
         characterWeaponRangeFlat: null,
         characterWeaponSpeedPercent: null,
@@ -2676,6 +2768,7 @@ export class WorldManager {
         level: session.characterLevel ?? undefined,
         xp: session.characterXp ?? undefined,
       },
+      options?.armorModifiers ?? readSessionArmorModifiers(session),
       options?.weaponModifiers ?? readSessionWeaponModifiers(session),
       options?.attackConfig ?? readSessionAttackConfig(session),
       options?.spawnOverride,
@@ -2695,6 +2788,10 @@ export class WorldManager {
     session.characterRawBaseDamage = player.rawBaseDamage;
     session.characterRawBaseAttackSpeedMs = player.rawBaseAttackSpeedMs;
     session.characterRawBaseAttackRange = player.rawBaseAttackRange;
+    writeSessionArmorModifiers(session, {
+      maxHpFlat: player.armorMaxHpFlat,
+      damageReductionPercent: player.armorDamageReductionPercent,
+    });
     writeSessionWeaponModifiers(session, {
       damageFlat: player.weaponDamageFlat,
       rangeFlat: player.weaponRangeFlat,
@@ -2751,6 +2848,10 @@ export class WorldManager {
       session.characterRawBaseDamage = removed.rawBaseDamage;
       session.characterRawBaseAttackSpeedMs = removed.rawBaseAttackSpeedMs;
       session.characterRawBaseAttackRange = removed.rawBaseAttackRange;
+      writeSessionArmorModifiers(session, {
+        maxHpFlat: removed.armorMaxHpFlat,
+        damageReductionPercent: removed.armorDamageReductionPercent,
+      });
       writeSessionWeaponModifiers(session, {
         damageFlat: removed.weaponDamageFlat,
         rangeFlat: removed.weaponRangeFlat,
@@ -2807,12 +2908,14 @@ export class WorldManager {
     instance.applyAttack(characterId, connectionId, message);
   }
 
-  updatePlayerWeaponModifiers(
+  updatePlayerEquipmentModifiers(
     socket: ServerWebSocket<RealtimeSocketData>,
+    armorModifiers: Partial<ArmorStatModifiers>,
     modifiers: Partial<WeaponStatModifiers>,
     attackConfig?: Partial<ResolvedWeaponAttackConfig>,
   ): void {
     const session = socket.data.session;
+    const normalizedArmor = resolveArmorModifiers(armorModifiers);
     const normalized = resolveWeaponModifiers(modifiers);
     const attack = resolveAttackConfig(
       session.characterClass ?? "knight",
@@ -2820,6 +2923,7 @@ export class WorldManager {
     );
     const { connectionId, characterId, worldId } = session;
 
+    writeSessionArmorModifiers(session, normalizedArmor);
     writeSessionWeaponModifiers(session, normalized);
     writeSessionAttackConfig(session, attack);
 
@@ -2832,9 +2936,10 @@ export class WorldManager {
       return;
     }
 
-    const updated = instance.updatePlayerWeaponModifiers(
+    const updated = instance.updatePlayerEquipmentModifiers(
       characterId,
       connectionId,
+      normalizedArmor,
       normalized,
       attack,
     );
@@ -2842,9 +2947,24 @@ export class WorldManager {
       return;
     }
 
+    session.characterMaxHealth = updated.maxHealth;
+    session.characterCurrentHealth = updated.currentHealth;
     session.characterBaseDamage = updated.baseDamage;
     session.characterBaseAttackSpeedMs = updated.baseAttackSpeedMs;
     session.characterBaseAttackRange = updated.baseAttackRange;
+  }
+
+  updatePlayerWeaponModifiers(
+    socket: ServerWebSocket<RealtimeSocketData>,
+    modifiers: Partial<WeaponStatModifiers>,
+    attackConfig?: Partial<ResolvedWeaponAttackConfig>,
+  ): void {
+    this.updatePlayerEquipmentModifiers(
+      socket,
+      readSessionArmorModifiers(socket.data.session),
+      modifiers,
+      attackConfig,
+    );
   }
 
   createPlayerDropLootBag(
@@ -3064,6 +3184,7 @@ export class WorldManager {
           level: characterLevel ?? undefined,
           xp: characterXp ?? undefined,
         },
+        armorModifiers: readSessionArmorModifiers(session),
         weaponModifiers: readSessionWeaponModifiers(session),
         attackConfig: readSessionAttackConfig(session),
         spawnOverride: {
@@ -3130,6 +3251,7 @@ export class WorldManager {
     const scaledStats = computeEffectiveCombatStatsForLevel(
       baseStats,
       normalizedProgression.level,
+      resolveArmorModifiers(readSessionArmorModifiers(session)),
       resolveWeaponModifiers(readSessionWeaponModifiers(session)),
     );
     const maxHealth = Math.max(1, characterMaxHealth ?? scaledStats.maxHealth);
@@ -3175,6 +3297,7 @@ export class WorldManager {
           level: normalizedProgression.level,
           xp: normalizedProgression.xp,
         },
+        armorModifiers: readSessionArmorModifiers(session),
         weaponModifiers: readSessionWeaponModifiers(session),
         attackConfig: readSessionAttackConfig(session),
       },

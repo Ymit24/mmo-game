@@ -867,6 +867,14 @@ export function GameShell({ characterId }: GameShellProps) {
           equippedWeapon && (slot.kind === "bag" || slot.kind === "container")
             ? uiState.inventory.definitions[equippedWeapon.itemDefinitionId]
             : undefined;
+        const equippedArmor =
+          slot.kind === "bag" || slot.kind === "container"
+            ? uiState.inventory.equipSlots.armor
+            : undefined;
+        const equippedArmorDefinition =
+          equippedArmor && (slot.kind === "bag" || slot.kind === "container")
+            ? uiState.inventory.definitions[equippedArmor.itemDefinitionId]
+            : undefined;
 
         // Calculate position: to the left of the slot, vertically centered
         const tooltipX = rect.left - 10;
@@ -885,6 +893,7 @@ export function GameShell({ characterId }: GameShellProps) {
               item={item}
               definition={definition}
               equippedWeaponDefinition={equippedWeaponDefinition}
+              equippedArmorDefinition={equippedArmorDefinition}
               slotType={slotType}
             />
           </div>

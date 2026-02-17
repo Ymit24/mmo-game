@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import {
   type CharacterClass,
+  MAX_ARMOR_DAMAGE_REDUCTION_PERCENT,
   parseWorldMap,
   resolveWeaponAttackConfig,
 } from "@mmo/shared";
@@ -323,6 +324,8 @@ interface ItemDefinitionRow {
   type: string;
   class_requirement: string | null;
   min_level_to_equip: number | null;
+  armor_max_hp_flat: number | null;
+  armor_damage_reduction_percent: number | null;
   weapon_damage_flat: number | null;
   weapon_range_flat: number | null;
   weapon_speed_percent: number | null;
@@ -345,6 +348,8 @@ function mapItemRow(row: ItemDefinitionRow) {
     type: row.type,
     classRequirement: row.class_requirement,
     minLevelToEquip: row.min_level_to_equip,
+    armorMaxHpFlat: row.armor_max_hp_flat,
+    armorDamageReductionPercent: row.armor_damage_reduction_percent,
     weaponDamageFlat: row.weapon_damage_flat,
     weaponRangeFlat: row.weapon_range_flat,
     weaponSpeedPercent: row.weapon_speed_percent,
@@ -357,6 +362,33 @@ function mapItemRow(row: ItemDefinitionRow) {
     attackBurstIntervalMs: row.attack_burst_interval_ms,
     attackAoeRadius: row.attack_aoe_radius,
     attackAoeDelayMs: row.attack_aoe_delay_ms,
+  };
+}
+
+function resolveItemArmorColumns(body: Record<string, unknown>): {
+  armorMaxHpFlat: number | null;
+  armorDamageReductionPercent: number | null;
+} {
+  const type = str(body.type, "misc");
+  if (type !== "armor") {
+    return {
+      armorMaxHpFlat: null,
+      armorDamageReductionPercent: null,
+    };
+  }
+
+  const maxHpFlatRaw = numOrNull(body.armorMaxHpFlat);
+  const reductionRaw = numOrNull(body.armorDamageReductionPercent);
+  return {
+    armorMaxHpFlat:
+      maxHpFlatRaw === null ? null : Math.max(0, Math.round(maxHpFlatRaw)),
+    armorDamageReductionPercent:
+      reductionRaw === null
+        ? null
+        : Math.max(
+            0,
+            Math.min(MAX_ARMOR_DAMAGE_REDUCTION_PERCENT, reductionRaw),
+          ),
   };
 }
 
@@ -402,6 +434,8 @@ function resolveItemAttackColumns(body: Record<string, unknown>): {
       type: "weapon",
       classRequirement,
       minLevelToEquip: numOrNull(body.minLevelToEquip),
+      armorMaxHpFlat: null,
+      armorDamageReductionPercent: null,
       weaponDamageFlat: numOrNull(body.weaponDamageFlat),
       weaponRangeFlat: numOrNull(body.weaponRangeFlat),
       weaponSpeedPercent: numOrNull(body.weaponSpeedPercent),
@@ -446,7 +480,8 @@ function handleListItems(db: Database): Response {
   const rows = db
     .query<ItemDefinitionRow, []>(
       `SELECT id, name, icon_key, type, class_requirement,
-              min_level_to_equip, weapon_damage_flat, weapon_range_flat,
+              min_level_to_equip, armor_max_hp_flat,
+              armor_damage_reduction_percent, weapon_damage_flat, weapon_range_flat,
               weapon_speed_percent, weapon_style, attack_pattern_id,
               attack_damage_multiplier, attack_projectile_count,
               attack_spread_degrees, attack_burst_count,
@@ -461,7 +496,8 @@ function handleGetItem(db: Database, id: string): Response {
   const row = db
     .query<ItemDefinitionRow, [string]>(
       `SELECT id, name, icon_key, type, class_requirement,
-              min_level_to_equip, weapon_damage_flat, weapon_range_flat,
+              min_level_to_equip, armor_max_hp_flat,
+              armor_damage_reduction_percent, weapon_damage_flat, weapon_range_flat,
               weapon_speed_percent, weapon_style, attack_pattern_id,
               attack_damage_multiplier, attack_projectile_count,
               attack_spread_degrees, attack_burst_count,
@@ -485,17 +521,19 @@ async function handleCreateItem(
   }
 
   const timestamp = new Date().toISOString();
+  const armor = resolveItemArmorColumns(body);
   const attack = resolveItemAttackColumns(body);
   try {
     db.query(
       `INSERT INTO item_definitions (
         id, name, icon_key, type, class_requirement,
-        min_level_to_equip, weapon_damage_flat, weapon_range_flat,
+        min_level_to_equip, armor_max_hp_flat, armor_damage_reduction_percent,
+        weapon_damage_flat, weapon_range_flat,
         weapon_speed_percent, weapon_style, attack_pattern_id,
         attack_damage_multiplier, attack_projectile_count,
         attack_spread_degrees, attack_burst_count, attack_burst_interval_ms,
         attack_aoe_radius, attack_aoe_delay_ms, created_at, updated_at
-      ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20)`,
+      ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22)`,
     ).run(
       body.id,
       str(body.name, "Unnamed"),
@@ -503,6 +541,8 @@ async function handleCreateItem(
       str(body.type, "misc"),
       strOrNull(body.classRequirement),
       numOrNull(body.minLevelToEquip),
+      armor.armorMaxHpFlat,
+      armor.armorDamageReductionPercent,
       numOrNull(body.weaponDamageFlat),
       numOrNull(body.weaponRangeFlat),
       numOrNull(body.weaponSpeedPercent),
@@ -552,16 +592,18 @@ async function handleUpdateItem(
   }
 
   const timestamp = new Date().toISOString();
+  const armor = resolveItemArmorColumns(body);
   const attack = resolveItemAttackColumns({ ...body, id });
   db.query(
     `UPDATE item_definitions SET
       name = ?2, icon_key = ?3, type = ?4, class_requirement = ?5,
-      min_level_to_equip = ?6, weapon_damage_flat = ?7,
-      weapon_range_flat = ?8, weapon_speed_percent = ?9, weapon_style = ?10,
-      attack_pattern_id = ?11, attack_damage_multiplier = ?12,
-      attack_projectile_count = ?13, attack_spread_degrees = ?14,
-      attack_burst_count = ?15, attack_burst_interval_ms = ?16,
-      attack_aoe_radius = ?17, attack_aoe_delay_ms = ?18, updated_at = ?19
+      min_level_to_equip = ?6, armor_max_hp_flat = ?7,
+      armor_damage_reduction_percent = ?8, weapon_damage_flat = ?9,
+      weapon_range_flat = ?10, weapon_speed_percent = ?11, weapon_style = ?12,
+      attack_pattern_id = ?13, attack_damage_multiplier = ?14,
+      attack_projectile_count = ?15, attack_spread_degrees = ?16,
+      attack_burst_count = ?17, attack_burst_interval_ms = ?18,
+      attack_aoe_radius = ?19, attack_aoe_delay_ms = ?20, updated_at = ?21
      WHERE id = ?1`,
   ).run(
     id,
@@ -570,6 +612,8 @@ async function handleUpdateItem(
     str(body.type, "misc"),
     strOrNull(body.classRequirement),
     numOrNull(body.minLevelToEquip),
+    armor.armorMaxHpFlat,
+    armor.armorDamageReductionPercent,
     numOrNull(body.weaponDamageFlat),
     numOrNull(body.weaponRangeFlat),
     numOrNull(body.weaponSpeedPercent),

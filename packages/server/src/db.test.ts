@@ -114,6 +114,8 @@ describe("database bootstrap", () => {
     expect(itemColumns).toContain("icon_key");
     expect(itemColumns).toContain("class_requirement");
     expect(itemColumns).toContain("weapon_speed_percent");
+    expect(itemColumns).toContain("armor_max_hp_flat");
+    expect(itemColumns).toContain("armor_damage_reduction_percent");
     expect(itemColumns).toContain("weapon_style");
     expect(itemColumns).toContain("attack_pattern_id");
     expect(itemColumns).toContain("attack_damage_multiplier");
@@ -164,6 +166,70 @@ describe("database bootstrap", () => {
       },
       {
         item_definition_id: "iron_broadsword",
+        class_affinity: "knight",
+      },
+    ]);
+
+    db.close();
+  });
+
+  test("seeds armor entries for progression and loot", () => {
+    const db = createDatabase(":memory:");
+
+    const armorItems = db
+      .query<
+        {
+          id: string;
+          type: string;
+          class_requirement: string | null;
+          min_level_to_equip: number | null;
+          armor_damage_reduction_percent: number | null;
+        },
+        []
+      >(
+        `SELECT id, type, class_requirement, min_level_to_equip, armor_damage_reduction_percent
+         FROM item_definitions
+         WHERE id IN (
+           'training_hauberk',
+           'steel_bulwark_armor',
+           'aegis_plate',
+           'training_robe',
+           'glyphweave_robe',
+           'astral_ward_raiment'
+         )
+         ORDER BY id ASC`,
+      )
+      .all();
+    expect(armorItems).toHaveLength(6);
+
+    const stoneLoot = db
+      .query<{ enemy_archetype_id: string; drop_chance: number }, []>(
+        `SELECT enemy_archetype_id, drop_chance
+         FROM enemy_loot_tables
+         WHERE enemy_archetype_id = 'stone_golem'
+         LIMIT 1`,
+      )
+      .get();
+    expect(stoneLoot).toEqual({
+      enemy_archetype_id: "stone_golem",
+      drop_chance: 0.4,
+    });
+
+    const stoneEntries = db
+      .query<{ item_definition_id: string; class_affinity: string | null }, []>(
+        `SELECT item_definition_id, class_affinity
+         FROM enemy_loot_table_entries
+         WHERE enemy_archetype_id = 'stone_golem'
+         ORDER BY item_definition_id ASC`,
+      )
+      .all();
+    expect(stoneEntries).toEqual([
+      {
+        item_definition_id: "glyphweave_robe",
+        class_affinity: "mage",
+      },
+      {
+        item_definition_id: "steel_bulwark_armor",
         class_affinity: "knight",
       },
     ]);

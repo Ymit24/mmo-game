@@ -48,6 +48,8 @@ export interface ItemDefinition {
   type: ItemType;
   classRequirement: CharacterClass | null;
   minLevelToEquip: number | null;
+  armorMaxHpFlat: number | null;
+  armorDamageReductionPercent: number | null;
   weaponDamageFlat: number | null;
   weaponRangeFlat: number | null;
   weaponSpeedPercent: number | null;
@@ -77,6 +79,13 @@ export interface WeaponStatModifiers {
   damageFlat: number;
   rangeFlat: number;
   speedPercent: number;
+}
+
+export const MAX_ARMOR_DAMAGE_REDUCTION_PERCENT = 50;
+
+export interface ArmorStatModifiers {
+  maxHpFlat: number;
+  damageReductionPercent: number;
 }
 
 export const INVENTORY_ACTION_ERROR_CODES = {
@@ -285,6 +294,68 @@ export function normalizeWeaponStatModifiers(
       ),
     ),
   };
+}
+
+export function itemDefinitionToArmorModifiers(
+  definition: ItemDefinition | null | undefined,
+): ArmorStatModifiers {
+  if (!definition || definition.type !== "armor") {
+    return {
+      maxHpFlat: 0,
+      damageReductionPercent: 0,
+    };
+  }
+
+  return normalizeArmorStatModifiers({
+    maxHpFlat: definition.armorMaxHpFlat ?? 0,
+    damageReductionPercent: definition.armorDamageReductionPercent ?? 0,
+  });
+}
+
+export function normalizeArmorStatModifiers(
+  partial?: Partial<ArmorStatModifiers>,
+): ArmorStatModifiers {
+  return {
+    maxHpFlat: Math.max(
+      0,
+      Number.isFinite(partial?.maxHpFlat ?? Number.NaN)
+        ? (partial?.maxHpFlat ?? 0)
+        : 0,
+    ),
+    damageReductionPercent: Math.max(
+      0,
+      Math.min(
+        MAX_ARMOR_DAMAGE_REDUCTION_PERCENT,
+        Number.isFinite(partial?.damageReductionPercent ?? Number.NaN)
+          ? (partial?.damageReductionPercent ?? 0)
+          : 0,
+      ),
+    ),
+  };
+}
+
+export function applyArmorModifiersToMaxHealth(
+  baseMaxHealth: number,
+  modifiers?: Partial<ArmorStatModifiers>,
+): number {
+  const safeModifiers = normalizeArmorStatModifiers(modifiers);
+  return Math.max(
+    1,
+    Math.round((baseMaxHealth + safeModifiers.maxHpFlat) * 100) / 100,
+  );
+}
+
+export function applyArmorDamageReduction(
+  incomingDamage: number,
+  damageReductionPercent: number,
+): number {
+  if (!Number.isFinite(incomingDamage) || incomingDamage <= 0) {
+    return 0;
+  }
+  const safeReduction = normalizeArmorStatModifiers({
+    damageReductionPercent,
+  }).damageReductionPercent;
+  return Math.max(1, Math.round(incomingDamage * (1 - safeReduction / 100)));
 }
 
 export function applyWeaponModifiersToCombatStats(base: {

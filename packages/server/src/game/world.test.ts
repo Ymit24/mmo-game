@@ -640,6 +640,52 @@ describe("world manager", () => {
     expect(socket.data.session.characterBaseAttackSpeedMs).toBe(540);
   });
 
+  test("updatePlayerEquipmentModifiers recalculates max health and preserves health ratio", () => {
+    const manager = new WorldManager();
+    const socket = createMockSocket(manager, "user-a", "player-a");
+
+    manager.joinWorld(
+      asServerSocket(socket),
+      HUB_ALPHA_MAP.id,
+      "player-a",
+      "Alpha",
+      "knight",
+      "#E8A832",
+      {
+        baseStats: {
+          maxHp: 180,
+          baseDamage: 24,
+          baseAttackSpeedMs: 600,
+          baseAttackRange: 60,
+        },
+        combatStats: {
+          currentHealth: 90,
+          maxHealth: 180,
+          baseDamage: 24,
+          baseAttackSpeedMs: 600,
+          baseAttackRange: 60,
+        },
+      },
+    );
+    cleanup.push(() => manager.leaveWorld(asServerSocket(socket)));
+
+    manager.updatePlayerEquipmentModifiers(
+      asServerSocket(socket),
+      {
+        maxHpFlat: 20,
+        damageReductionPercent: 10,
+      },
+      {
+        damageFlat: 0,
+        rangeFlat: 0,
+        speedPercent: 0,
+      },
+    );
+
+    expect(socket.data.session.characterMaxHealth).toBe(200);
+    expect(socket.data.session.characterCurrentHealth).toBe(100);
+  });
+
   test("updatePlayerWeaponModifiers recalculates active attack cooldown", () => {
     const originalDateNow = Date.now;
     let nowMs = 1_000;
