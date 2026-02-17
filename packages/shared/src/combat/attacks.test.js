@@ -97,4 +97,56 @@ describe("resolveWeaponAttackConfig", () => {
     expect(whirl.attackStyle).toBe("aoe");
     expect(whirl.aoeRadius).toBe(88);
   });
+
+  test("uses AOE defaults when AOE radius is zero", () => {
+    const whirl = resolveWeaponAttackConfig(
+      {
+        id: "w-whirl-zero-radius",
+        name: "Whirl Zero Radius",
+        iconKey: "w-whirl-zero-radius",
+        type: "weapon",
+        classRequirement: "knight",
+        minLevelToEquip: null,
+        weaponDamageFlat: 0,
+        weaponRangeFlat: 0,
+        weaponSpeedPercent: 0,
+        weaponStyle: "sword",
+        attackPatternId: "sword_whirl",
+        attackDamageMultiplier: null,
+        attackProjectileCount: null,
+        attackSpreadDegrees: null,
+        attackBurstCount: null,
+        attackBurstIntervalMs: null,
+        attackAoeRadius: 0,
+        attackAoeDelayMs: null,
+      },
+      "knight",
+    );
+    const staffAoe = resolveWeaponAttackConfig(
+      {
+        id: "w-staff-zero-radius",
+        name: "Staff Zero Radius",
+        iconKey: "w-staff-zero-radius",
+        type: "weapon",
+        classRequirement: "mage",
+        minLevelToEquip: null,
+        weaponDamageFlat: 0,
+        weaponRangeFlat: 0,
+        weaponSpeedPercent: 0,
+        weaponStyle: "staff",
+        attackPatternId: "staff_ground_aoe",
+        attackDamageMultiplier: null,
+        attackProjectileCount: null,
+        attackSpreadDegrees: null,
+        attackBurstCount: null,
+        attackBurstIntervalMs: null,
+        attackAoeRadius: 0,
+        attackAoeDelayMs: null,
+      },
+      "mage",
+    );
+
+    expect(whirl.aoeRadius).toBe(88);
+    expect(staffAoe.aoeRadius).toBe(72);
+  });
 });

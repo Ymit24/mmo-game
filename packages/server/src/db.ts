@@ -683,7 +683,7 @@ function ensureItemDefinitionSeeds(db: Database): void {
     0,
     1,
     0,
-    0,
+    88,
     0,
     timestamp,
     timestamp,
