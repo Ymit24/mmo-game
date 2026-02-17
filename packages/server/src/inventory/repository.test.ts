@@ -82,6 +82,7 @@ function insertInventoryItem(
     definitionId: string;
     slotKind: "bag" | "weapon" | "armor";
     slotIndex: number | null;
+    stackCount?: number;
   },
 ): void {
   const timestamp = new Date().toISOString();
@@ -92,15 +93,17 @@ function insertInventoryItem(
       item_definition_id,
       slot_kind,
       slot_index,
+      stack_count,
       created_at,
       updated_at
-    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
   ).run(
     options.id,
     options.characterId,
     options.definitionId,
     options.slotKind,
     options.slotIndex,
+    options.stackCount ?? 1,
     timestamp,
     timestamp,
   );
@@ -384,6 +387,109 @@ describe("inventory repository", () => {
     db.close();
   });
 
+  test("moveInventoryItem split-moves part of a stack into an empty slot", () => {
+    const db = createDatabase(":memory:");
+    const { characterId } = seedCharacter(db);
+    insertInventoryItem(db, {
+      id: "inv-potion",
+      characterId,
+      definitionId: "basic_health_potion",
+      slotKind: "bag",
+      slotIndex: 0,
+      stackCount: 5,
+    });
+
+    const result = moveInventoryItem(
+      db,
+      characterId,
+      { kind: "bag", index: 0 },
+      { kind: "bag", index: 1 },
+      2,
+      {
+        characterClass: "knight",
+        characterLevel: 1,
+      },
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.state.bagSlots[0]?.quantity).toBe(3);
+      expect(result.state.bagSlots[1]?.quantity).toBe(2);
+      expect(result.state.bagSlots[1]?.itemDefinitionId).toBe(
+        "basic_health_potion",
+      );
+    }
+    db.close();
+  });
+
+  test("moveInventoryItem merges stack count into an existing destination stack", () => {
+    const db = createDatabase(":memory:");
+    const { characterId } = seedCharacter(db);
+    insertInventoryItem(db, {
+      id: "inv-potion-a",
+      characterId,
+      definitionId: "basic_health_potion",
+      slotKind: "bag",
+      slotIndex: 0,
+      stackCount: 5,
+    });
+    insertInventoryItem(db, {
+      id: "inv-potion-b",
+      characterId,
+      definitionId: "basic_health_potion",
+      slotKind: "bag",
+      slotIndex: 1,
+      stackCount: 4,
+    });
+
+    const result = moveInventoryItem(
+      db,
+      characterId,
+      { kind: "bag", index: 0 },
+      { kind: "bag", index: 1 },
+      3,
+      {
+        characterClass: "knight",
+        characterLevel: 1,
+      },
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.state.bagSlots[0]?.quantity).toBe(2);
+      expect(result.state.bagSlots[1]?.quantity).toBe(7);
+    }
+    db.close();
+  });
+
+  test("dropInventoryItem drops a partial count from a stack", () => {
+    const db = createDatabase(":memory:");
+    const { characterId } = seedCharacter(db);
+    insertInventoryItem(db, {
+      id: "inv-potion",
+      characterId,
+      definitionId: "basic_health_potion",
+      slotKind: "bag",
+      slotIndex: 0,
+      stackCount: 5,
+    });
+
+    const result = dropInventoryItem(
+      db,
+      characterId,
+      {
+        kind: "bag",
+        index: 0,
+      },
+      2,
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.droppedItemDefinitionId).toBe("basic_health_potion");
+      expect(result.droppedCount).toBe(2);
+      expect(result.state.bagSlots[0]?.quantity).toBe(3);
+    }
+    db.close();
+  });
+
   test("moveBetweenInventoryAndContainer moves item from inventory bag to container slot", () => {
     const db = createDatabase(":memory:");
     const { characterId } = seedCharacter(db, {
@@ -458,6 +564,42 @@ describe("inventory repository", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe("INVENTORY_CLASS_REQUIREMENT_FAILED");
+    }
+    db.close();
+  });
+
+  test("moveBetweenInventoryAndContainer split-moves from container into empty bag slot", () => {
+    const db = createDatabase(":memory:");
+    const { characterId } = seedCharacter(db, {
+      characterClass: "knight",
+      level: 1,
+    });
+
+    const result = moveBetweenInventoryAndContainer(
+      db,
+      characterId,
+      "lootbag-1",
+      [
+        {
+          id: "container-potion",
+          itemDefinitionId: "basic_health_potion",
+          quantity: 5,
+        },
+        ...Array.from({ length: 8 }, () => null),
+      ],
+      { kind: "container", containerId: "lootbag-1", index: 0 },
+      { kind: "bag", index: 0 },
+      2,
+      {
+        characterClass: "knight",
+        characterLevel: 1,
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.inventoryState.bagSlots[0]?.quantity).toBe(2);
+      expect(result.containerSlots[0]?.quantity).toBe(3);
     }
     db.close();
   });

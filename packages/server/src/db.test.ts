@@ -665,6 +665,33 @@ describe("database bootstrap", () => {
     db.close();
   });
 
+  test("bootstrap does not reapply potion stack defaults after migration is marked", () => {
+    const db = createDatabase(":memory:");
+
+    db.query(
+      `UPDATE item_definitions
+       SET is_stackable = 0,
+           max_stack_size = NULL
+       WHERE id = 'basic_health_potion'`,
+    ).run();
+
+    bootstrapDatabase(db);
+
+    const potion = db
+      .query<{ is_stackable: number; max_stack_size: number | null }, []>(
+        `SELECT is_stackable, max_stack_size
+         FROM item_definitions
+         WHERE id = 'basic_health_potion'
+         LIMIT 1`,
+      )
+      .get();
+    expect(potion).toEqual({
+      is_stackable: 0,
+      max_stack_size: null,
+    });
+    db.close();
+  });
+
   test("bootstrap repairs zero aoe radius for aoe attack patterns", () => {
     const db = createDatabase(":memory:");
 

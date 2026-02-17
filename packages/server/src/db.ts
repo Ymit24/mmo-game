@@ -25,6 +25,8 @@ const ENEMY_ARCHETYPE_PROGRESSION_SEEDS = [
   { id: "warden_colossus", level: 14, xpReward: 292 },
   { id: "storm_archon", level: 15, xpReward: 340 },
 ] as const;
+const ITEM_STACK_DEFAULTS_BACKFILL_MIGRATION_ID =
+  "2026-02-17-item-stack-defaults-backfill-v1";
 
 function ensureDatabaseDirectory(dbPath: string): void {
   if (dbPath === ":memory:" || dbPath.startsWith("file:")) {
@@ -49,6 +51,7 @@ export function createDatabase(dbPath: string): Database {
 export function bootstrapDatabase(db: Database): void {
   db.exec("PRAGMA journal_mode = WAL;");
   db.exec("PRAGMA foreign_keys = ON;");
+  ensureDataMigrationsTable(db);
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
@@ -99,7 +102,10 @@ export function bootstrapDatabase(db: Database): void {
   ensureCharacterInventoryStackCountColumn(db);
   ensureItemDefinitionSeeds(db);
   backfillItemDefinitionAttackDefaults(db);
-  backfillItemDefinitionStackDefaults(db);
+  if (!isDataMigrationApplied(db, ITEM_STACK_DEFAULTS_BACKFILL_MIGRATION_ID)) {
+    backfillItemDefinitionStackDefaults(db);
+    markDataMigrationApplied(db, ITEM_STACK_DEFAULTS_BACKFILL_MIGRATION_ID);
+  }
   mergeLegacyStackableCharacterInventory(db);
   db.exec(`
     CREATE TABLE IF NOT EXISTS enemy_archetypes (
@@ -133,6 +139,31 @@ export function bootstrapDatabase(db: Database): void {
   ensureEnemyArchetypeSeeds(db);
   ensureEnemyLootTables(db);
   ensureEnemyLootSeed(db);
+}
+
+function ensureDataMigrationsTable(db: Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS data_migrations (
+      id TEXT PRIMARY KEY,
+      applied_at TEXT NOT NULL
+    );
+  `);
+}
+
+function isDataMigrationApplied(db: Database, id: string): boolean {
+  const row = db
+    .query<{ id: string }, [string]>(
+      "SELECT id FROM data_migrations WHERE id = ?1 LIMIT 1",
+    )
+    .get(id);
+  return !!row;
+}
+
+function markDataMigrationApplied(db: Database, id: string): void {
+  db.query(
+    `INSERT OR IGNORE INTO data_migrations (id, applied_at)
+     VALUES (?1, ?2)`,
+  ).run(id, new Date().toISOString());
 }
 
 function ensureUsersRoleColumn(db: Database): void {
