@@ -293,6 +293,10 @@ describe("inventory repository", () => {
     });
     const timestamp = new Date().toISOString();
     db.query(
+      `INSERT OR IGNORE INTO item_icons (key, name, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4)`,
+    ).run("elite_sword", "Elite Sword", timestamp, timestamp);
+    db.query(
       `INSERT INTO item_definitions (
         id,
         name,

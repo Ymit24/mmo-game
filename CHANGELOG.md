@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.1.2 - 2026-02-17
+
+### Added
+- Admin item icon catalog management API (`/api/admin/item-icons`) with create/read/update/delete operations and usage counts.
+- New editor `Icons` page for item icon search, create/edit/delete workflows, and missing-asset visibility.
+- Shared item icon contracts and reusable icon asset resolver in `@mmo/shared`.
+- Editor test setup and new tests covering icon page behavior and item icon selection.
+
+### Changed
+- Editor item forms now select icons from managed icon definitions instead of free-text entry.
+- Server item create/update routes now enforce valid existing icon keys.
+- Item icon persistence moved to `item_icons` with DB seeding/backfill and foreign-key enforcement from `item_definitions.icon_key`.
+- Client icon URL lookup now resolves through shared icon asset mapping.
+- Root `test` script now includes `@mmo/editor` tests.
+- UI version badge updated to `v0.1.2`.
+
 ## 0.1.1 - 2026-02-17
 
 ### Fixed

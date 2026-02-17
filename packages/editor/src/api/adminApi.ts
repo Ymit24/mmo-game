@@ -107,6 +107,12 @@ export interface ItemDefinition {
   attackAoeDelayMs: number | null;
 }
 
+export interface ItemIconDefinition {
+  key: string;
+  name: string;
+  itemUsageCount: number;
+}
+
 export interface LootEntry {
   id: string;
   itemDefinitionId: string;
@@ -232,6 +238,48 @@ export async function updateItem(
 
 export async function deleteItem(id: string): Promise<void> {
   await request<void>(`/items/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
+// ─── Item Icons ───────────────────────────────────────────────────────
+
+export async function listItemIcons(): Promise<ItemIconDefinition[]> {
+  const res = await request<{ icons: ItemIconDefinition[] }>("/item-icons");
+  return res.icons;
+}
+
+export async function getItemIcon(key: string): Promise<ItemIconDefinition> {
+  const res = await request<{ icon: ItemIconDefinition }>(
+    `/item-icons/${encodeURIComponent(key)}`,
+  );
+  return res.icon;
+}
+
+export async function createItemIcon(data: {
+  key: string;
+  name: string;
+}): Promise<ItemIconDefinition> {
+  const res = await request<{ icon: ItemIconDefinition }>("/item-icons", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+  return res.icon;
+}
+
+export async function updateItemIcon(
+  key: string,
+  data: { name: string },
+): Promise<ItemIconDefinition> {
+  const res = await request<{ icon: ItemIconDefinition }>(
+    `/item-icons/${encodeURIComponent(key)}`,
+    { method: "PUT", body: JSON.stringify(data) },
+  );
+  return res.icon;
+}
+
+export async function deleteItemIcon(key: string): Promise<void> {
+  await request<void>(`/item-icons/${encodeURIComponent(key)}`, {
     method: "DELETE",
   });
 }
