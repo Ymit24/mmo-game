@@ -4,8 +4,8 @@ import { dirname } from "node:path";
 import {
   type AttackPatternId,
   type CharacterClass,
-  MAX_ARMOR_DAMAGE_REDUCTION_PERCENT,
   DEFAULT_ITEM_ICONS,
+  MAX_ARMOR_DAMAGE_REDUCTION_PERCENT,
   MAX_CHARACTER_LEVEL,
   USER_ROLES,
   type WeaponStyle,
