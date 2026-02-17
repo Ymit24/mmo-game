@@ -20,6 +20,8 @@ export const DEFAULT_ITEM_ICONS: ItemIconDefinition[] = [
   { key: "arcane_scepter", name: "Arcane Scepter" },
   { key: "astral_ward_raiment", name: "Astral Ward Raiment" },
   { key: "dragonbone_blade", name: "Dragonbone Blade" },
+  { key: "basic_health_potion", name: "Basic Health Potion" },
+  { key: "greater_health_potion", name: "Greater Health Potion" },
 ];
 
 export function isItemIconKey(value: string): boolean {

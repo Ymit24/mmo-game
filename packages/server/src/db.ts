@@ -593,6 +593,7 @@ function ensureItemDefinitionIconForeignKey(db: Database): void {
         type TEXT NOT NULL CHECK (type IN ('weapon', 'armor', 'potion', 'misc')),
         class_requirement TEXT CHECK (class_requirement IS NULL OR class_requirement IN ('knight', 'mage')),
         min_level_to_equip INTEGER CHECK (min_level_to_equip IS NULL OR min_level_to_equip >= 1),
+        potion_heal_flat REAL CHECK (potion_heal_flat IS NULL OR potion_heal_flat >= 1),
         armor_max_hp_flat REAL CHECK (armor_max_hp_flat IS NULL OR armor_max_hp_flat >= 0),
         armor_damage_reduction_percent REAL CHECK (
           armor_damage_reduction_percent IS NULL OR
@@ -648,7 +649,7 @@ function ensureItemDefinitionIconForeignKey(db: Database): void {
     db.exec(`
       INSERT INTO item_definitions_new (
         id, name, icon_key, type, class_requirement,
-        min_level_to_equip, armor_max_hp_flat, armor_damage_reduction_percent,
+        min_level_to_equip, potion_heal_flat, armor_max_hp_flat, armor_damage_reduction_percent,
         weapon_damage_flat, weapon_range_flat,
         weapon_speed_percent, weapon_style, attack_pattern_id,
         attack_damage_multiplier, attack_projectile_count,
@@ -657,7 +658,7 @@ function ensureItemDefinitionIconForeignKey(db: Database): void {
       )
       SELECT
         id, name, icon_key, type, class_requirement,
-        min_level_to_equip, armor_max_hp_flat, armor_damage_reduction_percent,
+        min_level_to_equip, potion_heal_flat, armor_max_hp_flat, armor_damage_reduction_percent,
         weapon_damage_flat, weapon_range_flat,
         weapon_speed_percent, weapon_style, attack_pattern_id,
         attack_damage_multiplier, attack_projectile_count,
