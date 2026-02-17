@@ -121,6 +121,17 @@ function seedCharacterWithInventory(
       updated_at
     ) VALUES ('inv-1', 'character-1', 'training_sword', 'bag', 0, ?1, ?2)`,
   ).run(now, now);
+  db.query(
+    `INSERT INTO character_inventory (
+      id,
+      character_id,
+      item_definition_id,
+      slot_kind,
+      slot_index,
+      created_at,
+      updated_at
+    ) VALUES ('inv-potion-1', 'character-1', 'basic_health_potion', 'bag', 1, ?1, ?2)`,
+  ).run(now, now);
 }
 
 describe("realtime gateway", () => {
@@ -327,6 +338,218 @@ describe("realtime gateway", () => {
       )
       .get();
     expect(item?.id).toBe("inv-1");
+    db.close();
+  });
+
+  test("inventory consume requires an active world session", async () => {
+    const db = createDatabase(":memory:");
+    const gateway = createRealtimeGateway(baseConfig, db);
+    const socket = createMockSocket(gateway.createSocketData);
+    const token = await issueAccessToken(
+      { sub: "player-a", role: USER_ROLES.user },
+      baseConfig,
+    );
+    seedCharacterWithInventory(db);
+
+    await gateway.handlers.message(
+      asServerSocket(socket),
+      JSON.stringify({
+        type: "auth.hello",
+        token: token.token,
+      }),
+    );
+    await gateway.handlers.message(
+      asServerSocket(socket),
+      JSON.stringify({
+        type: "world.join",
+        worldId: "invalid-world",
+        characterId: "character-1",
+      }),
+    );
+
+    socket.sent = [];
+    await gateway.handlers.message(
+      asServerSocket(socket),
+      JSON.stringify({
+        type: "inventory.consume",
+        payload: {
+          from: { kind: "bag", index: 1 },
+        },
+      }),
+    );
+    const message = parseLastMessage(socket);
+    expect(message.type).toBe("error");
+    expect(message.error).toBe("Join a world before inventory actions.");
+    db.close();
+  });
+
+  test("inventory consume heals player and removes potion instance", async () => {
+    const db = createDatabase(":memory:");
+    const gateway = createRealtimeGateway(baseConfig, db);
+    const socket = createMockSocket(gateway.createSocketData);
+    const token = await issueAccessToken(
+      { sub: "player-a", role: USER_ROLES.user },
+      baseConfig,
+    );
+    seedCharacterWithInventory(db);
+
+    await gateway.handlers.message(
+      asServerSocket(socket),
+      JSON.stringify({
+        type: "auth.hello",
+        token: token.token,
+      }),
+    );
+    await gateway.handlers.message(
+      asServerSocket(socket),
+      JSON.stringify({
+        type: "world.join",
+        worldId: "hub:alpha",
+        characterId: "character-1",
+      }),
+    );
+
+    socket.data.session.characterCurrentHealth = 100;
+    socket.sent = [];
+    await gateway.handlers.message(
+      asServerSocket(socket),
+      JSON.stringify({
+        type: "inventory.consume",
+        payload: {
+          from: { kind: "bag", index: 1 },
+        },
+      }),
+    );
+
+    const message = parseLastMessage(socket);
+    expect(message.type).toBe("inventory.consumed");
+    expect(message.restoredHealth).toBe(50);
+    expect(
+      (
+        message.state as {
+          bagSlots?: Array<{ id: string; itemDefinitionId: string } | null>;
+        }
+      ).bagSlots?.[1],
+    ).toBeNull();
+    const item = db
+      .query<{ id: string }, []>(
+        `SELECT id
+         FROM character_inventory
+         WHERE id = 'inv-potion-1'`,
+      )
+      .get();
+    expect(item).toBeNull();
+    db.close();
+  });
+
+  test("inventory consume rejects when already at full health and keeps potion", async () => {
+    const db = createDatabase(":memory:");
+    const gateway = createRealtimeGateway(baseConfig, db);
+    const socket = createMockSocket(gateway.createSocketData);
+    const token = await issueAccessToken(
+      { sub: "player-a", role: USER_ROLES.user },
+      baseConfig,
+    );
+    seedCharacterWithInventory(db);
+
+    await gateway.handlers.message(
+      asServerSocket(socket),
+      JSON.stringify({
+        type: "auth.hello",
+        token: token.token,
+      }),
+    );
+    await gateway.handlers.message(
+      asServerSocket(socket),
+      JSON.stringify({
+        type: "world.join",
+        worldId: "hub:alpha",
+        characterId: "character-1",
+      }),
+    );
+
+    socket.sent = [];
+    await gateway.handlers.message(
+      asServerSocket(socket),
+      JSON.stringify({
+        type: "inventory.consume",
+        payload: {
+          from: { kind: "bag", index: 1 },
+        },
+      }),
+    );
+    const message = parseLastMessage(socket);
+    expect(message.type).toBe("inventory.actionRejected");
+    expect(message.code).toBe("INVENTORY_HEALTH_FULL");
+
+    const item = db
+      .query<{ id: string }, []>(
+        `SELECT id
+         FROM character_inventory
+         WHERE id = 'inv-potion-1'`,
+      )
+      .get();
+    expect(item?.id).toBe("inv-potion-1");
+    db.close();
+  });
+
+  test("inventory consume uses authoritative world health when session health is stale", async () => {
+    const db = createDatabase(":memory:");
+    const gateway = createRealtimeGateway(baseConfig, db);
+    const socket = createMockSocket(gateway.createSocketData);
+    const token = await issueAccessToken(
+      { sub: "player-a", role: USER_ROLES.user },
+      baseConfig,
+    );
+    seedCharacterWithInventory(db);
+
+    await gateway.handlers.message(
+      asServerSocket(socket),
+      JSON.stringify({
+        type: "auth.hello",
+        token: token.token,
+      }),
+    );
+    await gateway.handlers.message(
+      asServerSocket(socket),
+      JSON.stringify({
+        type: "world.join",
+        worldId: "hub:alpha",
+        characterId: "character-1",
+      }),
+    );
+
+    socket.data.session.characterCurrentHealth = 100;
+    socket.sent = [];
+    await gateway.handlers.message(
+      asServerSocket(socket),
+      JSON.stringify({
+        type: "inventory.consume",
+        payload: {
+          from: { kind: "bag", index: 2 },
+        },
+      }),
+    );
+    const probeMessage = parseLastMessage(socket);
+    expect(probeMessage.type).toBe("inventory.actionRejected");
+    expect(probeMessage.code).toBe("INVENTORY_SOURCE_EMPTY");
+
+    socket.data.session.characterCurrentHealth = 150;
+    socket.sent = [];
+    await gateway.handlers.message(
+      asServerSocket(socket),
+      JSON.stringify({
+        type: "inventory.consume",
+        payload: {
+          from: { kind: "bag", index: 1 },
+        },
+      }),
+    );
+
+    const message = parseLastMessage(socket);
+    expect(message.type).toBe("inventory.consumed");
+    expect(message.restoredHealth).toBe(50);
+    expect(message.currentHealth).toBe(150);
     db.close();
   });
 

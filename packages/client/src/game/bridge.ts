@@ -49,6 +49,10 @@ export interface InventoryDropRequest {
   from: InventorySlotRef;
 }
 
+export interface InventoryConsumeRequest {
+  from: InventorySlotRef;
+}
+
 export interface ContainerMoveRequest {
   from: StorageSlotRef;
   to: StorageSlotRef;
@@ -103,6 +107,7 @@ export interface GameBridgeState {
 type StateListener = (state: GameBridgeState) => void;
 type InventoryMoveListener = (request: InventoryMoveRequest) => void;
 type InventoryDropListener = (request: InventoryDropRequest) => void;
+type InventoryConsumeListener = (request: InventoryConsumeRequest) => void;
 type ContainerMoveListener = (request: ContainerMoveRequest) => void;
 type TakeoverListener = () => void;
 
@@ -141,6 +146,7 @@ export class GameBridge {
   private stateListeners = new Set<StateListener>();
   private inventoryMoveListeners = new Set<InventoryMoveListener>();
   private inventoryDropListeners = new Set<InventoryDropListener>();
+  private inventoryConsumeListeners = new Set<InventoryConsumeListener>();
   private containerMoveListeners = new Set<ContainerMoveListener>();
   private takeoverListeners = new Set<TakeoverListener>();
 
@@ -196,6 +202,19 @@ export class GameBridge {
 
   requestInventoryDrop(request: InventoryDropRequest): void {
     for (const listener of this.inventoryDropListeners) {
+      listener(request);
+    }
+  }
+
+  onInventoryConsumeRequest(listener: InventoryConsumeListener): () => void {
+    this.inventoryConsumeListeners.add(listener);
+    return () => {
+      this.inventoryConsumeListeners.delete(listener);
+    };
+  }
+
+  requestInventoryConsume(request: InventoryConsumeRequest): void {
+    for (const listener of this.inventoryConsumeListeners) {
       listener(request);
     }
   }

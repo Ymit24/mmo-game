@@ -2,8 +2,10 @@ import adeptFocusWandUrl from "./assets/items/adept-focus-wand.svg";
 import aegisPlateUrl from "./assets/items/aegis-plate.svg";
 import arcaneScepterUrl from "./assets/items/arcane-scepter.svg";
 import astralWardRaimentUrl from "./assets/items/astral-ward-raiment.svg";
+import basicHealthPotionUrl from "./assets/items/basic-health-potion.svg";
 import dragonboneBladeUrl from "./assets/items/dragonbone-blade.svg";
 import glyphweaveRobeUrl from "./assets/items/glyphweave-robe.svg";
+import greaterHealthPotionUrl from "./assets/items/greater-health-potion.svg";
 import ironBroadswordUrl from "./assets/items/iron-broadsword.svg";
 import runedGreatswordUrl from "./assets/items/runed-greatsword.svg";
 import steelBulwarkArmorUrl from "./assets/items/steel-bulwark-armor.svg";
@@ -18,7 +20,9 @@ export const ITEM_ICON_ASSET_URLS: Record<string, string> = {
   aegis_plate: aegisPlateUrl,
   arcane_scepter: arcaneScepterUrl,
   astral_ward_raiment: astralWardRaimentUrl,
+  basic_health_potion: basicHealthPotionUrl,
   dragonbone_blade: dragonboneBladeUrl,
+  greater_health_potion: greaterHealthPotionUrl,
   glyphweave_robe: glyphweaveRobeUrl,
   iron_broadsword: ironBroadswordUrl,
   runed_greatsword: runedGreatswordUrl,

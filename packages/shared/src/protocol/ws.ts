@@ -66,6 +66,10 @@ export interface InventoryDropPayload {
   position: Vector2;
 }
 
+export interface InventoryConsumePayload {
+  from: InventorySlotRef;
+}
+
 export interface ContainerMovePayload {
   from: StorageSlotRef;
   to: StorageSlotRef;
@@ -125,6 +129,10 @@ export type ClientToServerMessage =
   | {
       type: "inventory.drop";
       payload: InventoryDropPayload;
+    }
+  | {
+      type: "inventory.consume";
+      payload: InventoryConsumePayload;
     }
   | {
       type: "container.open";
@@ -243,6 +251,16 @@ export type ServerToClientMessage =
       from: InventorySlotRef;
       removedItemInstanceId: string;
       removedItemDefinitionId: string;
+      state: InventoryStatePayload;
+    }
+  | {
+      type: "inventory.consumed";
+      from: InventorySlotRef;
+      consumedItemInstanceId: string;
+      consumedItemDefinitionId: string;
+      restoredHealth: number;
+      currentHealth: number;
+      maxHealth: number;
       state: InventoryStatePayload;
     }
   | {
@@ -558,6 +576,19 @@ export function parseClientMessage(raw: string): ClientToServerMessage | null {
         payload: {
           from: payload.from,
           position: payload.position,
+        },
+      };
+    }
+    case "inventory.consume": {
+      const payload = parsed.payload;
+      if (!isObject(payload) || !isInventorySlotRef(payload.from)) {
+        return null;
+      }
+
+      return {
+        type: "inventory.consume",
+        payload: {
+          from: payload.from,
         },
       };
     }

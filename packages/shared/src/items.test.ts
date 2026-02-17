@@ -17,6 +17,7 @@ describe("armor item helpers", () => {
       type: "weapon",
       classRequirement: "knight",
       minLevelToEquip: 1,
+      potionHealFlat: null,
       armorMaxHpFlat: null,
       armorDamageReductionPercent: null,
       weaponDamageFlat: 10,

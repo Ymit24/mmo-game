@@ -20,6 +20,7 @@ import {
 } from "../characters/repository";
 import type { ServerConfig } from "../config";
 import {
+  consumeInventoryItem,
   dropInventoryItem,
   getEquipmentLoadoutFromInventoryState,
   loadInventoryStateForCharacter,
@@ -537,6 +538,71 @@ export function createRealtimeGateway(
               );
             }
             return;
+
+          case "inventory.consume": {
+            const { characterId, worldId } = socket.data.session;
+            if (!characterId) {
+              sendError(socket, "Character session is not initialized.");
+              return;
+            }
+            if (!worldId) {
+              sendError(socket, "Join a world before inventory actions.");
+              return;
+            }
+            const healthProbe = worlds.applyDirectHealToPlayer(socket, 0);
+            if (!healthProbe) {
+              sendInventoryActionRejected(
+                socket,
+                "INVENTORY_HEALTH_FULL",
+                "Health is already full.",
+              );
+              return;
+            }
+            if (healthProbe.currentHealth >= healthProbe.maxHealth) {
+              sendInventoryActionRejected(
+                socket,
+                "INVENTORY_HEALTH_FULL",
+                "Health is already full.",
+              );
+              return;
+            }
+
+            const result = consumeInventoryItem(
+              db,
+              characterId,
+              incoming.payload.from,
+            );
+            if (!result.ok) {
+              sendInventoryActionRejected(socket, result.code, result.message);
+              return;
+            }
+
+            const healed = worlds.applyDirectHealToPlayer(
+              socket,
+              result.restoreAmount,
+            );
+            if (!healed || healed.restoredHealth <= 0) {
+              sendInventoryActionRejected(
+                socket,
+                "INVENTORY_HEALTH_FULL",
+                "Health is already full.",
+              );
+              return;
+            }
+            socket.send(
+              stringifyServerMessage({
+                type: "inventory.consumed",
+                from: result.from,
+                consumedItemInstanceId: result.consumedItemInstanceId,
+                consumedItemDefinitionId: result.consumedItemDefinitionId,
+                restoredHealth: healed.restoredHealth,
+                currentHealth: healed.currentHealth,
+                maxHealth: healed.maxHealth,
+                state: result.state,
+              }),
+            );
+            return;
+          }
 
           case "container.open": {
             const result = worlds.openContainer(socket, incoming.containerId);

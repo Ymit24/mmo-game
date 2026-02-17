@@ -6,6 +6,7 @@ import type {
 import {
   ATTACK_PATTERN_METADATA,
   itemDefinitionToArmorModifiers,
+  itemDefinitionToPotionHeal,
   itemDefinitionToWeaponModifiers,
 } from "@mmo/shared";
 import { resolveItemIconUrl } from "./itemIconMap";
@@ -28,6 +29,7 @@ export function ItemTooltip({
   const iconUrl = resolveItemIconUrl(definition.iconKey);
   const isWeapon = definition.type === "weapon";
   const isArmor = definition.type === "armor";
+  const isPotion = definition.type === "potion";
 
   // Get weapon stats for comparison
   const hoveredWeaponStats = isWeapon
@@ -198,10 +200,24 @@ export function ItemTooltip({
         </div>
       )}
 
+      {isPotion && (
+        <div className="mb-2 border-t border-border/40 pt-1.5">
+          <p className="mb-1 text-[9px] text-muted uppercase">Potion Effect</p>
+          <div className="flex items-center justify-between text-[10px]">
+            <span className="text-text">Restore HP</span>
+            <span className="text-vec-gold">
+              +{itemDefinitionToPotionHeal(definition)}
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Footer hint */}
       <div className="border-t border-border/40 pt-1.5">
         <p className="text-[8px] text-muted/60 italic">
-          Drag to move • Drop outside to discard
+          {isPotion
+            ? "Right-click to consume • Drag to move • Drop outside to discard"
+            : "Drag to move • Drop outside to discard"}
         </p>
       </div>
     </div>

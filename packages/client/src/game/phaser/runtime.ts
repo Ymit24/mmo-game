@@ -179,6 +179,7 @@ class HubScene extends Phaser.Scene {
 
   private unsubscribeInventoryMoveRequest: (() => void) | null = null;
   private unsubscribeInventoryDropRequest: (() => void) | null = null;
+  private unsubscribeInventoryConsumeRequest: (() => void) | null = null;
   private unsubscribeContainerMoveRequest: (() => void) | null = null;
   private unsubscribeTakeoverRequest: (() => void) | null = null;
 
@@ -271,6 +272,18 @@ class HubScene extends Phaser.Scene {
         });
       },
     );
+    this.unsubscribeInventoryConsumeRequest =
+      this.bridge.onInventoryConsumeRequest(({ from }) => {
+        if (!this.bridge.getState().isInWorld) {
+          return;
+        }
+        this.sendMessage({
+          type: "inventory.consume",
+          payload: {
+            from,
+          },
+        });
+      });
     this.unsubscribeContainerMoveRequest = this.bridge.onContainerMoveRequest(
       ({ from, to }) => {
         if (!this.bridge.getState().isInWorld) {
@@ -317,6 +330,8 @@ class HubScene extends Phaser.Scene {
       this.unsubscribeInventoryMoveRequest = null;
       this.unsubscribeInventoryDropRequest?.();
       this.unsubscribeInventoryDropRequest = null;
+      this.unsubscribeInventoryConsumeRequest?.();
+      this.unsubscribeInventoryConsumeRequest = null;
       this.unsubscribeContainerMoveRequest?.();
       this.unsubscribeContainerMoveRequest = null;
       this.unsubscribeTakeoverRequest?.();
@@ -901,6 +916,20 @@ class HubScene extends Phaser.Scene {
           inventoryError: null,
           containerError: null,
           lastMessage: "Dropped item.",
+        });
+        return;
+
+      case "inventory.consumed":
+        this.bridge.updateState({
+          inventory: message.state,
+          inventoryError: null,
+          containerError: null,
+          localHealthCurrent: Math.min(
+            message.maxHealth,
+            message.currentHealth,
+          ),
+          localHealthMax: message.maxHealth,
+          lastMessage: `Restored ${Math.round(message.restoredHealth)} HP.`,
         });
         return;
 

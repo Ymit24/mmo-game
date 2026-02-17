@@ -185,6 +185,10 @@ describe("database bootstrap", () => {
         class_affinity: "mage",
       },
       {
+        item_definition_id: "basic_health_potion",
+        class_affinity: null,
+      },
+      {
         item_definition_id: "iron_broadsword",
         class_affinity: "knight",
       },
@@ -244,6 +248,10 @@ describe("database bootstrap", () => {
       )
       .all();
     expect(stoneEntries).toEqual([
+      {
+        item_definition_id: "basic_health_potion",
+        class_affinity: null,
+      },
       {
         item_definition_id: "glyphweave_robe",
         class_affinity: "mage",
@@ -382,6 +390,45 @@ describe("database bootstrap", () => {
       )
       .get();
     expect(ironBroadswordAoe?.attack_aoe_radius).toBe(88);
+    db.close();
+  });
+
+  test("seeds potion definitions and high-tier potion loot", () => {
+    const db = createDatabase(":memory:");
+
+    const potions = db
+      .query<{ id: string; potion_heal_flat: number | null }, []>(
+        `SELECT id, potion_heal_flat
+         FROM item_definitions
+         WHERE id IN ('basic_health_potion', 'greater_health_potion')
+         ORDER BY id ASC`,
+      )
+      .all();
+    expect(potions).toEqual([
+      { id: "basic_health_potion", potion_heal_flat: 50 },
+      { id: "greater_health_potion", potion_heal_flat: 150 },
+    ]);
+
+    const highTierEntries = db
+      .query<{ enemy_archetype_id: string; item_definition_id: string }, []>(
+        `SELECT enemy_archetype_id, item_definition_id
+         FROM enemy_loot_table_entries
+         WHERE enemy_archetype_id IN ('dusk_harrier', 'storm_archon')
+           AND item_definition_id = 'greater_health_potion'
+         ORDER BY enemy_archetype_id ASC`,
+      )
+      .all();
+    expect(highTierEntries).toEqual([
+      {
+        enemy_archetype_id: "dusk_harrier",
+        item_definition_id: "greater_health_potion",
+      },
+      {
+        enemy_archetype_id: "storm_archon",
+        item_definition_id: "greater_health_potion",
+      },
+    ]);
+
     db.close();
   });
 

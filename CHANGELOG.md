@@ -9,6 +9,11 @@ All notable changes to this project will be documented in this file.
 - New editor `Icons` page for item icon search, create/edit/delete workflows, and missing-asset visibility.
 - Shared item icon contracts and reusable icon asset resolver in `@mmo/shared`.
 - Editor test setup and new tests covering icon page behavior and item icon selection.
+- Consumable potion item support with server-authoritative use flow (`inventory.consume` / `inventory.consumed`).
+- Two health potion definitions: `basic_health_potion` (50 HP) and `greater_health_potion` (150 HP).
+- Right-click potion consumption in the client inventory UI and potion effect display in item tooltips.
+- Admin/editor item support for potion heal tuning (`potionHealFlat`) with type-aware coercion.
+- Shared parsing tests for consumable inventory WebSocket messages.
 
 ### Changed
 - Editor item forms now select icons from managed icon definitions instead of free-text entry.
@@ -17,6 +22,14 @@ All notable changes to this project will be documented in this file.
 - Client icon URL lookup now resolves through shared icon asset mapping.
 - Root `test` script now includes `@mmo/editor` tests.
 - UI version badge updated to `v0.1.2`.
+- Starter character loadouts now include 3 basic health potions in bag slots 6-8 (0-based slots 5-7).
+- Enemy loot seeds now include potion progression by enemy tier:
+  - level 1-9 enemies seed basic potion drops
+  - level 10+ enemies seed greater potion drops
+- Item definition schema and normalization now include `potion_heal_flat`.
+
+### Fixed
+- Inventory consume attempts at full health are rejected without consuming the potion item.
 
 ## 0.1.1 - 2026-02-17
 
