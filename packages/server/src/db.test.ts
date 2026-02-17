@@ -106,6 +106,13 @@ describe("database bootstrap", () => {
   test("creates item definition and character inventory tables", () => {
     const db = createDatabase(":memory:");
 
+    const itemIconColumns = db
+      .query<{ name: string }, []>("PRAGMA table_info(item_icons);")
+      .all()
+      .map((column) => column.name);
+    expect(itemIconColumns).toContain("key");
+    expect(itemIconColumns).toContain("name");
+
     const itemColumns = db
       .query<{ name: string }, []>("PRAGMA table_info(item_definitions);")
       .all()
@@ -125,6 +132,19 @@ describe("database bootstrap", () => {
     expect(itemColumns).toContain("attack_burst_interval_ms");
     expect(itemColumns).toContain("attack_aoe_radius");
     expect(itemColumns).toContain("attack_aoe_delay_ms");
+    const itemForeignKeys = db
+      .query<{ table: string; from: string; to: string }, []>(
+        "PRAGMA foreign_key_list(item_definitions);",
+      )
+      .all();
+    expect(
+      itemForeignKeys.some(
+        (foreignKey) =>
+          foreignKey.table === "item_icons" &&
+          foreignKey.from === "icon_key" &&
+          foreignKey.to === "key",
+      ),
+    ).toBe(true);
 
     const inventoryColumns = db
       .query<{ name: string }, []>("PRAGMA table_info(character_inventory);")
@@ -367,6 +387,7 @@ describe("database bootstrap", () => {
 
   test("backfills weapon attack defaults for legacy item_definitions rows", () => {
     const db = createDatabase(":memory:");
+    db.exec("PRAGMA foreign_keys = OFF;");
     db.exec("DROP TABLE item_definitions;");
     db.exec(`
       CREATE TABLE item_definitions (
@@ -385,6 +406,7 @@ describe("database bootstrap", () => {
         updated_at TEXT NOT NULL
       );
     `);
+    db.exec("PRAGMA foreign_keys = ON;");
 
     const timestamp = new Date().toISOString();
     db.query(
@@ -485,6 +507,70 @@ describe("database bootstrap", () => {
       attack_pattern_id: null,
       attack_damage_multiplier: null,
     });
+    db.close();
+  });
+
+  test("backfills legacy icon keys into item_icons before FK enforcement", () => {
+    const db = createDatabase(":memory:");
+    db.exec("PRAGMA foreign_keys = OFF;");
+    db.exec("DROP TABLE item_definitions;");
+    db.exec(`
+      CREATE TABLE item_definitions (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        icon_key TEXT NOT NULL,
+        type TEXT NOT NULL CHECK (type IN ('weapon', 'armor', 'potion', 'misc')),
+        class_requirement TEXT CHECK (class_requirement IS NULL OR class_requirement IN ('knight', 'mage')),
+        min_level_to_equip INTEGER CHECK (
+          min_level_to_equip IS NULL OR min_level_to_equip >= 0
+        ),
+        weapon_damage_flat REAL,
+        weapon_range_flat REAL,
+        weapon_speed_percent REAL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `);
+    db.exec("PRAGMA foreign_keys = ON;");
+    db.query(
+      `INSERT INTO item_definitions (
+        id, name, icon_key, type, class_requirement, min_level_to_equip,
+        weapon_damage_flat, weapon_range_flat, weapon_speed_percent, created_at, updated_at
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
+    ).run(
+      "legacy_misc",
+      "Legacy Misc",
+      "legacy_misc_icon",
+      "misc",
+      null,
+      null,
+      null,
+      null,
+      null,
+      new Date().toISOString(),
+      new Date().toISOString(),
+    );
+
+    bootstrapDatabase(db);
+
+    const icon = db
+      .query<{ key: string; name: string }, []>(
+        "SELECT key, name FROM item_icons WHERE key = 'legacy_misc_icon' LIMIT 1",
+      )
+      .get();
+    expect(icon).toEqual({
+      key: "legacy_misc_icon",
+      name: "Legacy Misc Icon",
+    });
+    db.close();
+  });
+
+  test("item icon FK prevents deleting referenced icons", () => {
+    const db = createDatabase(":memory:");
+
+    expect(() =>
+      db.query("DELETE FROM item_icons WHERE key = ?1").run("training_sword"),
+    ).toThrow();
     db.close();
   });
 

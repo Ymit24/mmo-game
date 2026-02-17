@@ -7,11 +7,13 @@ import {
   estimatePatternDps,
   resolveWeaponAttackConfig,
 } from "@mmo/shared";
+import { resolveItemIconAssetUrl } from "@mmo/shared/item-icon-assets";
 import { useCallback, useMemo, useState } from "react";
 import {
   type ItemDefinition,
   createItem,
   deleteItem,
+  listItemIcons,
   listItems,
   updateItem,
 } from "../api/adminApi";
@@ -200,6 +202,37 @@ function WeaponIcon({
       <circle cx="16" cy="28.5" r="2" fill={accentColor} />
       <circle cx="16" cy="28.5" r="1" fill="white" opacity="0.3" />
     </svg>
+  );
+}
+
+function ItemIconThumb({
+  iconKey,
+  size = 24,
+}: {
+  iconKey: string;
+  size?: number;
+}) {
+  const iconUrl = resolveItemIconAssetUrl(iconKey);
+  if (!iconUrl) {
+    return (
+      <div
+        className="rounded border border-border bg-deep text-[10px] text-muted flex items-center justify-center"
+        style={{ width: size, height: size }}
+        title={`Missing icon asset: ${iconKey}`}
+      >
+        ?
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={iconUrl}
+      alt={iconKey}
+      width={size}
+      height={size}
+      className="rounded border border-border bg-deep object-contain"
+    />
   );
 }
 
@@ -394,11 +427,14 @@ function withResolvedItemDefaults(item: ItemDefinition): ItemDefinition {
 
 export function ItemsPage() {
   const { data: items, loading, error, refetch } = useAsyncData(listItems);
+  const { data: itemIcons, loading: loadingIcons } =
+    useAsyncData(listItemIcons);
   const [selected, setSelected] = useState<ItemDefinition | null>(null);
   const [editing, setEditing] = useState<ItemDefinition | null>(null);
   const [isNew, setIsNew] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [iconSearch, setIconSearch] = useState("");
 
   const handleSelect = useCallback((item: ItemDefinition) => {
     setSelected(item);
@@ -492,6 +528,18 @@ export function ItemsPage() {
   const isMultishotPattern = activePatternId === "wand_multishot";
   const isBurstPattern = activePatternId === "wand_burst";
   const isAoePattern = activePatternId === "staff_ground_aoe";
+  const filteredItemIcons = useMemo(() => {
+    const icons = itemIcons ?? [];
+    const query = iconSearch.trim().toLowerCase();
+    if (!query) {
+      return icons;
+    }
+    return icons.filter(
+      (icon) =>
+        icon.key.toLowerCase().includes(query) ||
+        icon.name.toLowerCase().includes(query),
+    );
+  }, [itemIcons, iconSearch]);
 
   return (
     <div className="flex flex-1 overflow-hidden">
@@ -524,15 +572,9 @@ export function ItemsPage() {
               }`}
               onClick={() => handleSelect(item)}
             >
-              {item.type === "weapon" && (
-                <div className="shrink-0">
-                  <WeaponIcon
-                    iconKey={item.iconKey}
-                    classReq={item.classRequirement}
-                    size={28}
-                  />
-                </div>
-              )}
+              <div className="shrink-0">
+                <ItemIconThumb iconKey={item.iconKey} size={28} />
+              </div>
               <div className="min-w-0 flex-1">
                 <div className="text-text-bright text-xs truncate">
                   {item.name}
@@ -590,15 +632,9 @@ export function ItemsPage() {
           <div className="animate-fade-in">
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-4">
-                {isWeapon && (
-                  <div className="p-2 bg-surface border border-border">
-                    <WeaponIcon
-                      iconKey={editing.iconKey}
-                      classReq={editing.classRequirement}
-                      size={48}
-                    />
-                  </div>
-                )}
+                <div className="p-2 bg-surface border border-border">
+                  <ItemIconThumb iconKey={editing.iconKey} size={48} />
+                </div>
                 <div>
                   <h2 className="text-text-bright text-lg font-display">
                     {isNew ? "New Item" : editing.name}
@@ -659,13 +695,43 @@ export function ItemsPage() {
                       className="w-full"
                     />
                   </Field>
-                  <Field label="Icon Key">
-                    <input
-                      type="text"
-                      value={editing.iconKey}
-                      onChange={(e) => updateField("iconKey", e.target.value)}
-                      className="w-full"
-                    />
+                  <Field label="Icon">
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <ItemIconThumb iconKey={editing.iconKey} size={24} />
+                        <span className="text-xs text-muted">
+                          {editing.iconKey}
+                        </span>
+                      </div>
+                      <input
+                        type="text"
+                        placeholder="Search icons by key or name"
+                        value={iconSearch}
+                        onChange={(e) => setIconSearch(e.target.value)}
+                        className="w-full"
+                      />
+                      <select
+                        value={editing.iconKey}
+                        onChange={(e) => updateField("iconKey", e.target.value)}
+                        className="w-full"
+                        disabled={loadingIcons}
+                      >
+                        <option value="" disabled>
+                          {loadingIcons ? "Loading icons..." : "Select an icon"}
+                        </option>
+                        {filteredItemIcons.map((icon) => (
+                          <option key={icon.key} value={icon.key}>
+                            {icon.name} ({icon.key})
+                          </option>
+                        ))}
+                      </select>
+                      {editing.iconKey &&
+                        resolveItemIconAssetUrl(editing.iconKey) === null && (
+                          <p className="text-[10px] text-danger">
+                            Missing icon asset for key "{editing.iconKey}".
+                          </p>
+                        )}
+                    </div>
                   </Field>
                   <Field label="Type">
                     <select

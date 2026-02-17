@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import {
   type CharacterClass,
   MAX_ARMOR_DAMAGE_REDUCTION_PERCENT,
+  isItemIconKey,
   parseWorldMap,
   resolveWeaponAttackConfig,
 } from "@mmo/shared";
@@ -119,6 +120,15 @@ function validateMapIdOrResponse(mapId: string): Response | null {
     return json(400, { error: "Invalid map ID." });
   }
   return null;
+}
+
+function itemIconExists(db: Database, key: string): boolean {
+  const row = db
+    .query<{ key: string }, [string]>(
+      "SELECT key FROM item_icons WHERE key = ?1 LIMIT 1",
+    )
+    .get(key);
+  return !!row;
 }
 
 // ─── Enemy Archetypes ────────────────────────────────────────────────
@@ -312,6 +322,132 @@ function handleDeleteEnemy(db: Database, id: string): Response {
     return json(404, { error: "Enemy archetype not found." });
   }
   db.query("DELETE FROM enemy_archetypes WHERE id = ?1").run(id);
+  return new Response(null, { status: 204 });
+}
+
+// ─── Item Icons ───────────────────────────────────────────────────────
+
+interface ItemIconRow {
+  key: string;
+  name: string;
+  item_usage_count: number;
+}
+
+function mapItemIconRow(row: ItemIconRow) {
+  return {
+    key: row.key,
+    name: row.name,
+    itemUsageCount: row.item_usage_count,
+  };
+}
+
+function listItemIconsQuery(db: Database) {
+  return db.query<ItemIconRow, []>(
+    `SELECT
+       icon.key,
+       icon.name,
+       COUNT(item.id) AS item_usage_count
+     FROM item_icons AS icon
+     LEFT JOIN item_definitions AS item ON item.icon_key = icon.key
+     GROUP BY icon.key, icon.name
+     ORDER BY icon.name ASC, icon.key ASC`,
+  );
+}
+
+function getItemIconQuery(db: Database) {
+  return db.query<ItemIconRow, [string]>(
+    `SELECT
+       icon.key,
+       icon.name,
+       COUNT(item.id) AS item_usage_count
+     FROM item_icons AS icon
+     LEFT JOIN item_definitions AS item ON item.icon_key = icon.key
+     WHERE icon.key = ?1
+     GROUP BY icon.key, icon.name
+     LIMIT 1`,
+  );
+}
+
+function handleListItemIcons(db: Database): Response {
+  const rows = listItemIconsQuery(db).all();
+  return json(200, { icons: rows.map(mapItemIconRow) });
+}
+
+function handleGetItemIcon(db: Database, key: string): Response {
+  const row = getItemIconQuery(db).get(key);
+  if (!row) {
+    return json(404, { error: "Item icon not found." });
+  }
+  return json(200, { icon: mapItemIconRow(row) });
+}
+
+async function handleCreateItemIcon(
+  request: Request,
+  db: Database,
+): Promise<Response> {
+  const body = (await readJsonBody(request)) as Record<string, unknown> | null;
+  const key = strOrNull(body?.key);
+  const name = strOrNull(body?.name);
+  if (!key || !name || !isItemIconKey(key)) {
+    return json(400, { error: "Invalid payload." });
+  }
+
+  const timestamp = new Date().toISOString();
+  try {
+    db.query(
+      `INSERT INTO item_icons (key, name, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4)`,
+    ).run(key, name, timestamp, timestamp);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.toLowerCase().includes("unique")) {
+      return json(409, { error: "Item icon with this key already exists." });
+    }
+    return json(500, { error: msg });
+  }
+
+  return handleGetItemIcon(db, key);
+}
+
+async function handleUpdateItemIcon(
+  request: Request,
+  db: Database,
+  key: string,
+): Promise<Response> {
+  const body = (await readJsonBody(request)) as Record<string, unknown> | null;
+  const name = strOrNull(body?.name);
+  if (!name) {
+    return json(400, { error: "Invalid payload." });
+  }
+
+  const result = db
+    .query("UPDATE item_icons SET name = ?2, updated_at = ?3 WHERE key = ?1")
+    .run(key, name, new Date().toISOString());
+  if (result.changes === 0) {
+    return json(404, { error: "Item icon not found." });
+  }
+  return handleGetItemIcon(db, key);
+}
+
+function handleDeleteItemIcon(db: Database, key: string): Response {
+  const usage = db
+    .query<{ count: number }, [string]>(
+      "SELECT COUNT(*) AS count FROM item_definitions WHERE icon_key = ?1",
+    )
+    .get(key);
+  const itemUsageCount = usage?.count ?? 0;
+  if (itemUsageCount > 0) {
+    return json(409, {
+      error: "Item icon is in use by items.",
+      itemUsageCount,
+    });
+  }
+
+  const result = db.query("DELETE FROM item_icons WHERE key = ?1").run(key);
+  if (result.changes === 0) {
+    return json(404, { error: "Item icon not found." });
+  }
+
   return new Response(null, { status: 204 });
 }
 
@@ -519,6 +655,10 @@ async function handleCreateItem(
   if (!body || typeof body.id !== "string" || !body.id) {
     return json(400, { error: "Invalid payload." });
   }
+  const iconKey = strOrNull(body.iconKey);
+  if (!iconKey || !itemIconExists(db, iconKey)) {
+    return json(400, { error: "Invalid payload. Unknown icon key." });
+  }
 
   const timestamp = new Date().toISOString();
   const armor = resolveItemArmorColumns(body);
@@ -537,7 +677,7 @@ async function handleCreateItem(
     ).run(
       body.id,
       str(body.name, "Unnamed"),
-      str(body.iconKey, body.id as string),
+      iconKey,
       str(body.type, "misc"),
       strOrNull(body.classRequirement),
       numOrNull(body.minLevelToEquip),
@@ -590,6 +730,10 @@ async function handleUpdateItem(
   if (!existing) {
     return json(404, { error: "Item not found." });
   }
+  const iconKey = strOrNull(body.iconKey);
+  if (!iconKey || !itemIconExists(db, iconKey)) {
+    return json(400, { error: "Invalid payload. Unknown icon key." });
+  }
 
   const timestamp = new Date().toISOString();
   const armor = resolveItemArmorColumns(body);
@@ -608,7 +752,7 @@ async function handleUpdateItem(
   ).run(
     id,
     str(body.name, "Unnamed"),
-    str(body.iconKey, id),
+    iconKey,
     str(body.type, "misc"),
     strOrNull(body.classRequirement),
     numOrNull(body.minLevelToEquip),
@@ -1055,6 +1199,29 @@ export async function handleAdminRequest(
       response = handleDeleteEnemy(
         db,
         decodeURIComponent(path.slice("/enemies/".length)),
+      );
+    }
+
+    // ── Item Icons
+    else if (path === "/item-icons" && method === "GET") {
+      response = handleListItemIcons(db);
+    } else if (path.startsWith("/item-icons/") && method === "GET") {
+      response = handleGetItemIcon(
+        db,
+        decodeURIComponent(path.slice("/item-icons/".length)),
+      );
+    } else if (path === "/item-icons" && method === "POST") {
+      response = await handleCreateItemIcon(request, db);
+    } else if (path.startsWith("/item-icons/") && method === "PUT") {
+      response = await handleUpdateItemIcon(
+        request,
+        db,
+        decodeURIComponent(path.slice("/item-icons/".length)),
+      );
+    } else if (path.startsWith("/item-icons/") && method === "DELETE") {
+      response = handleDeleteItemIcon(
+        db,
+        decodeURIComponent(path.slice("/item-icons/".length)),
       );
     }
 

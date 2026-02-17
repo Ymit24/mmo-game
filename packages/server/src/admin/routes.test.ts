@@ -124,7 +124,7 @@ describe("admin item routes", () => {
       adminRequest("/admin/items", "POST", {
         id: "test_plate",
         name: "Test Plate",
-        iconKey: "test_plate",
+        iconKey: "aegis_plate",
         type: "armor",
         classRequirement: "knight",
         minLevelToEquip: 1,
@@ -151,5 +151,64 @@ describe("admin item routes", () => {
     expect(body.item.armorDamageReductionPercent).toBe(50);
     expect(body.item.weaponStyle).toBeNull();
     expect(body.item.attackPatternId).toBeNull();
+  });
+
+  test("item icon catalog supports create/update/delete when unused", async () => {
+    const createResponse = await app.fetch(
+      adminRequest("/admin/item-icons", "POST", {
+        key: "quest_scroll",
+        name: "Quest Scroll",
+      }),
+    );
+    expect(createResponse.status).toBe(200);
+
+    const updateResponse = await app.fetch(
+      adminRequest("/admin/item-icons/quest_scroll", "PUT", {
+        name: "Ancient Quest Scroll",
+      }),
+    );
+    expect(updateResponse.status).toBe(200);
+    const updatedBody = (await updateResponse.json()) as {
+      icon: { key: string; name: string; itemUsageCount: number };
+    };
+    expect(updatedBody.icon).toEqual({
+      key: "quest_scroll",
+      name: "Ancient Quest Scroll",
+      itemUsageCount: 0,
+    });
+
+    const deleteResponse = await app.fetch(
+      adminRequest("/admin/item-icons/quest_scroll", "DELETE"),
+    );
+    expect(deleteResponse.status).toBe(204);
+  });
+
+  test("delete item icon returns 409 when referenced by items", async () => {
+    const response = await app.fetch(
+      adminRequest("/admin/item-icons/training_sword", "DELETE"),
+    );
+
+    expect(response.status).toBe(409);
+    const body = (await response.json()) as {
+      error: string;
+      itemUsageCount: number;
+    };
+    expect(body.error).toBe("Item icon is in use by items.");
+    expect(body.itemUsageCount).toBeGreaterThan(0);
+  });
+
+  test("create item rejects unknown icon key", async () => {
+    const response = await app.fetch(
+      adminRequest("/admin/items", "POST", {
+        id: "broken_item",
+        name: "Broken Item",
+        iconKey: "missing_icon",
+        type: "misc",
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error: string };
+    expect(body.error).toBe("Invalid payload. Unknown icon key.");
   });
 });

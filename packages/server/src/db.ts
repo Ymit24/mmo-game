@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 import {
   type AttackPatternId,
   type CharacterClass,
+  DEFAULT_ITEM_ICONS,
   MAX_ARMOR_DAMAGE_REDUCTION_PERCENT,
   MAX_CHARACTER_LEVEL,
   USER_ROLES,
@@ -47,6 +48,7 @@ export function createDatabase(dbPath: string): Database {
 
 export function bootstrapDatabase(db: Database): void {
   db.exec("PRAGMA journal_mode = WAL;");
+  db.exec("PRAGMA foreign_keys = ON;");
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
@@ -87,8 +89,12 @@ export function bootstrapDatabase(db: Database): void {
     ON characters (user_id, updated_at DESC);
   `);
   ensureCharacterProgressionColumns(db);
+  ensureItemIconsTable(db);
   ensureItemDefinitionsTable(db);
   ensureItemDefinitionAttackColumns(db);
+  ensureItemIconSeeds(db);
+  backfillItemIconsFromDefinitions(db);
+  ensureItemDefinitionIconForeignKey(db);
   ensureCharacterInventoryTable(db);
   ensureItemDefinitionSeeds(db);
   backfillItemDefinitionAttackDefaults(db);
@@ -444,12 +450,23 @@ function ensureCharacterProgressionColumns(db: Database): void {
   }
 }
 
+function ensureItemIconsTable(db: Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS item_icons (
+      key TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+}
+
 function ensureItemDefinitionsTable(db: Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS item_definitions (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
-      icon_key TEXT NOT NULL,
+      icon_key TEXT NOT NULL REFERENCES item_icons(key) ON DELETE RESTRICT ON UPDATE RESTRICT,
       type TEXT NOT NULL CHECK (type IN ('weapon', 'armor', 'potion', 'misc')),
       class_requirement TEXT CHECK (class_requirement IS NULL OR class_requirement IN ('knight', 'mage')),
       min_level_to_equip INTEGER CHECK (min_level_to_equip IS NULL OR min_level_to_equip >= 1),
@@ -504,6 +521,163 @@ function ensureItemDefinitionsTable(db: Database): void {
       updated_at TEXT NOT NULL
     );
   `);
+}
+
+function ensureItemIconSeeds(db: Database): void {
+  const timestamp = new Date().toISOString();
+  const statement = db.query(
+    `INSERT OR IGNORE INTO item_icons (key, name, created_at, updated_at)
+     VALUES (?1, ?2, ?3, ?4)`,
+  );
+
+  for (const icon of DEFAULT_ITEM_ICONS) {
+    statement.run(icon.key, icon.name, timestamp, timestamp);
+  }
+}
+
+function inferItemIconName(iconKey: string): string {
+  return iconKey
+    .split("_")
+    .filter((segment) => segment.length > 0)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(" ");
+}
+
+function backfillItemIconsFromDefinitions(db: Database): void {
+  const timestamp = new Date().toISOString();
+  const insert = db.query(
+    `INSERT OR IGNORE INTO item_icons (key, name, created_at, updated_at)
+     VALUES (?1, ?2, ?3, ?4)`,
+  );
+
+  const keys = db
+    .query<{ icon_key: string }, []>(
+      "SELECT DISTINCT icon_key FROM item_definitions WHERE icon_key IS NOT NULL",
+    )
+    .all();
+
+  for (const row of keys) {
+    const name = inferItemIconName(row.icon_key);
+    insert.run(row.icon_key, name, timestamp, timestamp);
+  }
+}
+
+function ensureItemDefinitionIconForeignKey(db: Database): void {
+  const hasForeignKey = db
+    .query<{ table: string; from: string; to: string }, []>(
+      "PRAGMA foreign_key_list(item_definitions);",
+    )
+    .all()
+    .some(
+      (foreignKey) =>
+        foreignKey.table === "item_icons" &&
+        foreignKey.from === "icon_key" &&
+        foreignKey.to === "key",
+    );
+
+  if (hasForeignKey) {
+    return;
+  }
+
+  db.exec("PRAGMA foreign_keys = OFF;");
+  let committed = false;
+
+  try {
+    db.exec("BEGIN IMMEDIATE;");
+    db.exec(`
+      CREATE TABLE item_definitions_new (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        icon_key TEXT NOT NULL REFERENCES item_icons(key) ON DELETE RESTRICT ON UPDATE RESTRICT,
+        type TEXT NOT NULL CHECK (type IN ('weapon', 'armor', 'potion', 'misc')),
+        class_requirement TEXT CHECK (class_requirement IS NULL OR class_requirement IN ('knight', 'mage')),
+        min_level_to_equip INTEGER CHECK (min_level_to_equip IS NULL OR min_level_to_equip >= 1),
+        armor_max_hp_flat REAL CHECK (armor_max_hp_flat IS NULL OR armor_max_hp_flat >= 0),
+        armor_damage_reduction_percent REAL CHECK (
+          armor_damage_reduction_percent IS NULL OR
+          (armor_damage_reduction_percent >= 0 AND armor_damage_reduction_percent <= ${MAX_ARMOR_DAMAGE_REDUCTION_PERCENT})
+        ),
+        weapon_damage_flat REAL,
+        weapon_range_flat REAL,
+        weapon_speed_percent REAL,
+        weapon_style TEXT CHECK (weapon_style IS NULL OR weapon_style IN ('sword', 'wand', 'staff')),
+        attack_pattern_id TEXT CHECK (
+          attack_pattern_id IS NULL OR attack_pattern_id IN (
+            'sword_cleave',
+            'sword_spinblade',
+            'sword_whirl',
+            'wand_multishot',
+            'wand_burst',
+            'staff_ground_aoe'
+          )
+        ),
+        attack_damage_multiplier REAL CHECK (
+          attack_damage_multiplier IS NULL OR
+          (attack_damage_multiplier >= 0 AND attack_damage_multiplier <= 10)
+        ),
+        attack_projectile_count INTEGER CHECK (
+          attack_projectile_count IS NULL OR
+          (attack_projectile_count >= 1 AND attack_projectile_count <= 12)
+        ),
+        attack_spread_degrees REAL CHECK (
+          attack_spread_degrees IS NULL OR
+          (attack_spread_degrees >= 0 AND attack_spread_degrees <= 180)
+        ),
+        attack_burst_count INTEGER CHECK (
+          attack_burst_count IS NULL OR
+          (attack_burst_count >= 1 AND attack_burst_count <= 12)
+        ),
+        attack_burst_interval_ms INTEGER CHECK (
+          attack_burst_interval_ms IS NULL OR
+          (attack_burst_interval_ms >= 0 AND attack_burst_interval_ms <= 5000)
+        ),
+        attack_aoe_radius REAL CHECK (
+          attack_aoe_radius IS NULL OR
+          (attack_aoe_radius >= 0 AND attack_aoe_radius <= 1200)
+        ),
+        attack_aoe_delay_ms INTEGER CHECK (
+          attack_aoe_delay_ms IS NULL OR
+          (attack_aoe_delay_ms >= 0 AND attack_aoe_delay_ms <= 10000)
+        ),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `);
+
+    db.exec(`
+      INSERT INTO item_definitions_new (
+        id, name, icon_key, type, class_requirement,
+        min_level_to_equip, armor_max_hp_flat, armor_damage_reduction_percent,
+        weapon_damage_flat, weapon_range_flat,
+        weapon_speed_percent, weapon_style, attack_pattern_id,
+        attack_damage_multiplier, attack_projectile_count,
+        attack_spread_degrees, attack_burst_count, attack_burst_interval_ms,
+        attack_aoe_radius, attack_aoe_delay_ms, created_at, updated_at
+      )
+      SELECT
+        id, name, icon_key, type, class_requirement,
+        min_level_to_equip, armor_max_hp_flat, armor_damage_reduction_percent,
+        weapon_damage_flat, weapon_range_flat,
+        weapon_speed_percent, weapon_style, attack_pattern_id,
+        attack_damage_multiplier, attack_projectile_count,
+        attack_spread_degrees, attack_burst_count, attack_burst_interval_ms,
+        attack_aoe_radius, attack_aoe_delay_ms, created_at, updated_at
+      FROM item_definitions;
+    `);
+    db.exec("DROP TABLE item_definitions;");
+    db.exec("ALTER TABLE item_definitions_new RENAME TO item_definitions;");
+    db.exec("COMMIT;");
+    committed = true;
+  } finally {
+    if (!committed) {
+      try {
+        db.exec("ROLLBACK;");
+      } catch {
+        // SQLite may auto-close transaction
+      }
+    }
+    db.exec("PRAGMA foreign_keys = ON;");
+  }
 }
 
 function ensureItemDefinitionAttackColumns(db: Database): void {

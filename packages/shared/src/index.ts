@@ -26,6 +26,7 @@ export * from "./auth/roles";
 export * from "./characters";
 export * from "./combat/attacks";
 export * from "./enemies";
+export * from "./icons";
 export * from "./items";
 export * from "./protocol/ws";
 export * from "./world/map";
