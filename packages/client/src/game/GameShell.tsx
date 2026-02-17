@@ -9,6 +9,7 @@ import { type DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthContext";
+import { APP_VERSION } from "../version";
 import { ItemTooltip } from "./ItemTooltip";
 import { type GameBridgeState, createGameBridge } from "./bridge";
 import { resolveItemIconUrl } from "./itemIconMap";
@@ -774,6 +775,11 @@ export function GameShell({ characterId }: GameShellProps) {
                   {uiState.inventoryError}
                 </p>
               ) : null}
+            </div>
+            <div className="border-t border-border/40 px-2 py-1.5">
+              <p className="text-center text-[8px] text-muted/50">
+                v{APP_VERSION}
+              </p>
             </div>
           </aside>
         ) : null}

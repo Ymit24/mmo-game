@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 
 import { useAuth } from "./auth/AuthContext";
 import { WorldGrid } from "./components/WorldGrid";
+import { APP_VERSION } from "./version";
 
 function VectorSword() {
   return (
@@ -104,7 +105,7 @@ export function LandingPage() {
           className="animate-fade-in absolute bottom-6 text-xs text-muted/40 font-body"
           style={{ animationDelay: "1s" }}
         >
-          v0.1.0 alpha
+          v{APP_VERSION}
         </p>
       </main>
     </div>
