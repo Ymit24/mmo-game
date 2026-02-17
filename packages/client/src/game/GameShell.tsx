@@ -4,6 +4,7 @@ import {
   type InventorySlotRef,
   LOOT_BAG_SLOT_COUNT,
   type StorageSlotRef,
+  itemDefinitionToMaxStackSize,
 } from "@mmo/shared";
 import { type DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -233,6 +234,7 @@ export function GameShell({ characterId }: GameShellProps) {
   ): void {
     setActiveDropSlotKey(null);
     setHoveredSlotKey(null);
+    setHoveredSlotData(null);
     setIsDraggingInventoryItem(true);
     dragInProgressRef.current = true;
     const encoded = encodeSlotRef(from);
@@ -396,6 +398,34 @@ export function GameShell({ characterId }: GameShellProps) {
     return null;
   }
 
+  function findFirstMergeableBagSlot(
+    sourceItem: NonNullable<ReturnType<typeof getItemAtSlot>>,
+    sourceSlot: StorageSlotRef,
+  ): InventorySlotRef | null {
+    const sourceDefinition = definitions[sourceItem.itemDefinitionId];
+    if (!sourceDefinition?.isStackable) {
+      return null;
+    }
+    const maxStack = itemDefinitionToMaxStackSize(sourceDefinition);
+    for (let index = 0; index < bagSlots.length; index += 1) {
+      if (sourceSlot.kind === "bag" && sourceSlot.index === index) {
+        continue;
+      }
+      const candidate = bagSlots[index];
+      if (
+        candidate &&
+        candidate.itemDefinitionId === sourceItem.itemDefinitionId &&
+        candidate.quantity < maxStack
+      ) {
+        return {
+          kind: "bag",
+          index,
+        };
+      }
+    }
+    return null;
+  }
+
   function findFirstEmptyContainerSlot(): StorageSlotRef | null {
     if (!openContainer) {
       return null;
@@ -414,6 +444,42 @@ export function GameShell({ characterId }: GameShellProps) {
     return null;
   }
 
+  function findFirstMergeableContainerSlot(
+    sourceItem: NonNullable<ReturnType<typeof getItemAtSlot>>,
+    sourceSlot: StorageSlotRef,
+  ): StorageSlotRef | null {
+    if (!openContainer) {
+      return null;
+    }
+    const sourceDefinition = definitions[sourceItem.itemDefinitionId];
+    if (!sourceDefinition?.isStackable) {
+      return null;
+    }
+    const maxStack = itemDefinitionToMaxStackSize(sourceDefinition);
+    for (let index = 0; index < containerSlots.length; index += 1) {
+      if (
+        sourceSlot.kind === "container" &&
+        sourceSlot.containerId === openContainer.containerId &&
+        sourceSlot.index === index
+      ) {
+        continue;
+      }
+      const candidate = containerSlots[index];
+      if (
+        candidate &&
+        candidate.itemDefinitionId === sourceItem.itemDefinitionId &&
+        candidate.quantity < maxStack
+      ) {
+        return {
+          kind: "container",
+          containerId: openContainer.containerId,
+          index,
+        };
+      }
+    }
+    return null;
+  }
+
   function onSlotShiftClick(
     event: React.MouseEvent<HTMLButtonElement>,
     slot: StorageSlotRef,
@@ -425,8 +491,14 @@ export function GameShell({ characterId }: GameShellProps) {
 
     event.preventDefault();
 
+    const sourceItem = getItemAtSlot(slot);
+    if (!sourceItem) {
+      return;
+    }
+
     if (slot.kind === "container") {
-      const destination = findFirstEmptyBagSlot();
+      const destination =
+        findFirstMergeableBagSlot(sourceItem, slot) ?? findFirstEmptyBagSlot();
       if (!destination) {
         return;
       }
@@ -438,7 +510,9 @@ export function GameShell({ characterId }: GameShellProps) {
       return;
     }
 
-    const destination = findFirstEmptyContainerSlot();
+    const destination =
+      findFirstMergeableContainerSlot(sourceItem, slot) ??
+      findFirstEmptyContainerSlot();
     if (!destination) {
       return;
     }
