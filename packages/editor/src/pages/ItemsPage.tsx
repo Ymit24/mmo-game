@@ -27,6 +27,8 @@ const EMPTY_ITEM: Omit<ItemDefinition, "id"> & { id: string } = {
   name: "Unnamed",
   iconKey: "",
   type: "misc",
+  isStackable: false,
+  maxStackSize: null,
   classRequirement: null,
   minLevelToEquip: null,
   potionHealFlat: null,

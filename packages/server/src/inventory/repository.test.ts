@@ -206,6 +206,7 @@ describe("inventory repository", () => {
       characterId,
       { kind: "bag", index: 0 },
       { kind: "bag", index: 5 },
+      undefined,
       {
         characterClass: "knight",
         characterLevel: 1,
@@ -243,6 +244,7 @@ describe("inventory repository", () => {
       characterId,
       { kind: "bag", index: 0 },
       { kind: "bag", index: 1 },
+      undefined,
       {
         characterClass: "knight",
         characterLevel: 1,
@@ -273,6 +275,7 @@ describe("inventory repository", () => {
       characterId,
       { kind: "bag", index: 0 },
       { kind: "equip", slot: "weapon" },
+      undefined,
       {
         characterClass: "mage",
         characterLevel: 1,
@@ -325,6 +328,7 @@ describe("inventory repository", () => {
       characterId,
       { kind: "bag", index: 0 },
       { kind: "equip", slot: "weapon" },
+      undefined,
       {
         characterClass: "knight",
         characterLevel: 1,
@@ -341,6 +345,7 @@ describe("inventory repository", () => {
       characterId,
       { kind: "bag", index: 0 },
       { kind: "bag", index: 3 },
+      undefined,
       {
         characterClass: "knight",
         characterLevel: 1,
@@ -361,14 +366,19 @@ describe("inventory repository", () => {
       slotIndex: 0,
     });
 
-    const result = dropInventoryItem(db, characterId, {
-      kind: "bag",
-      index: 0,
-    });
+    const result = dropInventoryItem(
+      db,
+      characterId,
+      {
+        kind: "bag",
+        index: 0,
+      },
+      undefined,
+    );
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.removedItemInstanceId).toBe("inv-a");
-      expect(result.removedItemDefinitionId).toBe("training_sword");
+      expect(result.droppedItemDefinitionId).toBe("training_sword");
+      expect(result.droppedCount).toBe(1);
       expect(result.state.bagSlots[0]).toBeNull();
     }
     db.close();
@@ -395,6 +405,7 @@ describe("inventory repository", () => {
       Array.from({ length: 9 }, () => null),
       { kind: "bag", index: 0 },
       { kind: "container", containerId: "lootbag-1", index: 0 },
+      undefined,
       {
         characterClass: "knight",
         characterLevel: 1,
@@ -431,11 +442,13 @@ describe("inventory repository", () => {
         {
           id: "container-wand-1",
           itemDefinitionId: "training_wand",
+          quantity: 1,
         },
         ...Array.from({ length: 8 }, () => null),
       ],
       { kind: "container", containerId: "lootbag-1", index: 0 },
       { kind: "equip", slot: "weapon" },
+      undefined,
       {
         characterClass: "knight",
         characterLevel: 1,

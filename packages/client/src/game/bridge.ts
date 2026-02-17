@@ -43,10 +43,12 @@ export interface OverlayLootBag {
 export interface InventoryMoveRequest {
   from: InventorySlotRef;
   to: InventorySlotRef;
+  count?: number;
 }
 
 export interface InventoryDropRequest {
   from: InventorySlotRef;
+  count?: number;
 }
 
 export interface InventoryConsumeRequest {
@@ -56,6 +58,7 @@ export interface InventoryConsumeRequest {
 export interface ContainerMoveRequest {
   from: StorageSlotRef;
   to: StorageSlotRef;
+  count?: number;
 }
 
 export interface OpenContainerState {

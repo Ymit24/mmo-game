@@ -119,6 +119,8 @@ describe("database bootstrap", () => {
       .map((column) => column.name);
     expect(itemColumns).toContain("id");
     expect(itemColumns).toContain("icon_key");
+    expect(itemColumns).toContain("is_stackable");
+    expect(itemColumns).toContain("max_stack_size");
     expect(itemColumns).toContain("class_requirement");
     expect(itemColumns).toContain("weapon_speed_percent");
     expect(itemColumns).toContain("armor_max_hp_flat");
@@ -154,6 +156,7 @@ describe("database bootstrap", () => {
     expect(inventoryColumns).toContain("item_definition_id");
     expect(inventoryColumns).toContain("slot_kind");
     expect(inventoryColumns).toContain("slot_index");
+    expect(inventoryColumns).toContain("stack_count");
     db.close();
   });
 

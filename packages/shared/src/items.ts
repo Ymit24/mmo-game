@@ -46,6 +46,8 @@ export interface ItemDefinition {
   name: string;
   iconKey: string;
   type: ItemType;
+  isStackable: boolean;
+  maxStackSize: number | null;
   classRequirement: CharacterClass | null;
   minLevelToEquip: number | null;
   potionHealFlat: number | null;
@@ -68,6 +70,7 @@ export interface ItemDefinition {
 export interface InventoryItemInstance {
   id: string;
   itemDefinitionId: string;
+  quantity: number;
 }
 
 export interface InventoryStatePayload {
@@ -275,6 +278,15 @@ export function itemDefinitionToWeaponModifiers(
     rangeFlat: definition.weaponRangeFlat ?? 0,
     speedPercent: definition.weaponSpeedPercent ?? 0,
   });
+}
+
+export function itemDefinitionToMaxStackSize(
+  definition: ItemDefinition | null | undefined,
+): number {
+  if (!definition?.isStackable) {
+    return 1;
+  }
+  return Math.max(2, Math.floor(definition.maxStackSize ?? 9));
 }
 
 export function normalizeWeaponStatModifiers(

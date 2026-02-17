@@ -47,6 +47,10 @@ function numOrNull(val: unknown): number | null {
   return typeof val === "number" ? val : null;
 }
 
+function boolOrNull(val: unknown): boolean | null {
+  return typeof val === "boolean" ? val : null;
+}
+
 function parseAllowedCorsOrigins(): Set<string> {
   const raw = process.env.ADMIN_API_ALLOWED_ORIGINS;
   if (!raw) {
@@ -458,6 +462,8 @@ interface ItemDefinitionRow {
   name: string;
   icon_key: string;
   type: string;
+  is_stackable: number;
+  max_stack_size: number | null;
   class_requirement: string | null;
   min_level_to_equip: number | null;
   potion_heal_flat: number | null;
@@ -483,6 +489,8 @@ function mapItemRow(row: ItemDefinitionRow) {
     name: row.name,
     iconKey: row.icon_key,
     type: row.type,
+    isStackable: row.is_stackable === 1,
+    maxStackSize: row.max_stack_size,
     classRequirement: row.class_requirement,
     minLevelToEquip: row.min_level_to_equip,
     potionHealFlat: row.potion_heal_flat,
@@ -512,6 +520,30 @@ function resolveItemPotionColumns(body: Record<string, unknown>): {
   const raw = numOrNull(body.potionHealFlat);
   return {
     potionHealFlat: raw === null ? null : Math.max(1, Math.round(raw)),
+  };
+}
+
+function resolveItemStackColumns(body: Record<string, unknown>): {
+  isStackable: number;
+  maxStackSize: number | null;
+} {
+  const type = str(body.type, "misc");
+  const requestedIsStackable = boolOrNull(body.isStackable);
+  const requestedMaxStackSize = numOrNull(body.maxStackSize);
+  const isStackable =
+    type === "potion" ? (requestedIsStackable === false ? 0 : 1) : 0;
+  const maxStackSize =
+    isStackable === 1
+      ? Math.max(
+          2,
+          Math.round(
+            requestedMaxStackSize === null ? 9 : requestedMaxStackSize,
+          ),
+        )
+      : null;
+  return {
+    isStackable,
+    maxStackSize,
   };
 }
 
@@ -582,6 +614,8 @@ function resolveItemAttackColumns(body: Record<string, unknown>): {
       name: str(body.name, "Unnamed"),
       iconKey: str(body.iconKey, str(body.id, "weapon")),
       type: "weapon",
+      isStackable: false,
+      maxStackSize: null,
       classRequirement,
       minLevelToEquip: numOrNull(body.minLevelToEquip),
       potionHealFlat: null,
@@ -630,7 +664,7 @@ function resolveItemAttackColumns(body: Record<string, unknown>): {
 function handleListItems(db: Database): Response {
   const rows = db
     .query<ItemDefinitionRow, []>(
-      `SELECT id, name, icon_key, type, class_requirement,
+      `SELECT id, name, icon_key, type, is_stackable, max_stack_size, class_requirement,
               min_level_to_equip, potion_heal_flat, armor_max_hp_flat,
               armor_damage_reduction_percent, weapon_damage_flat, weapon_range_flat,
               weapon_speed_percent, weapon_style, attack_pattern_id,
@@ -646,7 +680,7 @@ function handleListItems(db: Database): Response {
 function handleGetItem(db: Database, id: string): Response {
   const row = db
     .query<ItemDefinitionRow, [string]>(
-      `SELECT id, name, icon_key, type, class_requirement,
+      `SELECT id, name, icon_key, type, is_stackable, max_stack_size, class_requirement,
               min_level_to_equip, potion_heal_flat, armor_max_hp_flat,
               armor_damage_reduction_percent, weapon_damage_flat, weapon_range_flat,
               weapon_speed_percent, weapon_style, attack_pattern_id,
@@ -678,23 +712,26 @@ async function handleCreateItem(
   const timestamp = new Date().toISOString();
   const armor = resolveItemArmorColumns(body);
   const potion = resolveItemPotionColumns(body);
+  const stack = resolveItemStackColumns(body);
   const attack = resolveItemAttackColumns(body);
   try {
     db.query(
       `INSERT INTO item_definitions (
-        id, name, icon_key, type, class_requirement,
+        id, name, icon_key, type, is_stackable, max_stack_size, class_requirement,
         min_level_to_equip, potion_heal_flat, armor_max_hp_flat, armor_damage_reduction_percent,
         weapon_damage_flat, weapon_range_flat,
         weapon_speed_percent, weapon_style, attack_pattern_id,
         attack_damage_multiplier, attack_projectile_count,
         attack_spread_degrees, attack_burst_count, attack_burst_interval_ms,
         attack_aoe_radius, attack_aoe_delay_ms, created_at, updated_at
-      ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23)`,
+      ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25)`,
     ).run(
       body.id,
       str(body.name, "Unnamed"),
       iconKey,
       str(body.type, "misc"),
+      stack.isStackable,
+      stack.maxStackSize,
       strOrNull(body.classRequirement),
       numOrNull(body.minLevelToEquip),
       potion.potionHealFlat,
@@ -755,23 +792,26 @@ async function handleUpdateItem(
   const timestamp = new Date().toISOString();
   const armor = resolveItemArmorColumns(body);
   const potion = resolveItemPotionColumns(body);
+  const stack = resolveItemStackColumns(body);
   const attack = resolveItemAttackColumns({ ...body, id });
   db.query(
     `UPDATE item_definitions SET
-      name = ?2, icon_key = ?3, type = ?4, class_requirement = ?5,
-      min_level_to_equip = ?6, potion_heal_flat = ?7, armor_max_hp_flat = ?8,
-      armor_damage_reduction_percent = ?9, weapon_damage_flat = ?10,
-      weapon_range_flat = ?11, weapon_speed_percent = ?12, weapon_style = ?13,
-      attack_pattern_id = ?14, attack_damage_multiplier = ?15,
-      attack_projectile_count = ?16, attack_spread_degrees = ?17,
-      attack_burst_count = ?18, attack_burst_interval_ms = ?19,
-      attack_aoe_radius = ?20, attack_aoe_delay_ms = ?21, updated_at = ?22
+      name = ?2, icon_key = ?3, type = ?4, is_stackable = ?5, max_stack_size = ?6, class_requirement = ?7,
+      min_level_to_equip = ?8, potion_heal_flat = ?9, armor_max_hp_flat = ?10,
+      armor_damage_reduction_percent = ?11, weapon_damage_flat = ?12,
+      weapon_range_flat = ?13, weapon_speed_percent = ?14, weapon_style = ?15,
+      attack_pattern_id = ?16, attack_damage_multiplier = ?17,
+      attack_projectile_count = ?18, attack_spread_degrees = ?19,
+      attack_burst_count = ?20, attack_burst_interval_ms = ?21,
+      attack_aoe_radius = ?22, attack_aoe_delay_ms = ?23, updated_at = ?24
      WHERE id = ?1`,
   ).run(
     id,
     str(body.name, "Unnamed"),
     iconKey,
     str(body.type, "misc"),
+    stack.isStackable,
+    stack.maxStackSize,
     strOrNull(body.classRequirement),
     numOrNull(body.minLevelToEquip),
     potion.potionHealFlat,

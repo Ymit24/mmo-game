@@ -96,8 +96,11 @@ export function bootstrapDatabase(db: Database): void {
   backfillItemIconsFromDefinitions(db);
   ensureItemDefinitionIconForeignKey(db);
   ensureCharacterInventoryTable(db);
+  ensureCharacterInventoryStackCountColumn(db);
   ensureItemDefinitionSeeds(db);
   backfillItemDefinitionAttackDefaults(db);
+  backfillItemDefinitionStackDefaults(db);
+  mergeLegacyStackableCharacterInventory(db);
   db.exec(`
     CREATE TABLE IF NOT EXISTS enemy_archetypes (
       id TEXT PRIMARY KEY,
@@ -468,6 +471,8 @@ function ensureItemDefinitionsTable(db: Database): void {
       name TEXT NOT NULL,
       icon_key TEXT NOT NULL REFERENCES item_icons(key) ON DELETE RESTRICT ON UPDATE RESTRICT,
       type TEXT NOT NULL CHECK (type IN ('weapon', 'armor', 'potion', 'misc')),
+      is_stackable INTEGER NOT NULL DEFAULT 0 CHECK (is_stackable IN (0, 1)),
+      max_stack_size INTEGER CHECK (max_stack_size IS NULL OR max_stack_size >= 2),
       class_requirement TEXT CHECK (class_requirement IS NULL OR class_requirement IN ('knight', 'mage')),
       min_level_to_equip INTEGER CHECK (min_level_to_equip IS NULL OR min_level_to_equip >= 1),
       potion_heal_flat REAL CHECK (potion_heal_flat IS NULL OR potion_heal_flat >= 1),
@@ -591,6 +596,8 @@ function ensureItemDefinitionIconForeignKey(db: Database): void {
         name TEXT NOT NULL,
         icon_key TEXT NOT NULL REFERENCES item_icons(key) ON DELETE RESTRICT ON UPDATE RESTRICT,
         type TEXT NOT NULL CHECK (type IN ('weapon', 'armor', 'potion', 'misc')),
+        is_stackable INTEGER NOT NULL DEFAULT 0 CHECK (is_stackable IN (0, 1)),
+        max_stack_size INTEGER CHECK (max_stack_size IS NULL OR max_stack_size >= 2),
         class_requirement TEXT CHECK (class_requirement IS NULL OR class_requirement IN ('knight', 'mage')),
         min_level_to_equip INTEGER CHECK (min_level_to_equip IS NULL OR min_level_to_equip >= 1),
         potion_heal_flat REAL CHECK (potion_heal_flat IS NULL OR potion_heal_flat >= 1),
@@ -648,7 +655,7 @@ function ensureItemDefinitionIconForeignKey(db: Database): void {
 
     db.exec(`
       INSERT INTO item_definitions_new (
-        id, name, icon_key, type, class_requirement,
+        id, name, icon_key, type, is_stackable, max_stack_size, class_requirement,
         min_level_to_equip, potion_heal_flat, armor_max_hp_flat, armor_damage_reduction_percent,
         weapon_damage_flat, weapon_range_flat,
         weapon_speed_percent, weapon_style, attack_pattern_id,
@@ -657,7 +664,7 @@ function ensureItemDefinitionIconForeignKey(db: Database): void {
         attack_aoe_radius, attack_aoe_delay_ms, created_at, updated_at
       )
       SELECT
-        id, name, icon_key, type, class_requirement,
+        id, name, icon_key, type, 0, NULL, class_requirement,
         min_level_to_equip, potion_heal_flat, armor_max_hp_flat, armor_damage_reduction_percent,
         weapon_damage_flat, weapon_range_flat,
         weapon_speed_percent, weapon_style, attack_pattern_id,
@@ -749,6 +756,16 @@ function ensureItemDefinitionAttackColumns(db: Database): void {
       "ALTER TABLE item_definitions ADD COLUMN attack_aoe_delay_ms INTEGER CHECK (attack_aoe_delay_ms IS NULL OR (attack_aoe_delay_ms >= 0 AND attack_aoe_delay_ms <= 10000));",
     );
   }
+  if (!hasColumn("is_stackable")) {
+    db.exec(
+      "ALTER TABLE item_definitions ADD COLUMN is_stackable INTEGER NOT NULL DEFAULT 0 CHECK (is_stackable IN (0, 1));",
+    );
+  }
+  if (!hasColumn("max_stack_size")) {
+    db.exec(
+      "ALTER TABLE item_definitions ADD COLUMN max_stack_size INTEGER CHECK (max_stack_size IS NULL OR max_stack_size >= 2);",
+    );
+  }
 }
 
 function ensureCharacterInventoryTable(db: Database): void {
@@ -759,6 +776,7 @@ function ensureCharacterInventoryTable(db: Database): void {
       item_definition_id TEXT NOT NULL REFERENCES item_definitions(id),
       slot_kind TEXT NOT NULL CHECK (slot_kind IN ('bag', 'weapon', 'armor')),
       slot_index INTEGER,
+      stack_count INTEGER NOT NULL DEFAULT 1 CHECK (stack_count >= 1),
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       CHECK (
@@ -788,6 +806,17 @@ function ensureCharacterInventoryTable(db: Database): void {
     ON character_inventory (character_id)
     WHERE slot_kind = 'armor';
   `);
+}
+
+function ensureCharacterInventoryStackCountColumn(db: Database): void {
+  const columns = db
+    .query<{ name: string }, []>("PRAGMA table_info(character_inventory);")
+    .all();
+  if (!columns.some((column) => column.name === "stack_count")) {
+    db.exec(
+      "ALTER TABLE character_inventory ADD COLUMN stack_count INTEGER NOT NULL DEFAULT 1 CHECK (stack_count >= 1);",
+    );
+  }
 }
 
 function ensureItemDefinitionSeeds(db: Database): void {
@@ -1314,6 +1343,8 @@ function backfillItemDefinitionAttackDefaults(db: Database): void {
         name: row.id,
         iconKey: row.id,
         type: "weapon",
+        isStackable: false,
+        maxStackSize: null,
         classRequirement: row.class_requirement,
         minLevelToEquip: null,
         potionHealFlat: null,
@@ -1347,6 +1378,119 @@ function backfillItemDefinitionAttackDefaults(db: Database): void {
       resolved.aoeRadius,
       resolved.aoeDelayMs,
     );
+  }
+}
+
+function backfillItemDefinitionStackDefaults(db: Database): void {
+  db.query(
+    `UPDATE item_definitions
+     SET is_stackable = CASE
+           WHEN type = 'potion' THEN 1
+           ELSE 0
+         END`,
+  ).run();
+
+  db.query(
+    `UPDATE item_definitions
+     SET max_stack_size = CASE
+           WHEN is_stackable = 1 THEN
+             CASE
+               WHEN max_stack_size IS NULL OR max_stack_size < 2 THEN 9
+               ELSE max_stack_size
+             END
+           ELSE NULL
+         END`,
+  ).run();
+}
+
+function mergeLegacyStackableCharacterInventory(db: Database): void {
+  const rows = db
+    .query<
+      {
+        id: string;
+        character_id: string;
+        item_definition_id: string;
+        slot_index: number;
+        stack_count: number;
+        max_stack_size: number | null;
+      },
+      []
+    >(
+      `SELECT
+         inv.id,
+         inv.character_id,
+         inv.item_definition_id,
+         inv.slot_index,
+         inv.stack_count,
+         def.max_stack_size
+       FROM character_inventory AS inv
+       INNER JOIN item_definitions AS def
+         ON def.id = inv.item_definition_id
+       WHERE inv.slot_kind = 'bag'
+         AND def.is_stackable = 1
+       ORDER BY
+         inv.character_id ASC,
+         inv.item_definition_id ASC,
+         inv.slot_index ASC,
+         inv.created_at ASC`,
+    )
+    .all();
+
+  const byGroup = new Map<string, typeof rows>();
+  for (const row of rows) {
+    const key = `${row.character_id}::${row.item_definition_id}`;
+    const existing = byGroup.get(key);
+    if (existing) {
+      existing.push(row);
+    } else {
+      byGroup.set(key, [row]);
+    }
+  }
+
+  const updateCount = db.query(
+    `UPDATE character_inventory
+     SET stack_count = ?2,
+         updated_at = ?3
+     WHERE id = ?1`,
+  );
+  const deleteRow = db.query(
+    `DELETE FROM character_inventory
+     WHERE id = ?1`,
+  );
+
+  const timestamp = new Date().toISOString();
+  for (const groupRows of byGroup.values()) {
+    const first = groupRows[0];
+    if (!first) {
+      continue;
+    }
+    const maxStackSize = Math.max(2, Math.floor(first.max_stack_size ?? 9));
+    const total = groupRows.reduce(
+      (sum, row) => sum + Math.max(1, Math.floor(row.stack_count)),
+      0,
+    );
+    const targetQuantities: number[] = [];
+    let remaining = total;
+    while (remaining > 0) {
+      const next = Math.min(maxStackSize, remaining);
+      targetQuantities.push(next);
+      remaining -= next;
+    }
+
+    for (let index = 0; index < groupRows.length; index += 1) {
+      const row = groupRows[index];
+      if (!row) {
+        continue;
+      }
+      const target = targetQuantities[index];
+      if (typeof target === "number") {
+        if (row.stack_count !== target) {
+          updateCount.run(row.id, target, timestamp);
+        }
+      } else {
+        deleteRow.run(row.id);
+      }
+    }
   }
 }
 

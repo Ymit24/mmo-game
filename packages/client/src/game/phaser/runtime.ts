@@ -242,7 +242,7 @@ class HubScene extends Phaser.Scene {
     });
 
     this.unsubscribeInventoryMoveRequest = this.bridge.onInventoryMoveRequest(
-      ({ from, to }) => {
+      ({ from, to, count }) => {
         if (!this.bridge.getState().isInWorld) {
           return;
         }
@@ -251,12 +251,13 @@ class HubScene extends Phaser.Scene {
           payload: {
             from,
             to,
+            count,
           },
         });
       },
     );
     this.unsubscribeInventoryDropRequest = this.bridge.onInventoryDropRequest(
-      ({ from }) => {
+      ({ from, count }) => {
         if (!this.bridge.getState().isInWorld) {
           return;
         }
@@ -268,6 +269,7 @@ class HubScene extends Phaser.Scene {
               x: this.pointerWorld.x,
               y: this.pointerWorld.y,
             },
+            count,
           },
         });
       },
@@ -285,7 +287,7 @@ class HubScene extends Phaser.Scene {
         });
       });
     this.unsubscribeContainerMoveRequest = this.bridge.onContainerMoveRequest(
-      ({ from, to }) => {
+      ({ from, to, count }) => {
         if (!this.bridge.getState().isInWorld) {
           return;
         }
@@ -294,6 +296,7 @@ class HubScene extends Phaser.Scene {
           payload: {
             from,
             to,
+            count,
           },
         });
       },

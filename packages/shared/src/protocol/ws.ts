@@ -59,11 +59,13 @@ export interface WorldSnapshotPayload {
 export interface InventoryMovePayload {
   from: InventorySlotRef;
   to: InventorySlotRef;
+  count?: number;
 }
 
 export interface InventoryDropPayload {
   from: InventorySlotRef;
   position: Vector2;
+  count?: number;
 }
 
 export interface InventoryConsumePayload {
@@ -73,6 +75,7 @@ export interface InventoryConsumePayload {
 export interface ContainerMovePayload {
   from: StorageSlotRef;
   to: StorageSlotRef;
+  count?: number;
 }
 
 export interface LootBagSnapshot {
@@ -249,8 +252,8 @@ export type ServerToClientMessage =
   | {
       type: "inventory.drop.ack";
       from: InventorySlotRef;
-      removedItemInstanceId: string;
-      removedItemDefinitionId: string;
+      droppedItemDefinitionId: string;
+      droppedCount: number;
       state: InventoryStatePayload;
     }
   | {
@@ -258,6 +261,7 @@ export type ServerToClientMessage =
       from: InventorySlotRef;
       consumedItemInstanceId: string;
       consumedItemDefinitionId: string;
+      consumedCount: number;
       restoredHealth: number;
       currentHealth: number;
       maxHealth: number;
@@ -306,6 +310,10 @@ export type ServerToClientMessage =
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object";
+}
+
+function isPositiveSafeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 1;
 }
 
 function isVector2(value: unknown): value is Vector2 {
@@ -547,7 +555,8 @@ export function parseClientMessage(raw: string): ClientToServerMessage | null {
       if (
         !isObject(payload) ||
         !isInventorySlotRef(payload.from) ||
-        !isInventorySlotRef(payload.to)
+        !isInventorySlotRef(payload.to) ||
+        (payload.count !== undefined && !isPositiveSafeInteger(payload.count))
       ) {
         return null;
       }
@@ -557,6 +566,7 @@ export function parseClientMessage(raw: string): ClientToServerMessage | null {
         payload: {
           from: payload.from,
           to: payload.to,
+          count: payload.count,
         },
       };
     }
@@ -566,7 +576,8 @@ export function parseClientMessage(raw: string): ClientToServerMessage | null {
       if (
         !isObject(payload) ||
         !isInventorySlotRef(payload.from) ||
-        !isVector2(payload.position)
+        !isVector2(payload.position) ||
+        (payload.count !== undefined && !isPositiveSafeInteger(payload.count))
       ) {
         return null;
       }
@@ -576,6 +587,7 @@ export function parseClientMessage(raw: string): ClientToServerMessage | null {
         payload: {
           from: payload.from,
           position: payload.position,
+          count: payload.count,
         },
       };
     }
@@ -622,7 +634,8 @@ export function parseClientMessage(raw: string): ClientToServerMessage | null {
       if (
         !isObject(payload) ||
         !isStorageSlotRef(payload.from) ||
-        !isStorageSlotRef(payload.to)
+        !isStorageSlotRef(payload.to) ||
+        (payload.count !== undefined && !isPositiveSafeInteger(payload.count))
       ) {
         return null;
       }
@@ -631,6 +644,7 @@ export function parseClientMessage(raw: string): ClientToServerMessage | null {
         payload: {
           from: payload.from,
           to: payload.to,
+          count: payload.count,
         },
       };
     }
