@@ -192,25 +192,22 @@
 ## Deployment snapshot (implemented)
 
 - Deployment model:
-  - VM-hosted deploy on DigitalOcean droplet via `nginx` + `systemd` (no container platform).
-  - Client is served as static files; API + WebSocket are reverse-proxied to Bun server.
+  - Dokploy-managed Docker Compose deployment from this repository.
+  - Client is served by Nginx container; API + WebSocket are reverse-proxied to Bun server container.
   - Production host: `mmo.christiansmith.live`.
 - Runtime topology:
-  - `mmo.service` runs Bun server on internal port `3101`.
-  - Nginx routes:
+  - `web` service (Nginx) exposes HTTP on port `80` through Dokploy ingress/domain.
+  - `server` service runs Bun server on internal port `3001`.
+  - Nginx container routes:
     - `/` -> SPA static assets.
     - `/api/*` -> proxied to Bun HTTP API.
     - `/api/ws` -> proxied WebSocket upgrade endpoint.
-  - HTTPS managed by Certbot/Let’s Encrypt on VM.
-- Release/deploy scripts:
-  - `ops/deploy/build-release.sh` -> builds client/server and creates release tarball.
-  - `ops/deploy/remote-install.sh` -> idempotent VM bootstrap (user/dirs/systemd/nginx).
-  - `ops/deploy/remote-deploy.sh` -> atomic release deploy with health-check rollback.
-  - `ops/deploy/deploy-vm.sh` -> local manual deploy orchestrator over SSH/SCP.
-  - `ops/deploy/README.md` documents setup and usage.
-- CD:
-  - `.github/workflows/deploy-prod.yml` deploys on push to `main` (and `workflow_dispatch`).
-  - Required repo secrets: `PROD_SSH_HOST`, `PROD_SSH_USER`, `PROD_SSH_PRIVATE_KEY`, optional `PROD_SSH_PORT`.
+  - HTTPS/TLS is managed by Dokploy domain/certificate integration.
+- Deployment assets:
+  - Root `docker-compose.yml` defines production services and persistent `mmo_data` volume.
+  - Root `Dockerfile` builds Bun server runtime and Nginx web runtime images.
+  - `ops/docker/nginx.conf` contains SPA + API + WS reverse-proxy rules.
+  - `ops/docker/README.md` documents Dokploy setup and verification.
 
 ## Commit conventions
 

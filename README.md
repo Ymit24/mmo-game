@@ -26,7 +26,7 @@ GitHub Actions runs `bun run ci` on pull requests and merge queue events to enfo
 
 ## Deployment
 
-Production deployment scripts and workflow are documented in `ops/deploy/README.md`.
+Dokploy deployment documentation is in `ops/docker/README.md`.
 
 ## Docker + Dokploy Deployment
 

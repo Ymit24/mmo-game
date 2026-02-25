@@ -12,6 +12,8 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - Deployment docs now include first-class Docker + Dokploy instructions and mark VM script flow as legacy/manual.
+- Removed legacy GitHub Actions production deploy workflow (`.github/workflows/deploy-prod.yml`) now that Dokploy handles automated deployments.
+- Removed legacy VM deploy scripts/docs under `ops/deploy` and consolidated deployment guidance in `ops/docker/README.md`.
 
 ## 0.1.3 - 2026-02-17
 
