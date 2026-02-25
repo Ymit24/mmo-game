@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.1.4 - 2026-02-25
+
+### Added
+- Dockerized production build/runtime flow with a multi-stage root `Dockerfile` for Bun server and Nginx client hosting.
+- Dokploy-ready `docker-compose.yml` stack with `web` (Nginx) and `server` (Bun) services.
+- Dedicated Nginx reverse proxy config for `/api/*` and `/api/ws` with SPA static serving (`ops/docker/nginx.conf`).
+- Docker deployment environment template (`.env.docker.example`) and `.dockerignore`.
+
+### Changed
+- Deployment docs now include first-class Docker + Dokploy instructions and mark VM script flow as legacy/manual.
+
 ## 0.1.3 - 2026-02-17
 
 ### Added

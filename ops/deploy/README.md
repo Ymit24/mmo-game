@@ -1,6 +1,46 @@
 # Production Deployment
 
-This repository includes a release-based deployment flow for `mmo.christiansmith.live`.
+This repository includes:
+
+- Docker Compose deployment for Dokploy (`docker-compose.yml`)
+- Legacy VM release-based scripts under `ops/deploy/*`
+
+## Dokploy (Docker Compose)
+
+Use Dokploy's Docker Compose app type and point it at this repository.
+
+### Compose topology
+
+- `web`: Nginx SPA/static host + reverse proxy to API/WS
+- `server`: Bun API and WebSocket runtime
+- `mmo_data` named volume: persistent SQLite storage mounted at `/app/data`
+
+### Required environment variables
+
+- `JWT_SECRET` (minimum 32 chars)
+
+### Optional environment variables
+
+- `JWT_EXPIRES_IN_SECONDS` (default `86400`)
+- `JWT_ISSUER`
+- `JWT_AUDIENCE`
+- `ADMIN_API_ENABLED`
+- `ADMIN_API_BEARER_TOKEN`
+- `ADMIN_API_ALLOWED_ORIGINS`
+
+See `.env.docker.example` for a template.
+
+### Runtime routing
+
+- `/` -> client SPA
+- `/api/*` -> Bun REST API
+- `/api/ws` -> Bun WebSocket endpoint
+
+The editor package is a local/dev tool and is intentionally excluded from production Docker deployment.
+
+## Legacy VM deployment flow
+
+The sections below document the existing release artifact + systemd/nginx workflow for `mmo.christiansmith.live`.
 
 ## Files
 

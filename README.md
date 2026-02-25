@@ -27,3 +27,32 @@ GitHub Actions runs `bun run ci` on pull requests and merge queue events to enfo
 ## Deployment
 
 Production deployment scripts and workflow are documented in `ops/deploy/README.md`.
+
+## Docker + Dokploy Deployment
+
+This repository includes a Docker Compose stack for Dokploy in `docker-compose.yml`.
+
+### Services
+
+- `web`: Nginx serving the built client and proxying `/api/*` + `/api/ws` to `server`
+- `server`: Bun API + WebSocket server with SQLite persistence
+
+### Environment
+
+Use `.env.docker.example` as a template for Dokploy environment variables.
+
+Required:
+
+- `JWT_SECRET` (32+ characters)
+
+Important defaults:
+
+- `PORT=3001` (internal container port)
+- `AUTH_DB_PATH=/app/data/auth.sqlite`
+- SQLite data persisted in Docker volume `mmo_data`
+
+### Dokploy notes
+
+- Deploy as a Docker Compose app from this repository.
+- Expose the `web` service (port `80`) through Dokploy ingress/domain.
+- The admin editor is intentionally not deployed in production.
