@@ -409,6 +409,12 @@ describe("character routes", () => {
         stack_count: 3,
       },
       {
+        nickname: "StarterKnight",
+        item_definition_id: "dragonbone_blade",
+        slot_kind: "bag",
+        slot_index: 2,
+      },
+      {
         nickname: "StarterMage",
         item_definition_id: "training_wand",
         slot_kind: "weapon",
@@ -463,6 +469,12 @@ describe("character routes", () => {
         slot_kind: "bag",
         slot_index: 5,
         stack_count: 3,
+      },
+      {
+        nickname: "StarterMage",
+        item_definition_id: "arcane_scepter",
+        slot_kind: "bag",
+        slot_index: 2,
       },
     ]);
   });
